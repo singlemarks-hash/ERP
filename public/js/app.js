@@ -302,7 +302,7 @@ function renderSidebar() {
       ${me.joinDate ? `<li><b>입사일</b> ${esc(me.joinDate)}</li>` : ""}
       ${me.email ? `<li><b>이메일</b> ${esc(me.email)}</li>` : ""}
       ${me.phone ? `<li><b>연락처</b> ${esc(me.phone)}</li>` : ""}
-      <li><b>구분</b> ${esc(me.empType || "-")}</li>
+      <li><b>구분</b> ${empTypeShort(me.empType)}</li>
     </ul>
     <button class="btn btn-ghost btn-sm p-info-btn" id="my-info-btn">내 정보 보기</button>`;
   $("#my-info-btn").onclick = openMyInfoModal;
@@ -372,7 +372,7 @@ function openMyInfoModal() {
       ${row("입사일", me.joinDate)}
       ${row("이메일", me.email)}
       ${row("연락처", me.phone)}
-      ${row("고용 구분", me.empType)}
+      ${row("고용 구분", empTypeShort(me.empType))}
       ${row("재직 상태", me.status)}
     </ul>
     <div class="modal-actions"><button class="btn btn-primary" id="mi-close">닫기</button></div>`);
@@ -927,6 +927,18 @@ function openMyButtonModal(items, idx) {
 const PAY_TEMPLATE = [["기본급", 2300000], ["식대", 200000], ["성과금", 0], ["상여금", 0], ["추가수당", 0]];
 const DEDUCT_TEMPLATE_4 = [["국민연금", 109250], ["건강보험", 82680], ["장기요양보험", 10860], ["고용보험", 20700], ["소득세", 41630], ["지방세", 4160]];
 const DEDUCT_TEMPLATE_33 = [["소득세", 0], ["지방세", 0]];
+
+function empTypeShort(t) {
+  if (!t) return "-";
+  if (t.includes("3.3")) return "3.3%";
+  if (t.includes("보험")) return "4대보험";
+  return t;
+}
+function workDaysLabel(joinDate) {
+  if (!joinDate) return "";
+  const days = Math.floor((Date.now() - new Date(joinDate).getTime()) / 86400000) + 1;
+  return days > 0 ? ` (총 ${fmt(days)}일 근무)` : "";
+}
 
 function catForEmp(emp) {
   const t = (emp?.empType || "");
@@ -2029,8 +2041,12 @@ async function renderEmployees() {
   $("#emp-add").onclick = () => openEmployeeModal(null);
 
   const snap = await db.collection(COL.employees).get();
+  const gradeN = (e) => e.grade ? Number(String(e.grade).replace(/[^0-9]/g, "")) : -1;
   const emps = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) =>
-    DEPTS.indexOf(a.dept) - DEPTS.indexOf(b.dept) || a.name.localeCompare(b.name, "ko"));
+    gradeN(b) - gradeN(a) ||
+    DEPTS.indexOf(a.dept) - DEPTS.indexOf(b.dept) ||
+    (a.joinDate || "9999").localeCompare(b.joinDate || "9999") ||
+    a.name.localeCompare(b.name, "ko"));
 
   /* ── 재직 현황 요약 ── */
   const active = emps.filter((e) => e.status === "재직");
@@ -2070,7 +2086,7 @@ async function renderEmployees() {
     </tr></thead><tbody>
     ${emps.map((e) => `<tr>
       <td><b>${esc(e.name)}</b></td><td>${esc(e.dept)}</td><td>${esc(e.grade || "-")}</td><td>${esc(e.position || "-")}</td>
-      <td>${esc(e.email || "-")}</td><td>${esc(e.joinDate || "-")}</td><td>${esc(e.empType || "-")}</td>
+      <td>${esc(e.email || "-")}</td><td>${esc(e.joinDate || "-")}${workDaysLabel(e.joinDate)}</td><td>${empTypeShort(e.empType)}</td>
       <td><span class="badge ${e.role}">${roleLabel(e.role)}</span></td>
       <td>${e.passwordHash ? '<span class="badge ok">설정됨</span>' : '<span class="badge warn">미설정</span>'}</td>
       <td>${e.status === "재직" ? '<span class="badge ok">재직</span>' : '<span class="badge off">퇴사</span>'}</td>
