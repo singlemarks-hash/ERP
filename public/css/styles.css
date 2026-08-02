@@ -505,7 +505,83 @@ table.data th.num { text-align: right; }
 .switch input:checked + .knob::after { transform: translateX(20px); }
 .switch input:focus-visible + .knob { outline: 2px solid var(--seal); outline-offset: 2px; }
 
-/* 급여대장 월 탭 */
+/* ───────── 급여이력 (토스풍 리스트) ───────── */
+.pay-hero {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: var(--shadow);
+  padding: 28px 26px;
+  margin-bottom: 22px;
+}
+.pay-hero .ph-label { font-size: 0.85rem; font-weight: 700; color: var(--ink-soft); }
+.pay-hero .ph-amount {
+  font-family: var(--font-display);
+  font-size: 2.35rem;
+  font-weight: 700;
+  line-height: 1.2;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.pay-hero .ph-amount span { font-size: 1.4rem; margin-left: 2px; }
+.pay-hero .ph-sub { font-size: 0.86rem; color: var(--ink-soft); margin-top: 8px; }
+
+.pay-year { font-size: 0.8rem; font-weight: 700; color: var(--ink-soft); letter-spacing: 0.05em; margin: 18px 4px 8px; }
+.pay-list { display: grid; gap: 10px; }
+.pay-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px 20px;
+  text-align: left;
+  transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
+}
+.pay-row:hover { transform: translateY(-1px); border-color: var(--line-strong); box-shadow: var(--shadow); }
+.pay-row:focus-visible { outline: 2px solid var(--seal); outline-offset: 2px; }
+.pay-row .pr-left { display: grid; gap: 2px; }
+.pay-row .pr-month { font-weight: 700; font-size: 0.98rem; }
+.pay-row .pr-sub { font-size: 0.77rem; color: var(--ink-soft); }
+.pay-row .pr-right { display: flex; align-items: center; gap: 8px; }
+.pay-row .pr-amt {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+}
+.pay-row .pr-basis { font-size: 0.68rem; font-weight: 700; color: var(--ink-soft); background: var(--paper); border: 1px solid var(--line); border-radius: 99px; padding: 2px 8px; }
+.pay-row .pr-right::after { content: "\203A"; color: var(--line-strong); font-size: 1.3rem; line-height: 1; }
+
+/* 급여 명세 모달 */
+.ps-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  background: var(--seal-soft);
+  border: 1px solid var(--seal);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  font-size: 0.88rem;
+}
+.ps-total b { font-family: var(--font-display); font-size: 1.25rem; color: var(--seal-deep); font-variant-numeric: tabular-nums; }
+.ps-block { border: 1px solid var(--line); border-radius: 12px; padding: 6px 16px 10px; margin-bottom: 10px; }
+.ps-cat { padding: 10px 0 4px; }
+.ps-line { display: flex; justify-content: space-between; padding: 7px 0; font-size: 0.89rem; border-bottom: 1px solid var(--line); }
+.ps-line:last-child { border-bottom: none; }
+.ps-line span { color: var(--ink-soft); }
+.ps-line b { font-variant-numeric: tabular-nums; font-weight: 600; }
+.ps-line.minus b { color: var(--seal); }
+.ps-line.strong { border-top: 2px solid var(--ink); border-bottom: none; margin-top: 2px; }
+.ps-line.strong span { color: var(--ink); font-weight: 700; }
+.ps-line.strong b { font-family: var(--font-display); font-size: 1.05rem; font-weight: 700; }
+.ps-note { font-size: 0.78rem; color: var(--ink-soft); background: var(--paper); border-radius: 8px; padding: 7px 10px; margin: 6px 0 8px; }
+
+/* 급여관리 월 탭 */
 .month-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; align-items: center; }
 .month-tabs select {
   padding: 7px 10px;

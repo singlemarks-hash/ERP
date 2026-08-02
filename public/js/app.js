@@ -276,7 +276,8 @@ const ICONS = {
   leave: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><path d="m9.5 15 2 2 3.5-3.5"/></svg>',
   settings: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z"/></svg>',
   employees: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.2 3.4-5 6.5-5s5.7 1.8 6.5 5"/><circle cx="17.5" cy="9.5" r="2.5"/><path d="M16.5 15.2c2.5.3 4.3 1.8 5 4.3"/></svg>',
-  monitor: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5c0 4.6 3.2 8.4 7.5 10 4.3-1.6 7.5-5.4 7.5-10V6L12 3Z"/><path d="m9 12 2 2 4-4"/></svg>'
+  monitor: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5c0 4.6 3.2 8.4 7.5 10 4.3-1.6 7.5-5.4 7.5-10V6L12 3Z"/><path d="m9 12 2 2 4-4"/></svg>',
+  ledger: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>'
 };
 
 function renderSidebar() {
@@ -302,18 +303,19 @@ function renderSidebar() {
   $("#my-info-btn").onclick = openMyInfoModal;
 
   const items = [
-    { id: "home", label: "홈" },
-    { id: "payroll", label: "급여대장" },
-    { id: "leave", label: "연차/휴가 관리" },
-    { id: "settings", label: "설정" }
+    { id: "home", ico: "home", label: "홈" },
+    { id: "payhistory", ico: "payroll", label: "급여이력" },
+    { id: "leave", ico: "leave", label: "연차/휴가 관리" },
+    { id: "settings", ico: "settings", label: "설정" }
   ];
   let html = items.map((i) =>
-    `<button class="nav-item" data-view="${i.id}">${ICONS[i.id]}${i.label}</button>`).join("");
+    `<button class="nav-item" data-view="${i.id}">${ICONS[i.ico]}${i.label}</button>`).join("");
   if (isAdmin()) {
     html += `<div class="nav-label">관리자 메뉴</div>` + [
-      { id: "employees", label: "직원 관리" },
-      { id: "monitor", label: "권한 모니터링" }
-    ].map((i) => `<button class="nav-item" data-view="${i.id}">${ICONS[i.id]}${i.label}</button>`).join("");
+      { id: "paymanage", ico: "ledger", label: "급여관리" },
+      { id: "employees", ico: "employees", label: "직원 관리" },
+      { id: "monitor", ico: "monitor", label: "권한 모니터링" }
+    ].map((i) => `<button class="nav-item" data-view="${i.id}">${ICONS[i.ico]}${i.label}</button>`).join("");
   }
   const nav = $("#nav");
   nav.innerHTML = html;
@@ -347,7 +349,8 @@ function navigate(view) {
   document.querySelectorAll(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   const render = {
     home: renderHome,
-    payroll: renderPayroll,
+    payhistory: renderPayHistory,
+    paymanage: renderPayroll,
     leave: renderLeave,
     settings: renderSettings,
     employees: renderEmployees,
@@ -409,8 +412,8 @@ async function renderHome() {
     <div class="widget-grid">
       <div class="card">
         <div class="card-title">
-          <div>급여대장<div class="ct-desc">${canViewAll() ? "최근 6개월 인건비 현황입니다." : "내 최근 6개월 급여 현황입니다."}</div></div>
-          <button class="btn btn-ghost btn-sm" data-goto="payroll">상세보기 →</button>
+          <div>급여이력<div class="ct-desc">내 최근 급여 현황입니다.</div></div>
+          <button class="btn btn-ghost btn-sm" data-goto="payhistory">전체 이력 →</button>
         </div>
         <div id="home-pay"></div>
       </div>
@@ -505,24 +508,23 @@ async function renderHome() {
       ym, rows: s.docs.map((d) => d.data())
     }))));
   const payLines = monthRows.map(({ ym, rows }) => {
-    const list = canViewAll() ? rows : rows.filter((r) => r.empId === me.id || r.name === me.name);
+    const list = rows.filter((r) => r.empId === me.id || r.name === me.name);
     const sum = (k) => list.reduce((s, r) => s + (Number(r[k]) || 0), 0);
     return { ym, count: list.length, gross: sum("gross"), extra: sum("meal") + sum("extra"), net: sum("net") };
   }).filter((l) => l.count > 0);
 
   $("#home-pay").innerHTML = payLines.length ? `
     <div class="table-wrap"><table class="data">
-      <thead><tr><th>지급월</th>${canViewAll() ? '<th class="num">인원</th>' : ""}<th class="num">세전 합계</th><th class="num">식대·수당</th><th class="num">세후 합계</th></tr></thead>
+      <thead><tr><th>지급월</th><th class="num">세전</th><th class="num">식대·수당</th><th class="num">실수령</th></tr></thead>
       <tbody>${payLines.map((l) => `<tr>
         <td><b>${l.ym.replace("-", ".")}</b></td>
-        ${canViewAll() ? `<td class="num">${l.count}명</td>` : ""}
         <td class="num">${fmt(l.gross)}</td>
         <td class="num">${l.extra ? fmt(l.extra) : "-"}</td>
         <td class="num">${l.net ? fmt(l.net) : "-"}</td>
       </tr>`).join("")}</tbody>
     </table></div>
-    <div class="mini-note">월별 상세 내역은 [급여대장] 메뉴에서 확인하세요.</div>`
-    : `<div class="empty">최근 6개월 급여 데이터가 없습니다.${isAdmin() ? " [급여대장]에서 입력을 시작하세요." : ""}</div>`;
+    <div class="mini-note">월별 상세 명세는 [급여이력]에서 확인하세요.</div>`
+    : `<div class="empty">최근 6개월 급여 내역이 없습니다.${isAdmin() ? " [급여관리]에서 입력을 시작하세요." : ""}</div>`;
 
   /* ── 연차 위젯 ── */
   const lvSnap = await db.collection(COL.leaves).doc(me.id).get();
@@ -619,12 +621,110 @@ function openMyButtonModal(items, idx) {
   };
 }
 
-/* ───────── 급여대장 ───────── */
+/* ───────── 급여이력 (본인 급여 조회) ───────── */
+function myPayAmount(rows) {
+  // 실수령액(net)이 입력돼 있으면 실수령 기준, 없으면 세전+식대+수당 합계
+  const sum = (k) => rows.reduce((s, r) => s + (Number(r[k]) || 0), 0);
+  const net = sum("net");
+  return net > 0 ? { amount: net, basis: "실수령" } : { amount: sum("gross") + sum("meal") + sum("extra"), basis: "세전" };
+}
+
+async function renderPayHistory() {
+  const main = $("#main");
+  main.innerHTML = pageHead("MY PAY", "급여이력", "내 급여 지급 내역입니다. 월을 누르면 상세 명세를 볼 수 있습니다.") +
+    `<div id="ph-body"><div class="empty">불러오는 중...</div></div>`;
+
+  const months = recentMonths(24);
+  const monthRows = await Promise.all(months.map((ym) =>
+    db.collection(COL.payroll).doc(ym).collection("rows").get().then((s) => ({
+      ym,
+      rows: s.docs.map((d) => d.data()).filter((r) => r.empId === me.id || r.name === me.name)
+    }))));
+  const entries = monthRows.filter((e) => e.rows.length > 0);
+
+  if (!entries.length) {
+    $("#ph-body").innerHTML = `<div class="empty">아직 등록된 급여 내역이 없습니다.<br/>급여가 입력되면 이곳에서 월별로 확인할 수 있습니다.</div>`;
+    return;
+  }
+
+  const latest = entries[0];
+  const latestPay = myPayAmount(latest.rows);
+  const [ly, lm] = latest.ym.split("-").map(Number);
+  const yearTotal = entries.filter((e) => e.ym.startsWith(String(ly)))
+    .reduce((s, e) => s + myPayAmount(e.rows).amount, 0);
+
+  const rowHtml = (e) => {
+    const [y, m] = e.ym.split("-").map(Number);
+    const pay = myPayAmount(e.rows);
+    const cats = [...new Set(e.rows.map((r) => r.category))];
+    return `<button class="pay-row" data-ym="${e.ym}">
+      <span class="pr-left">
+        <span class="pr-month">${m}월 급여</span>
+        <span class="pr-sub">${y}년 · ${cats.join(" · ")}</span>
+      </span>
+      <span class="pr-right">
+        <span class="pr-amt">${fmt(pay.amount)}원</span>
+        <span class="pr-basis">${pay.basis}</span>
+      </span>
+    </button>`;
+  };
+
+  // 연도별 그룹
+  const years = [...new Set(entries.map((e) => e.ym.slice(0, 4)))];
+  const listHtml = years.map((y) => `
+    <div class="pay-year">${y}년</div>
+    <div class="pay-list">${entries.filter((e) => e.ym.startsWith(y)).map(rowHtml).join("")}</div>`).join("");
+
+  $("#ph-body").innerHTML = `
+    <div class="pay-hero">
+      <div class="ph-label">${lm}월 급여 (${latestPay.basis})</div>
+      <div class="ph-amount">${fmt(latestPay.amount)}<span>원</span></div>
+      <div class="ph-sub">${ly}년 올해 누적 ${fmt(yearTotal)}원을 받았어요</div>
+    </div>
+    ${listHtml}`;
+
+  $("#ph-body").querySelectorAll(".pay-row").forEach((b) => {
+    b.onclick = () => {
+      const e = entries.find((x) => x.ym === b.dataset.ym);
+      openPayDetailModal(e.ym, e.rows);
+    };
+  });
+}
+
+function openPayDetailModal(ym, rows) {
+  const [y, m] = ym.split("-").map(Number);
+  const pay = myPayAmount(rows);
+  const line = (label, v, strong) => v ? `<div class="ps-line ${strong ? "strong" : ""}"><span>${label}</span><b>${fmt(v)}원</b></div>` : "";
+  const body = rows.map((r) => {
+    const gross = Number(r.gross) || 0, meal = Number(r.meal) || 0, extra = Number(r.extra) || 0, net = Number(r.net) || 0;
+    const deduct = net > 0 ? Math.max(0, gross + meal + extra - net) : 0;
+    return `
+      <div class="ps-block">
+        <div class="ps-cat"><span class="cat-chip ${r.category === "3.3%" ? "c33" : r.category === "사대보험" ? "c4" : "cart"}">${esc(r.category)}</span></div>
+        ${line("세전금액", gross)}
+        ${line("식대", meal)}
+        ${line("추가 수당", extra)}
+        ${deduct ? `<div class="ps-line minus"><span>공제 합계</span><b>-${fmt(deduct)}원</b></div>` : ""}
+        ${line("실수령액", net, true)}
+        ${r.note ? `<div class="ps-note">${esc(r.note)}</div>` : ""}
+      </div>`;
+  }).join("");
+  openModal(`
+    <h3>${y}년 ${m}월 급여 명세</h3>
+    <div class="ps-total"><span>${pay.basis} 합계</span><b>${fmt(pay.amount)}원</b></div>
+    ${body}
+    <p class="modal-desc" style="margin-top:14px">급여 명세서 원본은 경영지원본부에 요청하세요.</p>
+    <div class="modal-actions"><button class="btn btn-primary" id="ps-close">닫기</button></div>`);
+  $("#ps-close").onclick = closeModal;
+}
+
+/* ───────── 급여관리 (경영지원본부 전용) ───────── */
 function ymNow() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 async function renderPayroll() {
+  if (!isAdmin()) return navigate("payhistory");
   if (!payrollYM) payrollYM = ymNow();
   const [year, month] = payrollYM.split("-").map(Number);
   const main = $("#main");
@@ -637,19 +737,18 @@ async function renderPayroll() {
         `<button class="month-tab ${m === month ? "active" : ""}" data-m="${m}">${m}월</button>`).join("")}
     </div>`;
 
-  main.innerHTML = pageHead("PAYROLL", "급여대장",
-    canViewAll() ? "월별 급여 현황입니다. 탭으로 월을 이동하세요." : "본인 급여 내역만 표시됩니다.",
-    isAdmin() ? `<button class="btn btn-primary btn-sm" id="pay-add">+ 급여 행 추가</button>` : "") + tabs + `<div id="pay-body"></div>`;
+  main.innerHTML = pageHead("ADMIN", "급여관리",
+    "전 직원 월별 급여 데이터를 입력·관리합니다. 직원에게는 [급여이력]에 본인 내역만 표시됩니다.",
+    `<button class="btn btn-seal btn-sm" id="pay-add">+ 급여 행 추가</button>`) + tabs + `<div id="pay-body"></div>`;
 
   $("#pay-year").onchange = () => { payrollYM = `${$("#pay-year").value}-${String(month).padStart(2, "0")}`; renderPayroll(); };
   main.querySelectorAll(".month-tab").forEach((b) => {
     b.onclick = () => { payrollYM = `${year}-${String(b.dataset.m).padStart(2, "0")}`; renderPayroll(); };
   });
-  if (isAdmin()) $("#pay-add").onclick = () => openPayrollModal(null);
+  $("#pay-add").onclick = () => openPayrollModal(null);
 
   const rowsSnap = await db.collection(COL.payroll).doc(payrollYM).collection("rows").get();
-  let rows = rowsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  if (!canViewAll()) rows = rows.filter((r) => r.empId === me.id || r.name === me.name);
+  const rows = rowsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
   rows.sort((a, b) => PAY_CATS.indexOf(a.category) - PAY_CATS.indexOf(b.category) || a.name.localeCompare(b.name, "ko"));
 
   const total = rows.reduce((s, r) => s + (Number(r.gross) || 0) + (Number(r.meal) || 0) + (Number(r.extra) || 0), 0);
@@ -658,7 +757,7 @@ async function renderPayroll() {
 
   $("#pay-body").innerHTML = `
     <div class="stat-row">
-      <div class="stat accent"><div class="s-label">${month}월 총 인건비${canViewAll() ? "" : " (본인)"}</div><div class="s-value">${fmt(total)}원</div></div>
+      <div class="stat accent"><div class="s-label">${month}월 총 인건비</div><div class="s-value">${fmt(total)}원</div></div>
       <div class="stat"><div class="s-label">인원</div><div class="s-value">${rows.length}명</div></div>
       <div class="stat"><div class="s-label">사대보험 / 3.3% / 아티스트</div><div class="s-value">${catCount("사대보험")} / ${catCount("3.3%")} / ${catCount("아티스트")}</div></div>
     </div>
