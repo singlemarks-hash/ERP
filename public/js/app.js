@@ -64,8 +64,11 @@ function roleForDept(dept) {
   return "member";
 }
 function roleLabel(role) {
-  return { admin: "총괄 관리자", executive: "임원 열람", member: "일반" }[role] || role;
+  return { admin: "총괄 관리자", special: "특수관리자", executive: "임원 열람", member: "일반" }[role] || role;
 }
+function isSpecial() { return me && me.role === "special"; }
+// 특수관리자: 사내 시스템·급여관리 조회/수정 가능
+function canManageOps() { return isAdmin() || isSpecial(); }
 async function audit(action, detail) {
   try {
     await db.collection(COL.auditLogs).add({
@@ -322,13 +325,19 @@ function renderSidebar() {
   ];
   let html = items.map((i) =>
     `<button class="nav-item" data-view="${i.id}">${ICONS[i.ico]}${i.label}</button>`).join("");
+  const adminItems = [];
+  if (canManageOps()) {
+    adminItems.push({ id: "systems", ico: "grid", label: "사내 시스템" });
+    adminItems.push({ id: "paymanage", ico: "ledger", label: "급여관리" });
+  }
+  if (isAdmin() || me.role === "executive") adminItems.push({ id: "leaveadmin", ico: "leave", label: "연차관리" });
   if (isAdmin()) {
-    html += `<div class="nav-label">관리자 메뉴</div>` + [
-      { id: "systems", ico: "grid", label: "사내 시스템" },
-      { id: "paymanage", ico: "ledger", label: "급여관리" },
-      { id: "employees", ico: "employees", label: "직원 관리" },
-      { id: "monitor", ico: "monitor", label: "권한 모니터링" }
-    ].map((i) => `<button class="nav-item" data-view="${i.id}">${ICONS[i.ico]}${i.label}</button>`).join("");
+    adminItems.push({ id: "employees", ico: "employees", label: "직원 관리" });
+    adminItems.push({ id: "monitor", ico: "monitor", label: "권한 모니터링" });
+  }
+  if (adminItems.length) {
+    html += `<div class="nav-label">관리자 메뉴</div>` +
+      adminItems.map((i) => `<button class="nav-item" data-view="${i.id}">${ICONS[i.ico]}${i.label}</button>`).join("");
   }
   const nav = $("#nav");
   nav.innerHTML = html;
@@ -366,6 +375,7 @@ function navigate(view) {
     payhistory: renderPayHistory,
     paymanage: renderPayroll,
     leave: renderLeave,
+    leaveadmin: renderLeaveAdmin,
     settings: renderSettings,
     systems: renderSystems,
     employees: renderEmployees,
@@ -440,7 +450,7 @@ async function renderHome() {
       <div class="card-title">
         <div>바로가기<div class="ct-desc">내 계정에 권한이 부여된 사내 시스템으로 이동하세요.${isAdmin() ? " 버튼과 권한은 [사내 시스템]에서 관리합니다." : ""}</div></div>
         <span style="display:flex;gap:6px">
-          ${isAdmin() ? `<button class="btn btn-ghost btn-sm" data-goto="systems">시스템 관리</button>` : ""}
+          ${canManageOps() ? `<button class="btn btn-ghost btn-sm" data-goto="systems">시스템 관리</button>` : ""}
           <button class="btn btn-ghost btn-sm" id="my-add">+ 내 바로가기</button>
         </span>
       </div>
@@ -483,7 +493,7 @@ async function renderHome() {
     db.collection(COL.personalButtons).doc(me.id).get()
   ]);
   const mySystems = sysSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
-    .filter((s) => isAdmin() || s.allowAll || (s.grantIds || []).includes(me.id))
+    .filter((s) => canManageOps() || s.allowAll || (s.grantIds || []).includes(me.id))
     .sort((a, b) => (a.order || 0) - (b.order || 0));
   const myBtns = myBtnSnap.exists ? (myBtnSnap.data().items || []) : [];
 
@@ -584,7 +594,7 @@ async function renderHome() {
 
 /* ───────── 사내 시스템 (관리자: 버튼 등록 + 계정별 권한 부여) ───────── */
 async function renderSystems() {
-  if (!isAdmin()) return navigate("home");
+  if (!canManageOps()) return navigate("home");
   const main = $("#main");
   main.innerHTML = pageHead("SYSTEMS", "사내 시스템",
     "회사에서 사용하는 사이트 버튼을 등록하고, 계정별로 사용 권한을 부여합니다. 권한이 부여된 직원의 홈에 버튼이 자동으로 나타납니다.",
@@ -954,7 +964,7 @@ function ymNow() {
 }
 
 async function renderPayroll() {
-  if (!isAdmin()) return navigate("payhistory");
+  if (!canManageOps()) return navigate("payhistory");
   if (!pmYear) pmYear = new Date().getFullYear();
   const main = $("#main");
   main.innerHTML = pageHead("ADMIN", "급여관리",
@@ -1196,9 +1206,7 @@ const LV_TYPE_TONES = { "연차": ["dot-blue", ""], "반차": ["dot-amber", "gol
 async function renderLeave() {
   const main = $("#main");
   main.innerHTML = pageHead("LEAVE", "연차/휴가 관리",
-    "나의 연차 보유·사용 현황을 확인하고, 휴가를 신청할 수 있습니다.",
-    isAdmin() ? `<button class="btn btn-primary btn-sm" id="lv-use">+ 사용 기록 추가</button>
-                 <button class="btn btn-ghost btn-sm" id="lv-alloc">할당 일수 설정</button>` : "") +
+    "나의 연차 보유·사용 현황을 확인하고, 휴가를 신청할 수 있습니다.") +
     `<div id="lv-body"><div class="empty">불러오는 중...</div></div>`;
 
   const [mySnap, myReqSnap] = await Promise.all([
@@ -1214,14 +1222,12 @@ async function renderLeave() {
   const pending = myReqs.filter((r) => r.status === "대기").length;
   const pct = allocated ? Math.min(100, Math.round((used / allocated) * 100)) : 0;
 
-  // 유형별 사용 현황
   const byType = LEAVE_TYPES.map((t) => ({
     t,
     days: records.filter((r) => r.type === t).reduce((s, r) => s + Number(r.days || 0), 0)
   }));
   const maxType = Math.max(1, ...byType.map((b) => b.days));
 
-  // 사용 내역 요약: 확정 기록(승인) + 미확정 신청(대기/반려)
   const history = [
     ...records.map((r) => ({ ...r, status: "승인" })),
     ...myReqs.filter((r) => r.status !== "승인").map((r) => ({ date: r.date, type: r.type, days: r.days, note: r.note, status: r.status }))
@@ -1235,7 +1241,7 @@ async function renderLeave() {
       <div><div class="s-label">${label}</div><div class="s-value">${value}</div></div>
     </div>`;
 
-  let html = `
+  $("#lv-body").innerHTML = `
     <div class="card">
       <div class="card-title"><div>나의 연차 현황<div class="ct-desc">총 연차 보유 및 사용 현황을 확인하세요.</div></div></div>
       <div class="lv-stats">
@@ -1289,21 +1295,49 @@ async function renderLeave() {
       </form>
     </div>`;
 
-  /* 관리자: 승인 대기 + 전 직원 현황 */
-  if (canViewAll()) {
-    const [empSnap, lvSnap, reqSnap] = await Promise.all([
-      db.collection(COL.employees).where("status", "==", "재직").get(),
-      db.collection(COL.leaves).get(),
-      db.collection(COL.leaveRequests).where("status", "==", "대기").get()
-    ]);
-    const lvMap = {};
-    lvSnap.docs.forEach((d) => (lvMap[d.id] = d.data()));
-    const emps = empSnap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) =>
-      DEPTS.indexOf(a.dept) - DEPTS.indexOf(b.dept) || a.name.localeCompare(b.name, "ko"));
-    const reqs = reqSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
-      .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  $("#lv-req-form").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const data = {
+      empId: me.id,
+      name: me.name,
+      dept: me.dept,
+      date: $("#lr-date").value,
+      days: Number($("#lr-days").value),
+      type: $("#lr-type").value,
+      note: $("#lr-note").value.trim(),
+      status: "대기",
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    await db.collection(COL.leaveRequests).add(data);
+    await audit("휴가 신청", `${me.name} ${data.date} ${data.days}일 (${data.type})`);
+    toast("휴가를 신청했습니다. 승인되면 사용 내역에 반영됩니다.");
+    renderLeave();
+  };
+}
 
-    html += `
+/* ───────── 연차관리 (관리자 메뉴) ───────── */
+async function renderLeaveAdmin() {
+  if (!isAdmin() && me.role !== "executive") return navigate("leave");
+  const main = $("#main");
+  main.innerHTML = pageHead("ADMIN", "연차관리",
+    "휴가 신청 승인과 전 직원 연차 현황을 관리합니다.",
+    isAdmin() ? `<button class="btn btn-primary btn-sm" id="lv-use">+ 사용 기록 추가</button>
+                 <button class="btn btn-ghost btn-sm" id="lv-alloc">할당 일수 설정</button>` : "") +
+    `<div id="lva-body"><div class="empty">불러오는 중...</div></div>`;
+
+  const [empSnap, lvSnap, reqSnap] = await Promise.all([
+    db.collection(COL.employees).where("status", "==", "재직").get(),
+    db.collection(COL.leaves).get(),
+    db.collection(COL.leaveRequests).where("status", "==", "대기").get()
+  ]);
+  const lvMap = {};
+  lvSnap.docs.forEach((d) => (lvMap[d.id] = d.data()));
+  const emps = empSnap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) =>
+    DEPTS.indexOf(a.dept) - DEPTS.indexOf(b.dept) || a.name.localeCompare(b.name, "ko"));
+  const reqs = reqSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+
+  $("#lva-body").innerHTML = `
     <div class="card">
       <div class="card-title"><div>승인 대기 신청 <span class="badge warn">${reqs.length}건</span></div></div>
       ${reqs.length ? `<div class="table-wrap"><table class="data">
@@ -1335,61 +1369,33 @@ async function renderLeave() {
         }).join("")}</tbody></table></div>
     </div>`;
 
-    $("#lv-body").innerHTML = html;
-
-    if (isAdmin()) {
-      $("#lv-body").querySelectorAll("[data-approve]").forEach((b) => {
-        b.onclick = async () => {
-          const r = reqs.find((x) => x.id === b.dataset.approve);
-          const ref = db.collection(COL.leaves).doc(r.empId);
-          const snap = await ref.get();
-          const cur = snap.exists ? snap.data() : { allocated: 0, records: [] };
-          cur.records = cur.records || [];
-          cur.records.push({ date: r.date, days: Number(r.days), type: r.type, note: r.note || "" });
-          await ref.set(cur);
-          await db.collection(COL.leaveRequests).doc(r.id).update({ status: "승인" });
-          await audit("휴가 승인", `${r.name} ${r.date} ${r.days}일 (${r.type})`);
-          toast(`${r.name}님의 휴가를 승인했습니다.`);
-          renderLeave();
-        };
-      });
-      $("#lv-body").querySelectorAll("[data-reject]").forEach((b) => {
-        b.onclick = async () => {
-          const r = reqs.find((x) => x.id === b.dataset.reject);
-          if (!confirm(`${r.name}님의 ${r.date} ${r.type} 신청을 반려할까요?`)) return;
-          await db.collection(COL.leaveRequests).doc(r.id).update({ status: "반려" });
-          await audit("휴가 반려", `${r.name} ${r.date} ${r.days}일 (${r.type})`);
-          renderLeave();
-        };
-      });
-    }
-  } else {
-    $("#lv-body").innerHTML = html;
-  }
-
-  /* 휴가 신청 제출 */
-  $("#lv-req-form").onsubmit = async (ev) => {
-    ev.preventDefault();
-    const data = {
-      empId: me.id,
-      name: me.name,
-      dept: me.dept,
-      date: $("#lr-date").value,
-      days: Number($("#lr-days").value),
-      type: $("#lr-type").value,
-      note: $("#lr-note").value.trim(),
-      status: "대기",
-      createdAt: firebase.firestore.FieldValue.serverTimestamp()
-    };
-    await db.collection(COL.leaveRequests).add(data);
-    await audit("휴가 신청", `${me.name} ${data.date} ${data.days}일 (${data.type})`);
-    toast("휴가를 신청했습니다. 승인되면 사용 내역에 반영됩니다.");
-    renderLeave();
-  };
-
   if (isAdmin()) {
     $("#lv-use").onclick = openLeaveUseModal;
     $("#lv-alloc").onclick = openLeaveAllocModal;
+    $("#lva-body").querySelectorAll("[data-approve]").forEach((b) => {
+      b.onclick = async () => {
+        const r = reqs.find((x) => x.id === b.dataset.approve);
+        const ref = db.collection(COL.leaves).doc(r.empId);
+        const snap = await ref.get();
+        const cur = snap.exists ? snap.data() : { allocated: 0, records: [] };
+        cur.records = cur.records || [];
+        cur.records.push({ date: r.date, days: Number(r.days), type: r.type, note: r.note || "" });
+        await ref.set(cur);
+        await db.collection(COL.leaveRequests).doc(r.id).update({ status: "승인" });
+        await audit("휴가 승인", `${r.name} ${r.date} ${r.days}일 (${r.type})`);
+        toast(`${r.name}님의 휴가를 승인했습니다.`);
+        renderLeaveAdmin();
+      };
+    });
+    $("#lva-body").querySelectorAll("[data-reject]").forEach((b) => {
+      b.onclick = async () => {
+        const r = reqs.find((x) => x.id === b.dataset.reject);
+        if (!confirm(`${r.name}님의 ${r.date} ${r.type} 신청을 반려할까요?`)) return;
+        await db.collection(COL.leaveRequests).doc(r.id).update({ status: "반려" });
+        await audit("휴가 반려", `${r.name} ${r.date} ${r.days}일 (${r.type})`);
+        renderLeaveAdmin();
+      };
+    });
   }
 }
 
@@ -1575,6 +1581,7 @@ function openEmployeeModal(emp) {
           <select id="ef-role">
             <option value="member" ${emp?.role === "member" ? "selected" : ""}>일반</option>
             <option value="executive" ${emp?.role === "executive" ? "selected" : ""}>임원 열람</option>
+            <option value="special" ${emp?.role === "special" ? "selected" : ""}>특수관리자 (사내 시스템·급여관리)</option>
             <option value="admin" ${emp?.role === "admin" ? "selected" : ""}>총괄 관리자</option>
           </select></label>
       </div>
