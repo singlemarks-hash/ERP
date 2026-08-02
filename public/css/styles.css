@@ -608,6 +608,50 @@ table.data th.num { text-align: right; }
 /* ───────── 급여이력 (표 + 상세 패널) ───────── */
 .ph-date { font-size: 0.8rem; font-weight: 500; color: var(--ink-soft); margin-left: 8px; }
 .pb-pay .ph-col-title { margin-bottom: 4px; }
+
+/* 급여 표: 줄바꿈 방지 (메모만 줄바꿈 허용) */
+.pay-table th, .pay-table td { white-space: nowrap; }
+.pay-table td.memo { white-space: normal; max-width: 180px; min-width: 90px; font-size: 0.82rem; color: var(--ink-soft); }
+.pay-table td .num, .pay-table td.num { font-variant-numeric: tabular-nums; }
+
+/* 호버 가능한 금액 (점선 밑줄) */
+.hov { border-bottom: 1.5px dashed currentColor; cursor: help; padding-bottom: 1px; }
+
+/* 호버 팝업 */
+.pay-pop {
+  position: fixed;
+  z-index: 300;
+  min-width: 240px;
+  max-width: 300px;
+  background: var(--surface);
+  border-radius: 14px;
+  box-shadow: 0 8px 30px rgba(25, 31, 40, 0.18);
+  padding: 14px 16px;
+  font-size: 0.85rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.1s;
+}
+.pay-pop.show { opacity: 1; }
+.pay-pop .hp-title {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 700;
+  font-size: 0.82rem;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+}
+.pay-pop .hp-title span:last-child { color: var(--ink-soft); font-weight: 600; }
+.pay-pop .hp-line { display: flex; justify-content: space-between; gap: 16px; padding: 4px 0; }
+.pay-pop .hp-line span { color: var(--ink-soft); }
+.pay-pop .hp-line b { font-variant-numeric: tabular-nums; font-weight: 600; }
+.pay-pop .hp-total { border-top: 1px dashed var(--line-strong); margin-top: 4px; padding-top: 8px; }
+.pay-pop .hp-total span { color: var(--ink); font-weight: 700; }
+.pay-pop .hp-total b { font-weight: 800; }
+
+/* 월별 기록 폼 셀렉트 */
+.pm-date-row select { flex: 1; padding: 11px 12px; border: 1.5px solid var(--line); border-radius: 10px; background: #fff; }
 #ph-year { padding: 8px 12px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 0.85rem; font-weight: 600; }
 tr.ph-row-open td { background: var(--blue-soft); }
 

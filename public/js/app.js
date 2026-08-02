@@ -804,6 +804,42 @@ async function loadPayRecordsForYear(year, filterFn) {
   return records;
 }
 
+
+/* 급여 항목 호버 팝업 */
+function payPopHtml(r, kind) {
+  const items = kind === "pay" ? r.payments : r.deductions;
+  const cls = kind === "pay" ? "c-green" : "c-red";
+  const title = kind === "pay" ? "지급 상세 내역" : "공제 상세 내역";
+  const amountLabel = kind === "pay" ? "지급액" : "공제액";
+  const total = kind === "pay" ? r.payTotal : r.deductTotal;
+  return `<div class="hp-title"><span>${title}</span><span>${amountLabel}</span></div>
+    ${items.length ? items.map((p) => `<div class="hp-line"><span>${esc(p.label)}</span><b class="${cls}">${fmt(p.amount)}원</b></div>`).join("")
+      : '<div class="hp-line"><span>등록된 항목 없음</span></div>'}
+    <div class="hp-line hp-total"><span>${kind === "pay" ? "지급액 계" : "공제액 계"}</span><b class="${cls}">${fmt(total)}원</b></div>`;
+}
+function attachPayHover(container, records) {
+  let pop = document.getElementById("paypop");
+  if (!pop) {
+    pop = document.createElement("div");
+    pop.id = "paypop";
+    pop.className = "pay-pop";
+    document.body.appendChild(pop);
+  }
+  container.querySelectorAll("[data-hv]").forEach((el) => {
+    el.addEventListener("mouseenter", () => {
+      const r = records.find((x) => x.id === el.dataset.hv && x.ym === el.dataset.ym);
+      if (!r) return;
+      pop.innerHTML = payPopHtml(r, el.dataset.kind);
+      pop.classList.add("show");
+      const rect = el.getBoundingClientRect();
+      pop.style.left = Math.max(8, Math.min(window.innerWidth - pop.offsetWidth - 8, rect.left + rect.width / 2 - pop.offsetWidth / 2)) + "px";
+      const top = rect.top - pop.offsetHeight - 10;
+      pop.style.top = (top > 8 ? top : rect.bottom + 10) + "px";
+    });
+    el.addEventListener("mouseleave", () => pop.classList.remove("show"));
+  });
+}
+
 /* ───────── 급여이력 (본인 급여 조회) ───────── */
 let phOpenId = null;
 
@@ -829,15 +865,15 @@ async function renderPayHistory() {
         <div><span>총 지급</span><b>${fmt(sumPay)}원</b></div>
         <div><span>총 공제</span><b class="c-red">${fmt(sumDeduct)}원</b></div>
       </div>
-      <div class="table-wrap"><table class="data">
+      <div class="table-wrap"><table class="data pay-table">
         <thead><tr><th>월</th><th>지급일</th><th class="num">총 지급</th><th class="num">총 공제</th><th class="num">실수령</th><th>메모</th><th></th></tr></thead>
         <tbody>${records.map((r) => `<tr class="${r.id === phOpenId ? "ph-row-open" : ""}">
           <td><b>${r.ym}</b></td>
           <td>${esc(r.payDate || "-")}</td>
-          <td class="num c-green">${fmt(r.payTotal)}원</td>
-          <td class="num c-red">${fmt(r.deductTotal)}원</td>
+          <td class="num"><span class="hov c-green" data-hv="${r.id}" data-ym="${r.ym}" data-kind="pay">${fmt(r.payTotal)}원</span></td>
+          <td class="num"><span class="hov c-red" data-hv="${r.id}" data-ym="${r.ym}" data-kind="deduct">${fmt(r.deductTotal)}원</span></td>
           <td class="num"><b class="c-green">${fmt(r.net)}원</b></td>
-          <td>${esc(r.note || "—")}</td>
+          <td class="memo">${esc(r.note || "—")}</td>
           <td><button class="btn btn-ghost btn-sm" data-ph-toggle="${r.id}">${r.id === phOpenId ? "닫기" : "상세보기 ›"}</button></td>
         </tr>`).join("")}</tbody>
       </table></div>
@@ -847,6 +883,7 @@ async function renderPayHistory() {
     $("#ph-table").querySelectorAll("[data-ph-toggle]").forEach((b) => {
       b.onclick = () => { phOpenId = phOpenId === b.dataset.phToggle ? null : b.dataset.phToggle; renderYear(year); };
     });
+    attachPayHover($("#ph-table"), records);
     const dl = $("#ph-download");
     if (dl) dl.onclick = () => downloadPayCsv(year, records);
   };
@@ -857,7 +894,7 @@ async function renderPayHistory() {
         <div>급여 이력 조회<div class="ct-desc">급여 내역을 확인하세요. 정기 급여일은 매월 10일 · 15일입니다.</div></div>
         <span style="display:flex;gap:8px">
           <select id="ph-year">${years.map((y) => `<option value="${y}">${y}년</option>`).join("")}</select>
-          <button class="btn btn-ghost btn-sm" id="ph-download">⬇ 엑셀 다운로드</button>
+          <button class="btn btn-ghost btn-sm" id="ph-download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg> 엑셀 다운로드</button>
         </span>
       </div>
       <div id="ph-table"></div>
@@ -982,13 +1019,22 @@ function renderPayForm(emp, cat, record) {
       <div><span class="pb-eyebrow">${isEdit ? "EDIT RECORD" : "NEW RECORD"}</span>${isEdit ? "기록 수정" : "월별 기록"}</div>
       <span style="display:flex;gap:6px">
         ${isEdit ? `<button class="btn btn-ghost btn-sm" id="pm-cancel-edit">새 기록</button>` : ""}
-        <button class="btn btn-primary btn-sm" id="pm-save">💾 저장</button>
+        <button class="btn btn-primary btn-sm" id="pm-save"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg> 저장</button>
       </span>
     </div>
-    <label class="field"><span class="field-label">급여월</span><input id="pm-ym" type="month" value="${ymDefault}" /></label>
+    <label class="field"><span class="field-label">급여월</span>
+      <div class="pm-date-row">
+        <select id="pm-y">${[-1, 0, 1].map((d) => {
+          const y = new Date().getFullYear() + d;
+          return `<option value="${y}" ${String(y) === ymDefault.slice(0, 4) ? "selected" : ""}>${y}년</option>`;
+        }).join("")}</select>
+        <select id="pm-m">${Array.from({ length: 12 }, (_, i) => i + 1).map((m) =>
+          `<option value="${m}" ${m === Number(ymDefault.slice(5, 7)) ? "selected" : ""}>${m}월</option>`).join("")}</select>
+      </div></label>
     <label class="field"><span class="field-label">지급일</span>
       <div class="pm-date-row">
-        <input id="pm-date" type="date" value="${esc(dateDefault)}" />
+        <select id="pm-d"><option value="">미지정</option>${Array.from({ length: 31 }, (_, i) => i + 1).map((d) =>
+          `<option value="${d}" ${dateDefault && d === Number(dateDefault.slice(8, 10)) ? "selected" : ""}>${d}일</option>`).join("")}</select>
         <button type="button" class="btn btn-ghost btn-sm" data-payday="10">10일</button>
         <button type="button" class="btn btn-ghost btn-sm" data-payday="15">15일</button>
       </div></label>
@@ -1034,16 +1080,13 @@ function renderPayForm(emp, cat, record) {
   $("#pm-add-deduct").onclick = () => addItem("#pm-deduct-items", "deduct");
 
   $("#pm-form-card").querySelectorAll("[data-payday]").forEach((b) => {
-    b.onclick = () => {
-      const ym = $("#pm-ym").value || ymNow();
-      $("#pm-date").value = `${ym}-${String(b.dataset.payday).padStart(2, "0")}`;
-    };
+    b.onclick = () => { $("#pm-d").value = b.dataset.payday; };
   });
   if (isEdit) $("#pm-cancel-edit").onclick = () => { pmEditId = null; pmEditYm = null; renderPayForm(emp, cat, null); };
 
   $("#pm-save").onclick = async () => {
-    const ym = $("#pm-ym").value;
-    if (!ym) { toast("급여월을 선택하세요."); return; }
+    const ym = `${$("#pm-y").value}-${String($("#pm-m").value).padStart(2, "0")}`;
+    const day = $("#pm-d").value;
     const collect = (sel) => [...$("#pm-form-card").querySelectorAll(`${sel} .pi-row`)]
       .map((row) => ({ label: row.querySelector(".pi-label").value.trim(), amount: Number(row.querySelector(".pi-amount").value) || 0 }))
       .filter((p) => p.label);
@@ -1051,7 +1094,7 @@ function renderPayForm(emp, cat, record) {
       empId: emp.id,
       name: emp.name,
       category: cat,
-      payDate: $("#pm-date").value,
+      payDate: day ? `${ym}-${String(day).padStart(2, "0")}` : "",
       payments: collect("#pm-pay-items"),
       deductions: collect("#pm-deduct-items"),
       note: $("#pm-note").value.trim()
@@ -1103,15 +1146,15 @@ async function renderPayHistoryAdmin(emp) {
       <div><span>총 지급</span><b>${fmt(sumPay)}원</b></div>
       <div><span>총 공제</span><b class="c-red">${fmt(sumDeduct)}원</b></div>
     </div>
-    <div class="table-wrap"><table class="data">
+    <div class="table-wrap"><table class="data pay-table">
       <thead><tr><th>월</th><th>지급일</th><th class="num">총 지급</th><th class="num">총 공제</th><th class="num">실수령</th><th>메모</th><th></th></tr></thead>
       <tbody>${records.map((r) => `<tr>
         <td><b>${r.ym}</b></td>
         <td>${esc(r.payDate || "-")}</td>
-        <td class="num c-green">${fmt(r.payTotal)}원</td>
-        <td class="num c-red">${fmt(r.deductTotal)}원</td>
+        <td class="num"><span class="hov c-green" data-hv="${r.id}" data-ym="${r.ym}" data-kind="pay">${fmt(r.payTotal)}원</span></td>
+        <td class="num"><span class="hov c-red" data-hv="${r.id}" data-ym="${r.ym}" data-kind="deduct">${fmt(r.deductTotal)}원</span></td>
         <td class="num"><b class="c-green">${fmt(r.net)}원</b></td>
-        <td>${esc(r.note || "—")}</td>
+        <td class="memo">${esc(r.note || "—")}</td>
         <td style="white-space:nowrap">
           <button class="btn btn-ghost btn-sm" data-pm-edit="${r.id}" data-ym="${r.ym}">수정</button>
           <button class="btn btn-danger btn-sm" data-pm-del="${r.id}" data-ym="${r.ym}">삭제</button></td>
@@ -1119,6 +1162,7 @@ async function renderPayHistoryAdmin(emp) {
     </table></div>`
     : `<div class="empty">${pmYear}년 기록이 없습니다. 왼쪽에서 첫 기록을 저장하세요.</div>`;
 
+  attachPayHover($("#pm-history"), records);
   $("#pm-history").querySelectorAll("[data-pm-edit]").forEach((b) => {
     b.onclick = () => {
       const r = records.find((x) => x.id === b.dataset.pmEdit && x.ym === b.dataset.ym);
