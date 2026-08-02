@@ -391,6 +391,8 @@ table.data th.num { text-align: right; }
 .type-bars { display: grid; gap: 10px; }
 .type-bar { display: grid; grid-template-columns: 64px 1fr 58px; align-items: center; gap: 10px; font-size: 0.82rem; }
 .type-bar .tb-num { text-align: right; color: var(--ink-soft); font-variant-numeric: tabular-nums; font-size: 0.78rem; }
+.type-bar.dept-bar { grid-template-columns: 90px 160px 1fr; }
+.type-bar.dept-bar .tb-num { text-align: left; white-space: normal; }
 
 .bar { height: 8px; border-radius: 99px; background: #eceef0; overflow: hidden; min-width: 60px; }
 .bar > i { display: block; height: 100%; background: var(--blue); border-radius: 99px; }

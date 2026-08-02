@@ -2033,7 +2033,39 @@ async function renderEmployees() {
   const emps = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) =>
     DEPTS.indexOf(a.dept) - DEPTS.indexOf(b.dept) || a.name.localeCompare(b.name, "ko"));
 
-  $("#emp-body").innerHTML = `<div class="card"><div class="table-wrap">
+  /* ── 재직 현황 요약 ── */
+  const active = emps.filter((e) => e.status === "재직");
+  const retired = emps.filter((e) => e.status !== "재직");
+  const typeCount = (kw) => active.filter((e) => (e.empType || "").includes(kw)).length;
+  const maxDept = Math.max(1, ...DEPTS.map((d) => active.filter((e) => e.dept === d).length));
+  const deptTones = ["plum", "", "gold", "ok"]; // 대표/경영지원/오프라인/온라인
+
+  const statsHtml = `
+    <div class="card">
+      <div class="card-title"><div>재직 현황<div class="ct-desc">현재 재직 중인 팀 구성입니다.</div></div></div>
+      <div class="lv-stats">
+        <div class="lv-stat"><span class="lv-ico t-blue">${LV_ICONS.used}</span>
+          <div><div class="s-label">재직 인원</div><div class="s-value">${active.length}명</div></div></div>
+        <div class="lv-stat"><span class="lv-ico t-green">${ICONS.employees ? `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>` : ""}</span>
+          <div><div class="s-label">4대보험 / 3.3% / 아티스트</div><div class="s-value">${typeCount("4대보험") + typeCount("사대보험")} / ${typeCount("3.3")} / ${typeCount("아티스트")}</div></div></div>
+        <div class="lv-stat"><span class="lv-ico t-amber">${LV_ICONS.pending}</span>
+          <div><div class="s-label">비밀번호 미설정</div><div class="s-value">${active.filter((e) => !e.passwordHash).length}명</div></div></div>
+        <div class="lv-stat"><span class="lv-ico t-purple">${LV_ICONS.remain}</span>
+          <div><div class="s-label">퇴사자</div><div class="s-value">${retired.length}명</div></div></div>
+      </div>
+      <div class="type-bars" style="margin-top:16px">
+        ${DEPTS.map((d, i) => {
+          const list = active.filter((e) => e.dept === d);
+          return `<div class="type-bar dept-bar">
+            <span>${d}</span>
+            <div class="bar ${deptTones[i]}"><i style="width:${Math.round((list.length / maxDept) * 100)}%"></i></div>
+            <span class="tb-num">${list.length}명${list.length ? ` · ${list.map((e) => esc(e.name)).join(", ")}` : ""}</span>
+          </div>`;
+        }).join("")}
+      </div>
+    </div>`;
+
+  $("#emp-body").innerHTML = statsHtml + `<div class="card"><div class="table-wrap">
     ${emps.length ? `<table class="data"><thead><tr>
       <th>이름</th><th>부서</th><th>직급</th><th>직책</th><th>이메일</th><th>입사일</th><th>고용 구분</th><th>역할</th><th>비밀번호</th><th>상태</th><th></th>
     </tr></thead><tbody>
