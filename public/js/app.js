@@ -1727,6 +1727,21 @@ async function renderLeave() {
         : "연차 발생일이 아직 설정되지 않았습니다. 경영지원본부에 문의하세요."}</div>
     </div>
 
+    <div class="card">
+      <div class="card-title"><div>휴가 신청<div class="ct-desc">신청하면 경영지원본부 승인 후 사용 내역에 반영됩니다.</div></div></div>
+      <form id="lv-req-form" class="lv-req">
+        <label class="field"><span class="field-label">휴가 유형</span>
+          <select id="lr-type">${LEAVE_TYPES.map((t) => `<option>${t}</option>`).join("")}</select></label>
+        <label class="field"><span class="field-label">시작일</span>
+          <input id="lr-start" type="date" required value="${new Date().toISOString().slice(0, 10)}" /></label>
+        <label class="field"><span class="field-label">종료일</span>
+          <input id="lr-end" type="date" required value="${new Date().toISOString().slice(0, 10)}" /></label>
+        <label class="field"><span class="field-label">일수 (0.5 단위)</span>
+          <input id="lr-days" type="number" step="0.5" min="0.5" required value="1" /></label>
+        <button type="submit" class="btn btn-primary" id="lr-submit">신청하기</button>
+      </form>
+    </div>
+
     <div class="widget-grid">
       <div class="card">
         <div class="card-title"><div>연차 유형별 사용 현황</div></div>
@@ -1763,20 +1778,7 @@ async function renderLeave() {
           <td class="num"><b class="${h.remaining > 0 ? "c-red" : ""}">${h.remaining}일</b></td>
         </tr>`).join("")}</tbody></table></div>
     </div>` : ""}
-    <div class="card">
-      <div class="card-title"><div>휴가 신청<div class="ct-desc">신청하면 경영지원본부 승인 후 사용 내역에 반영됩니다.</div></div></div>
-      <form id="lv-req-form" class="lv-req">
-        <label class="field"><span class="field-label">휴가 유형</span>
-          <select id="lr-type">${LEAVE_TYPES.map((t) => `<option>${t}</option>`).join("")}</select></label>
-        <label class="field"><span class="field-label">시작일</span>
-          <input id="lr-start" type="date" required value="${new Date().toISOString().slice(0, 10)}" /></label>
-        <label class="field"><span class="field-label">종료일</span>
-          <input id="lr-end" type="date" required value="${new Date().toISOString().slice(0, 10)}" /></label>
-        <label class="field"><span class="field-label">일수 (0.5 단위)</span>
-          <input id="lr-days" type="number" step="0.5" min="0.5" required value="1" /></label>
-        <button type="submit" class="btn btn-primary" id="lr-submit">신청하기</button>
-      </form>
-    </div>`;
+`;
 
   $("#lv-req-form").onsubmit = async (ev) => {
     ev.preventDefault();
