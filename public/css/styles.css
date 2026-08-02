@@ -513,6 +513,86 @@ table.data th.num { text-align: right; }
   .lv-req .btn { grid-column: 1 / -1; }
 }
 
+/* ───────── 홈: 업무 할 일 / 개인 메모장 ───────── */
+.todo-add { display: flex; gap: 8px; margin-bottom: 12px; }
+.todo-add input {
+  flex: 1;
+  padding: 11px 13px;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  background: #f9fafb;
+  font-size: 0.9rem;
+}
+.todo-add input:focus { outline: none; border-color: var(--blue); background: #fff; }
+
+.todo-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--line);
+  transition: opacity 0.3s, transform 0.3s;
+}
+.todo-row:last-child { border-bottom: none; }
+.todo-row.done { opacity: 0; transform: translateX(12px); }
+.todo-row .todo-text { flex: 1; font-size: 0.92rem; word-break: break-all; }
+.todo-row .todo-edit {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1.5px solid var(--blue);
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+.todo-row .todo-acts { display: flex; gap: 4px; opacity: 0; transition: opacity 0.12s; }
+.todo-row:hover .todo-acts { opacity: 1; }
+.todo-row .todo-acts button {
+  border: none;
+  background: #f2f4f6;
+  border-radius: 7px;
+  font-size: 0.7rem;
+  padding: 3px 8px;
+  color: var(--ink-soft);
+}
+.todo-row .todo-acts button:hover { background: var(--blue-soft); color: var(--blue-deep); }
+
+.todo-check { position: relative; width: 20px; height: 20px; flex-shrink: 0; cursor: pointer; }
+.todo-check input { position: absolute; opacity: 0; width: 0; height: 0; }
+.todo-check span {
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--line-strong);
+  border-radius: 7px;
+  background: #fff;
+  transition: background 0.15s, border-color 0.15s;
+}
+.todo-check:hover span { border-color: var(--blue); }
+.todo-check input:checked + span { background: var(--blue); border-color: var(--blue); }
+.todo-check input:checked + span::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 5px;
+  height: 10px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.memo-area {
+  width: 100%;
+  min-height: 180px;
+  padding: 13px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: #f9fafb;
+  font-size: 0.9rem;
+  line-height: 1.65;
+  resize: vertical;
+}
+.memo-area:focus { outline: none; border-color: var(--blue); background: #fff; }
+.memo-status { font-size: 0.75rem; font-weight: 500; color: var(--ink-faint); }
+
 /* ───────── 급여 공통 색상 ───────── */
 .c-green { color: var(--green); }
 .c-red { color: var(--red); }

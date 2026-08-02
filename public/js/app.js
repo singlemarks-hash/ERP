@@ -443,6 +443,25 @@ async function renderHome() {
     <div class="widget-grid">
       <div class="card">
         <div class="card-title">
+          <div>업무 할 일<div class="ct-desc">오늘 처리할 일을 적어두세요. 체크하면 목록에서 사라집니다.</div></div>
+        </div>
+        <form id="todo-form" class="todo-add">
+          <input id="todo-input" placeholder="할 일을 입력하고 Enter" maxlength="200" autocomplete="off" />
+          <button type="submit" class="btn btn-primary btn-sm">추가</button>
+        </form>
+        <div id="todo-list"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">
+          <div>개인 메모장<div class="ct-desc">나만 보는 메모입니다. 입력하면 자동 저장됩니다.</div></div>
+          <span id="memo-status" class="memo-status"></span>
+        </div>
+        <textarea id="memo-area" class="memo-area" placeholder="메모를 입력하세요..."></textarea>
+      </div>
+    </div>
+    <div class="widget-grid">
+      <div class="card">
+        <div class="card-title">
           <div>급여이력<div class="ct-desc">내 최근 급여 현황입니다.</div></div>
           <button class="btn btn-ghost btn-sm" data-goto="payhistory">전체 이력 →</button>
         </div>
@@ -454,18 +473,6 @@ async function renderHome() {
           <button class="btn btn-ghost btn-sm" data-goto="leave">사용 내역 →</button>
         </div>
         <div id="home-leave"></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="toggle-row flat">
-        <div class="toggle-info">
-          <b>업데이트 이메일 수신</b>
-          <p>급여·연차·공지 등 업데이트 내용을 이메일로 받습니다.</p>
-        </div>
-        <label class="switch">
-          <input type="checkbox" id="home-email-toggle" />
-          <span class="knob"></span>
-        </label>
       </div>
     </div>`;
 
@@ -566,13 +573,88 @@ async function renderHome() {
       </div>`).join("")}
     </div>`;
 
-  /* ── 이메일 토글 (설정과 동기화) ── */
-  const setSnap = await db.collection(COL.settings).doc(me.id).get();
-  const toggle = $("#home-email-toggle");
-  toggle.checked = setSnap.exists && !!setSnap.data().emailNotif;
-  toggle.onchange = async (ev) => {
-    await db.collection(COL.settings).doc(me.id).set({ emailNotif: ev.target.checked }, { merge: true });
-    toast(ev.target.checked ? "이메일 수신을 켰습니다." : "이메일 수신을 껐습니다.");
+  /* ── 업무 할 일 (투두) ── */
+  const todoRef = db.collection(COL.todos).doc(me.id);
+  const todoSnap = await todoRef.get();
+  let todoItems = todoSnap.exists ? (todoSnap.data().items || []) : [];
+  const saveTodos = () => todoRef.set({ items: todoItems });
+
+  const renderTodos = () => {
+    $("#todo-list").innerHTML = todoItems.length ? todoItems.map((t, i) => `
+      <div class="todo-row" data-i="${i}">
+        <label class="todo-check"><input type="checkbox" data-done="${i}" /><span></span></label>
+        <span class="todo-text" data-text="${i}">${esc(t.text)}</span>
+        <span class="todo-acts">
+          <button data-tedit="${i}" title="수정">수정</button>
+          <button data-tdel="${i}" title="삭제">삭제</button>
+        </span>
+      </div>`).join("")
+      : `<div class="empty" style="padding:20px">할 일이 없습니다. 위에 입력해 추가하세요.</div>`;
+
+    $("#todo-list").querySelectorAll("[data-done]").forEach((c) => {
+      c.onchange = async () => {
+        const row = c.closest(".todo-row");
+        row.classList.add("done");
+        setTimeout(async () => {
+          todoItems.splice(Number(c.dataset.done), 1);
+          await saveTodos();
+          renderTodos();
+        }, 350);
+      };
+    });
+    $("#todo-list").querySelectorAll("[data-tdel]").forEach((b) => {
+      b.onclick = async () => {
+        todoItems.splice(Number(b.dataset.tdel), 1);
+        await saveTodos();
+        renderTodos();
+      };
+    });
+    $("#todo-list").querySelectorAll("[data-tedit]").forEach((b) => {
+      b.onclick = () => {
+        const i = Number(b.dataset.tedit);
+        const span = $("#todo-list").querySelector(`[data-text="${i}"]`);
+        const input = document.createElement("input");
+        input.className = "todo-edit";
+        input.value = todoItems[i].text;
+        input.maxLength = 200;
+        span.replaceWith(input);
+        input.focus();
+        const commit = async () => {
+          const v = input.value.trim();
+          if (v) { todoItems[i].text = v; await saveTodos(); }
+          renderTodos();
+        };
+        input.onkeydown = (ev) => { if (ev.key === "Enter") commit(); if (ev.key === "Escape") renderTodos(); };
+        input.onblur = commit;
+      };
+    });
+  };
+  renderTodos();
+
+  $("#todo-form").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const v = $("#todo-input").value.trim();
+    if (!v) return;
+    todoItems.push({ text: v });
+    $("#todo-input").value = "";
+    await saveTodos();
+    renderTodos();
+  };
+
+  /* ── 개인 메모장 (자동 저장) ── */
+  const memoRef = db.collection(COL.memos).doc(me.id);
+  const memoSnap = await memoRef.get();
+  const memoArea = $("#memo-area");
+  memoArea.value = memoSnap.exists ? (memoSnap.data().text || "") : "";
+  let memoTimer = null;
+  memoArea.oninput = () => {
+    $("#memo-status").textContent = "저장 중...";
+    clearTimeout(memoTimer);
+    memoTimer = setTimeout(async () => {
+      await memoRef.set({ text: memoArea.value });
+      $("#memo-status").textContent = "자동 저장됨";
+      setTimeout(() => { if ($("#memo-status")) $("#memo-status").textContent = ""; }, 2000);
+    }, 800);
   };
 }
 

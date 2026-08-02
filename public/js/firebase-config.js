@@ -14,9 +14,10 @@ const COL = {
   employees: "employees",
   systems: "systems", // 사내 시스템 버튼 (계정별 권한 부여)
   personalButtons: "personalButtons",
+  todos: "todos",   // 직원별 업무 할 일
+  memos: "memos",   // 직원별 개인 메모장
   payroll: "payroll", // payroll/{YYYY-MM}/rows/{id}
   leaves: "leaves",
   leaveRequests: "leaveRequests",
-  settings: "settings",
-  auditLogs: "auditLogs"
+  settings: "settings"
 };
