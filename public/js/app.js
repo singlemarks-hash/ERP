@@ -69,17 +69,6 @@ function roleLabel(role) {
 function isSpecial() { return me && me.role === "special"; }
 // 특수관리자: 사내 시스템·급여관리 조회/수정 가능
 function canManageOps() { return isAdmin() || isSpecial(); }
-async function audit(action, detail) {
-  try {
-    await db.collection(COL.auditLogs).add({
-      ts: firebase.firestore.FieldValue.serverTimestamp(),
-      actorId: me ? me.id : "-",
-      actorName: me ? me.name : "(로그인 전)",
-      action,
-      detail: detail || ""
-    });
-  } catch (e) { console.warn("audit fail", e); }
-}
 
 /* ───────── 초기화 ───────── */
 async function boot() {
@@ -197,7 +186,6 @@ function openSetPasswordModal(emp, typedPw) {
     closeModal();
     const emp2 = { ...emp, salt, passwordHash };
     me = { id: emp2.id, ...emp2 };
-    await audit("비밀번호 설정", `${emp.name} 최초 비밀번호 설정`);
     await loginSuccess(emp2);
   };
 }
@@ -208,13 +196,11 @@ async function loginSuccess(emp) {
   if (emp.email && ADMIN_EMAILS.includes(emp.email.toLowerCase()) && emp.role !== "admin") {
     await db.collection(COL.employees).doc(emp.id).update({ role: "admin" });
     me.role = "admin";
-    await audit("역할 변경", `${emp.name} → 총괄 관리자 (지정 관리자 이메일 자동 부여)`);
   }
   localStorage.setItem(SESSION_KEY, emp.id);
   await db.collection(COL.employees).doc(emp.id).update({
     lastLoginAt: firebase.firestore.FieldValue.serverTimestamp()
   });
-  await audit("로그인", `${emp.name} (${emp.dept})`);
   $("#login-password").value = "";
   enterApp();
 }
@@ -261,7 +247,6 @@ function openBootstrapModal() {
     const snap = await ref.get();
     closeModal();
     me = { id: ref.id, ...snap.data() };
-    await audit("직원 등록", `초기 설정: 관리자 ${me.name} 등록`);
     await loginSuccess(me);
   };
 }
@@ -274,7 +259,6 @@ function enterApp() {
   navigate("home");
 
   $("#logout-btn").onclick = async () => {
-    await audit("로그아웃", me.name);
     localStorage.removeItem(SESSION_KEY);
     me = null;
     location.reload();
@@ -643,7 +627,6 @@ async function renderSystems() {
       const s = systems.find((x) => x.id === b.dataset.sysdel);
       if (!confirm(`사내 시스템 "${s.label}"을(를) 삭제할까요?\n권한을 받은 직원들의 홈에서도 사라집니다.`)) return;
       await db.collection(COL.systems).doc(s.id).delete();
-      await audit("사내 시스템 삭제", s.label);
       renderSystems();
     };
   });
@@ -675,10 +658,8 @@ function openSystemModal(sys) {
     };
     if (sys) {
       await db.collection(COL.systems).doc(sys.id).update(data);
-      await audit("사내 시스템 수정", `${data.label} → ${data.url}`);
     } else {
       await db.collection(COL.systems).add({ ...data, allowAll: false, grantIds: [], order: Date.now() % 100000 });
-      await audit("사내 시스템 추가", `${data.label} → ${data.url}`);
     }
     closeModal();
     renderSystems();
@@ -724,7 +705,6 @@ function openGrantModal(sys, emps) {
     const ids = allowAll ? [] : [...$("#gr-list").querySelectorAll("input:checked")].map((i) => i.dataset.gid);
     await db.collection(COL.systems).doc(sys.id).update({ allowAll, grantIds: ids });
     const names = emps.filter((e) => ids.includes(e.id)).map((e) => e.name).join(", ");
-    await audit("시스템 권한 변경", `${sys.label} → ${allowAll ? "전체 공개" : (names || "없음")}`);
     toast("권한을 저장했습니다. 해당 직원의 홈에 반영됩니다.");
     closeModal();
     renderSystems();
@@ -1118,11 +1098,9 @@ function renderPayForm(emp, cat, record) {
         await col(pmEditYm).doc(pmEditId).delete();
         await col(ym).add(data);
       }
-      await audit("급여 수정", `${ym} ${emp.name}`);
       toast("급여 기록을 수정했습니다.");
     } else {
       await col(ym).add(data);
-      await audit("급여 추가", `${ym} ${emp.name}`);
       toast("급여 기록을 저장했습니다.");
     }
     pmEditId = null;
@@ -1187,7 +1165,6 @@ async function renderPayHistoryAdmin(emp) {
       const r = records.find((x) => x.id === b.dataset.pmDel && x.ym === b.dataset.ym);
       if (!confirm(`${emp.name}님의 ${r.ym} (지급일 ${r.payDate || "-"}) 기록을 삭제할까요?`)) return;
       await db.collection(COL.payroll).doc(r.ym).collection("rows").doc(r.id).delete();
-      await audit("급여 삭제", `${r.ym} ${emp.name}`);
       if (pmEditId === r.id) { pmEditId = null; pmEditYm = null; renderPayForm(emp, catForEmp(emp), null); }
       renderPayHistoryAdmin(emp);
     };
@@ -1309,7 +1286,6 @@ async function renderLeave() {
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     };
     await db.collection(COL.leaveRequests).add(data);
-    await audit("휴가 신청", `${me.name} ${data.date} ${data.days}일 (${data.type})`);
     toast("휴가를 신청했습니다. 승인되면 사용 내역에 반영됩니다.");
     renderLeave();
   };
@@ -1382,7 +1358,6 @@ async function renderLeaveAdmin() {
         cur.records.push({ date: r.date, days: Number(r.days), type: r.type, note: r.note || "" });
         await ref.set(cur);
         await db.collection(COL.leaveRequests).doc(r.id).update({ status: "승인" });
-        await audit("휴가 승인", `${r.name} ${r.date} ${r.days}일 (${r.type})`);
         toast(`${r.name}님의 휴가를 승인했습니다.`);
         renderLeaveAdmin();
       };
@@ -1392,7 +1367,6 @@ async function renderLeaveAdmin() {
         const r = reqs.find((x) => x.id === b.dataset.reject);
         if (!confirm(`${r.name}님의 ${r.date} ${r.type} 신청을 반려할까요?`)) return;
         await db.collection(COL.leaveRequests).doc(r.id).update({ status: "반려" });
-        await audit("휴가 반려", `${r.name} ${r.date} ${r.days}일 (${r.type})`);
         renderLeaveAdmin();
       };
     });
@@ -1440,7 +1414,6 @@ async function openLeaveUseModal() {
     cur.records = cur.records || [];
     cur.records.push(rec);
     await ref.set(cur);
-    await audit("연차 사용 기록", `${emp.name} ${rec.date} ${rec.days}일 (${rec.type})`);
     closeModal();
     renderLeave();
   };
@@ -1474,7 +1447,6 @@ async function openLeaveAllocModal() {
     const snap = await ref.get();
     const cur = snap.exists ? snap.data() : { records: [] };
     await ref.set({ ...cur, allocated: days });
-    await audit("연차 할당 설정", `${emp.name} → ${days}일`);
     closeModal();
     renderLeave();
   };
@@ -1549,7 +1521,6 @@ async function renderEmployees() {
         passwordHash: firebase.firestore.FieldValue.delete(),
         passwordSetAt: firebase.firestore.FieldValue.delete()
       });
-      await audit("비밀번호 초기화", e.name);
       toast(`${e.name}의 비밀번호를 초기화했습니다.`);
       renderEmployees();
     };
@@ -1616,14 +1587,12 @@ function openEmployeeModal(emp) {
     if (emp) {
       const roleChanged = emp.role !== data.role;
       await db.collection(COL.employees).doc(emp.id).update(data);
-      await audit("직원 수정", `${data.name} (${data.dept}${roleChanged ? `, 역할 ${roleLabel(emp.role)} → ${roleLabel(data.role)}` : ""})`);
       if (emp.id === me.id) { me = { ...me, ...data }; renderSidebar(); }
     } else {
       await db.collection(COL.employees).add({
         ...data,
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
       });
-      await audit("직원 등록", `${data.name} (${data.dept}, ${roleLabel(data.role)})`);
     }
     closeModal();
     renderEmployees();
@@ -1635,17 +1604,14 @@ async function renderMonitor() {
   if (!isAdmin()) return navigate("home");
   const main = $("#main");
   main.innerHTML = pageHead("ADMIN", "권한 모니터링",
-    "직원별 권한 부여 현황과 시스템 활동 로그를 총괄 확인합니다.") + `<div id="mon-body">불러오는 중...</div>`;
+    "직원별 권한 부여 현황을 총괄 확인합니다.") + `<div id="mon-body">불러오는 중...</div>`;
 
-  const [empSnap, logSnap, sysSnap] = await Promise.all([
+  const [empSnap, sysSnap] = await Promise.all([
     db.collection(COL.employees).get(),
-    db.collection(COL.auditLogs).orderBy("ts", "desc").limit(150).get(),
     db.collection(COL.systems).get()
   ]);
   const emps = empSnap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) =>
     DEPTS.indexOf(a.dept) - DEPTS.indexOf(b.dept) || a.name.localeCompare(b.name, "ko"));
-  const logs = logSnap.docs.map((d) => d.data());
-  const actions = [...new Set(logs.map((l) => l.action))];
   const systems = sysSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
     .sort((a, b) => (a.order || 0) - (b.order || 0));
 
@@ -1676,25 +1642,8 @@ async function renderMonitor() {
         <td>${e.status === "재직" ? '<span class="badge ok">재직</span>' : '<span class="badge off">퇴사</span>'}</td>
       </tr>`).join("")}</tbody></table>
     </div></div>
-    <div class="card">
-      <div class="card-title">활동 로그 <select id="log-filter" style="font-size:.8rem;padding:5px 8px;border:1.5px solid var(--line);border-radius:8px">
-        <option value="">전체</option>${actions.map((a) => `<option>${esc(a)}</option>`).join("")}
-      </select></div>
-      <div id="log-list"></div>
-    </div>`;
+`;
 
-  const renderLogs = (filter) => {
-    const list = logs.filter((l) => !filter || l.action === filter);
-    $("#log-list").innerHTML = list.length ? list.map((l) => `
-      <div class="log-item">
-        <span class="l-ts">${fmtTs(l.ts)}</span>
-        <span class="l-actor">${esc(l.actorName)}</span>
-        <span class="badge">${esc(l.action)}</span>
-        <span>${esc(l.detail || "")}</span>
-      </div>`).join("") : `<div class="empty">기록이 없습니다.</div>`;
-  };
-  renderLogs("");
-  $("#log-filter").onchange = (ev) => renderLogs(ev.target.value);
 
   /* ── 직원별 버튼 권한 설정 ── */
   const active = emps.filter((e) => e.status === "재직");
@@ -1743,7 +1692,6 @@ async function renderMonitor() {
         c.s.grantIds = c.on ? [...(c.s.grantIds || []), emp.id] : (c.s.grantIds || []).filter((x) => x !== emp.id);
       }
       if (changes.length) {
-        await audit("시스템 권한 변경", `${emp.name} → ${changes.map((c) => `${c.s.label} ${c.on ? "부여" : "회수"}`).join(", ")}`);
         toast(`${emp.name}님의 버튼 권한을 저장했습니다. 홈에 자동 반영됩니다.`);
       } else {
         toast("변경된 내용이 없습니다.");
