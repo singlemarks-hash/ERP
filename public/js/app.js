@@ -303,7 +303,7 @@ function renderSidebar() {
 
   const items = [
     { id: "home", ico: "home", label: "홈" },
-    { id: "payhistory", ico: "payroll", label: "급여이력" },
+    { id: "payhistory", ico: "payroll", label: "급여" },
     { id: "leave", ico: "leave", label: "휴가" },
     { id: "settings", ico: "settings", label: "설정" }
   ];
@@ -314,7 +314,7 @@ function renderSidebar() {
     adminItems.push({ id: "systems", ico: "grid", label: "사내 시스템" });
     adminItems.push({ id: "paymanage", ico: "ledger", label: "급여관리" });
   }
-  if (isAdmin() || me.role === "executive") adminItems.push({ id: "leaveadmin", ico: "leave", label: "연차관리" });
+  if (isAdmin() || isSpecial() || me.role === "executive") adminItems.push({ id: "leaveadmin", ico: "leave", label: "연차관리" });
   if (isAdmin()) {
     adminItems.push({ id: "employees", ico: "employees", label: "직원 관리" });
     adminItems.push({ id: "monitor", ico: "monitor", label: "권한 모니터링" });
@@ -328,6 +328,28 @@ function renderSidebar() {
   nav.querySelectorAll(".nav-item").forEach((b) => {
     b.onclick = () => { navigate(b.dataset.view); $("#sidebar").classList.remove("open"); };
   });
+  updateLeaveAlarm();
+}
+
+/* 휴가 신청 대기 알람 — 특수관리자 이상에게 연차관리 탭에 빨간 점 표시 */
+async function updateLeaveAlarm() {
+  if (!me || !(isAdmin() || isSpecial())) return;
+  const btn = document.querySelector('.nav-item[data-view="leaveadmin"]');
+  if (!btn) return;
+  try {
+    const snap = await db.collection(COL.leaveRequests).where("status", "==", "대기").get();
+    let dot = btn.querySelector(".nav-dot");
+    if (snap.size > 0) {
+      if (!dot) {
+        dot = document.createElement("span");
+        dot.className = "nav-dot";
+        btn.appendChild(dot);
+      }
+      dot.title = `대기 중인 휴가 신청 ${snap.size}건`;
+    } else if (dot) {
+      dot.remove();
+    }
+  } catch (e) { /* 무시 */ }
 }
 
 function openMyInfoModal() {
@@ -407,6 +429,12 @@ function pickedColor() {
   return r ? r.value : "";
 }
 
+function fmtPeriod(start, end) {
+  const sh = (d) => (d || "").slice(2);
+  if (!start) return "-";
+  return end && end !== start ? `${sh(start)} ~ ${sh(end)}` : sh(start);
+}
+
 function nextGrantDate(d) {
   // 연차 발생일 + 1년 = 다음 갱신 예정일
   const [y, m, dd] = d.split("-");
@@ -460,7 +488,10 @@ async function renderHome() {
       <div class="card">
         <div class="card-title">
           <div>개인 메모장<div class="ct-desc">나만 보는 메모입니다.</div></div>
-          <button class="btn btn-ghost btn-sm" id="memo-btn">수정</button>
+          <span style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" id="memo-full">전체보기</button>
+            <button class="btn btn-ghost btn-sm" id="memo-btn">수정</button>
+          </span>
         </div>
         <textarea id="memo-area" class="memo-area" placeholder="[수정]을 눌러 메모를 작성하세요." readonly></textarea>
       </div>
@@ -548,7 +579,7 @@ async function renderHome() {
         <td class="num"><b class="c-green">${fmt(l.rec.net)}</b></td>
       </tr>`).join("")}</tbody>
     </table></div>
-    <div class="mini-note">월별 상세 명세는 [급여이력]에서 확인하세요.</div>`
+    <div class="mini-note">월별 상세 명세는 [급여] 탭에서 확인하세요.</div>`
     : `<div class="empty">최근 6개월 급여 내역이 없습니다.${isAdmin() ? " [급여관리]에서 입력을 시작하세요." : ""}</div>`;
 
   /* ── 연차 위젯 ── */
@@ -654,6 +685,13 @@ async function renderHome() {
   const memoArea = $("#memo-area");
   const memoBtn = $("#memo-btn");
   memoArea.value = memoSnap.exists ? (memoSnap.data().text || "") : "";
+  $("#memo-full").onclick = () => {
+    openModal(`
+      <h3>개인 메모장</h3>
+      <div class="memo-view">${memoArea.value.trim() ? esc(memoArea.value) : "작성된 메모가 없습니다."}</div>
+      <div class="modal-actions"><button class="btn btn-primary" id="mv-close">닫기</button></div>`);
+    $("#mv-close").onclick = closeModal;
+  };
   let memoEditing = false;
   memoBtn.onclick = async () => {
     if (!memoEditing) {
@@ -932,11 +970,11 @@ function attachPayHover(container, records) {
 }
 
 /* ───────── 급여이력 (본인 급여 조회) ───────── */
-let phOpenId = null;
+let phOpenIds = new Set();
 
 async function renderPayHistory() {
   const main = $("#main");
-  main.innerHTML = pageHead("MY PAY", "급여이력", "내 급여 지급 내역입니다.") +
+  main.innerHTML = pageHead("MY PAY", "급여", "내 급여 지급 내역입니다.") +
     `<div id="ph-body"><div class="empty">불러오는 중...</div></div>`;
 
   const thisYear = new Date().getFullYear();
@@ -948,7 +986,6 @@ async function renderPayHistory() {
     const sumNet = records.reduce((s, r) => s + r.net, 0);
     const sumPay = records.reduce((s, r) => s + r.payTotal, 0);
     const sumDeduct = records.reduce((s, r) => s + r.deductTotal, 0);
-    const detail = phOpenId ? records.find((r) => r.id === phOpenId) : null;
 
     $("#ph-table").innerHTML = records.length ? `
       <div class="pb-stats">
@@ -958,21 +995,24 @@ async function renderPayHistory() {
       </div>
       <div class="table-wrap"><table class="data pay-table">
         <thead><tr><th>월</th><th>지급일</th><th class="num">총 지급</th><th class="num">총 공제</th><th class="num">실수령</th><th>메모</th><th></th></tr></thead>
-        <tbody>${records.map((r) => `<tr class="${r.id === phOpenId ? "ph-row-open" : ""}">
+        <tbody>${records.map((r) => `<tr class="${phOpenIds.has(r.id) ? "ph-row-open" : ""}">
           <td><b>${r.ym}</b></td>
           <td>${esc(r.payDate || "-")}</td>
           <td class="num"><span class="hov c-green" data-hv="${r.id}" data-ym="${r.ym}" data-kind="pay">${fmt(r.payTotal)}원</span></td>
           <td class="num"><span class="hov c-red" data-hv="${r.id}" data-ym="${r.ym}" data-kind="deduct">${fmt(r.deductTotal)}원</span></td>
           <td class="num"><b class="c-green">${fmt(r.net)}원</b></td>
           <td class="memo">${esc(r.note || "—")}</td>
-          <td><button class="btn btn-ghost btn-sm" data-ph-toggle="${r.id}">${r.id === phOpenId ? "닫기" : "상세보기 ›"}</button></td>
-        </tr>`).join("")}</tbody>
-      </table></div>
-      ${detail ? renderPayDetailPanel(detail) : ""}`
+          <td><button class="btn btn-ghost btn-sm ${phOpenIds.has(r.id) ? "on" : ""}" data-ph-toggle="${r.id}">상세보기 ${phOpenIds.has(r.id) ? "⌃" : "›"}</button></td>
+        </tr>${phOpenIds.has(r.id) ? `<tr class="ph-detail-tr"><td colspan="7">${renderPayDetailPanel(r)}</td></tr>` : ""}`).join("")}</tbody>
+      </table></div>`
       : `<div class="empty">${year}년 급여 내역이 없습니다.</div>`;
 
     $("#ph-table").querySelectorAll("[data-ph-toggle]").forEach((b) => {
-      b.onclick = () => { phOpenId = phOpenId === b.dataset.phToggle ? null : b.dataset.phToggle; renderYear(year); };
+      b.onclick = () => {
+        const id = b.dataset.phToggle;
+        if (phOpenIds.has(id)) phOpenIds.delete(id); else phOpenIds.add(id);
+        renderYear(year);
+      };
     });
     attachPayHover($("#ph-table"), records);
     const dl = $("#ph-download");
@@ -992,14 +1032,14 @@ async function renderPayHistory() {
       <div class="mini-note">급여 명세서 원본은 경영지원본부에 요청하세요.</div>
     </div>`;
 
-  $("#ph-year").onchange = (ev) => { phOpenId = null; renderYear(Number(ev.target.value)); };
+  $("#ph-year").onchange = (ev) => { phOpenIds.clear(); renderYear(Number(ev.target.value)); };
   renderYear(thisYear);
 }
 
 function renderPayDetailPanel(r) {
   const line = (p, cls) => `<div class="ps-line"><span>${esc(p.label)}</span><b class="${cls}">${fmt(p.amount)}원</b></div>`;
   return `
-    <div class="ph-detail">
+    <div class="ph-detail ph-anim">
       <div class="ph-detail-head">${r.ym} 급여 내역 ${r.payDate ? `<span class="ph-date">지급일 ${esc(r.payDate)}</span>` : ""}
         <button class="btn btn-ghost btn-sm" data-ph-toggle="${r.id}">상세 내역 닫기 ⌃</button></div>
       <div class="ph-detail-grid">
@@ -1597,7 +1637,7 @@ async function renderLeave() {
 
   const history = [
     ...records.map((r) => ({ ...r, status: "승인" })),
-    ...myReqs.filter((r) => r.status !== "승인").map((r) => ({ date: r.date, type: r.type, days: r.days, note: r.note, status: r.status }))
+    ...myReqs.filter((r) => r.status !== "승인").map((r) => ({ date: r.date, endDate: r.endDate, type: r.type, days: r.days, status: r.status }))
   ].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 8);
   const statusBadge = (s) => s === "승인" ? '<span class="badge ok">승인</span>'
     : s === "대기" ? '<span class="badge warn">대기</span>' : '<span class="badge rej">반려</span>';
@@ -1640,11 +1680,11 @@ async function renderLeave() {
       </div>
       <div class="card">
         <div class="card-title"><div>연차 사용 내역 요약</div></div>
-        ${history.length ? `<div class="table-wrap"><table class="data">
-          <thead><tr><th>사용일</th><th>유형</th><th class="num">일수</th><th>사유</th><th>상태</th></tr></thead>
+        ${history.length ? `<div class="table-wrap"><table class="data pay-table">
+          <thead><tr><th>기간</th><th>유형</th><th class="num">일수</th><th>상태</th></tr></thead>
           <tbody>${history.map((r) => `<tr>
-            <td>${esc(r.date || "-")}</td><td>${esc(r.type)}</td>
-            <td class="num">${r.days}일</td><td>${esc(r.note || "-")}</td><td>${statusBadge(r.status)}</td>
+            <td>${fmtPeriod(r.date, r.endDate)}</td><td>${esc(r.type)}</td>
+            <td class="num">${r.days}일</td><td>${statusBadge(r.status)}</td>
           </tr>`).join("")}</tbody></table></div>`
           : `<div class="empty">아직 사용 내역이 없습니다.</div>`}
       </div>
@@ -1655,38 +1695,43 @@ async function renderLeave() {
       <form id="lv-req-form" class="lv-req">
         <label class="field"><span class="field-label">휴가 유형</span>
           <select id="lr-type">${LEAVE_TYPES.map((t) => `<option>${t}</option>`).join("")}</select></label>
-        <label class="field"><span class="field-label">사용일</span>
-          <input id="lr-date" type="date" required value="${new Date().toISOString().slice(0, 10)}" /></label>
+        <label class="field"><span class="field-label">시작일</span>
+          <input id="lr-start" type="date" required value="${new Date().toISOString().slice(0, 10)}" /></label>
+        <label class="field"><span class="field-label">종료일</span>
+          <input id="lr-end" type="date" required value="${new Date().toISOString().slice(0, 10)}" /></label>
         <label class="field"><span class="field-label">일수 (0.5 단위)</span>
           <input id="lr-days" type="number" step="0.5" min="0.5" required value="1" /></label>
-        <label class="field lv-req-note"><span class="field-label">사유</span>
-          <input id="lr-note" placeholder="사유를 입력하세요" /></label>
         <button type="submit" class="btn btn-primary" id="lr-submit">신청하기</button>
       </form>
     </div>`;
 
   $("#lv-req-form").onsubmit = async (ev) => {
     ev.preventDefault();
+    const start = $("#lr-start").value, end = $("#lr-end").value;
+    if (end < start) { toast("종료일이 시작일보다 빠릅니다."); return; }
     const data = {
       empId: me.id,
       name: me.name,
       dept: me.dept,
-      date: $("#lr-date").value,
+      date: start,
+      endDate: end,
       days: Number($("#lr-days").value),
       type: $("#lr-type").value,
-      note: $("#lr-note").value.trim(),
       status: "대기",
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     };
     await db.collection(COL.leaveRequests).add(data);
     toast("휴가를 신청했습니다. 승인되면 사용 내역에 반영됩니다.");
+    updateLeaveAlarm();
     renderLeave();
   };
+  // 시작일 변경 시 종료일 자동 보정
+  $("#lr-start").onchange = () => { if ($("#lr-end").value < $("#lr-start").value) $("#lr-end").value = $("#lr-start").value; };
 }
 
 /* ───────── 연차관리 (관리자 메뉴) ───────── */
 async function renderLeaveAdmin() {
-  if (!isAdmin() && me.role !== "executive") return navigate("leave");
+  if (!isAdmin() && !isSpecial() && me.role !== "executive") return navigate("leave");
   const main = $("#main");
   main.innerHTML = pageHead("ADMIN", "연차관리",
     "휴가 신청 승인과 전 직원 연차 현황을 관리합니다.",
@@ -1709,11 +1754,11 @@ async function renderLeaveAdmin() {
   $("#lva-body").innerHTML = `
     <div class="card">
       <div class="card-title"><div>승인 대기 신청 <span class="badge warn">${reqs.length}건</span></div></div>
-      ${reqs.length ? `<div class="table-wrap"><table class="data">
-        <thead><tr><th>직원</th><th>사용일</th><th>유형</th><th class="num">일수</th><th>사유</th>${isAdmin() ? "<th></th>" : ""}</tr></thead>
+      ${reqs.length ? `<div class="table-wrap"><table class="data pay-table">
+        <thead><tr><th>직원</th><th>기간</th><th>유형</th><th class="num">일수</th>${isAdmin() ? "<th></th>" : ""}</tr></thead>
         <tbody>${reqs.map((r) => `<tr>
-          <td><b>${esc(r.name)}</b></td><td>${esc(r.date)}</td><td>${esc(r.type)}</td>
-          <td class="num">${r.days}일</td><td>${esc(r.note || "-")}</td>
+          <td><b>${esc(r.name)}</b></td><td>${fmtPeriod(r.date, r.endDate)}</td><td>${esc(r.type)}</td>
+          <td class="num">${r.days}일</td>
           ${isAdmin() ? `<td style="white-space:nowrap">
             <button class="btn btn-primary btn-sm" data-approve="${r.id}">승인</button>
             <button class="btn btn-danger btn-sm" data-reject="${r.id}">반려</button></td>` : ""}
@@ -1749,18 +1794,20 @@ async function renderLeaveAdmin() {
         const snap = await ref.get();
         const cur = snap.exists ? snap.data() : { allocated: 0, records: [] };
         cur.records = cur.records || [];
-        cur.records.push({ date: r.date, days: Number(r.days), type: r.type, note: r.note || "" });
+        cur.records.push({ date: r.date, endDate: r.endDate || r.date, days: Number(r.days), type: r.type });
         await ref.set(cur);
         await db.collection(COL.leaveRequests).doc(r.id).update({ status: "승인" });
         toast(`${r.name}님의 휴가를 승인했습니다.`);
+        updateLeaveAlarm();
         renderLeaveAdmin();
       };
     });
     $("#lva-body").querySelectorAll("[data-reject]").forEach((b) => {
       b.onclick = async () => {
         const r = reqs.find((x) => x.id === b.dataset.reject);
-        if (!confirm(`${r.name}님의 ${r.date} ${r.type} 신청을 반려할까요?`)) return;
+        if (!confirm(`${r.name}님의 ${fmtPeriod(r.date, r.endDate)} ${r.type} 신청을 반려할까요?`)) return;
         await db.collection(COL.leaveRequests).doc(r.id).update({ status: "반려" });
+        updateLeaveAlarm();
         renderLeaveAdmin();
       };
     });
@@ -1780,12 +1827,12 @@ async function openLeaveUseModal() {
       <label class="field"><span class="field-label">직원</span>
         <select id="lu-emp" required>${emps.map((e) => `<option value="${e.id}">${esc(e.name)} (${esc(e.dept)})</option>`).join("")}</select></label>
       <div class="grid-2">
-        <label class="field"><span class="field-label">날짜</span><input id="lu-date" type="date" required value="${new Date().toISOString().slice(0, 10)}" /></label>
+        <label class="field"><span class="field-label">시작일</span><input id="lu-date" type="date" required value="${new Date().toISOString().slice(0, 10)}" /></label>
+        <label class="field"><span class="field-label">종료일</span><input id="lu-end" type="date" required value="${new Date().toISOString().slice(0, 10)}" /></label>
         <label class="field"><span class="field-label">일수 (0.5 단위)</span><input id="lu-days" type="number" step="0.5" min="0.5" required value="1" /></label>
+        <label class="field"><span class="field-label">유형</span>
+          <select id="lu-type">${LEAVE_TYPES.map((t) => `<option>${t}</option>`).join("")}</select></label>
       </div>
-      <label class="field"><span class="field-label">유형</span>
-        <select id="lu-type">${LEAVE_TYPES.map((t) => `<option>${t}</option>`).join("")}</select></label>
-      <label class="field"><span class="field-label">메모 (선택)</span><input id="lu-note" /></label>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="lu-cancel">취소</button>
         <button type="submit" class="btn btn-primary">기록 추가</button>
@@ -1798,9 +1845,9 @@ async function openLeaveUseModal() {
     const emp = emps.find((e) => e.id === empId);
     const rec = {
       date: $("#lu-date").value,
+      endDate: $("#lu-end").value || $("#lu-date").value,
       days: Number($("#lu-days").value),
-      type: $("#lu-type").value,
-      note: $("#lu-note").value.trim()
+      type: $("#lu-type").value
     };
     const ref = db.collection(COL.leaves).doc(empId);
     const snap = await ref.get();

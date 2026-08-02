@@ -181,6 +181,19 @@ a { color: var(--blue); }
 .nav-item:hover { background: var(--bg); color: var(--ink); }
 .nav-item.active { background: var(--blue-soft); color: var(--blue-deep); }
 .nav-item svg { width: 19px; height: 19px; flex-shrink: 0; stroke: currentColor; }
+.nav-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+  margin-left: auto;
+  box-shadow: 0 0 0 3px var(--red-soft);
+  animation: dot-pulse 1.6s ease-in-out infinite;
+}
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
 .logout-btn { margin-top: 14px; }
 
 .sidebar-toggle {
@@ -502,7 +515,7 @@ table.data th.num { text-align: right; }
 
 .lv-req {
   display: grid;
-  grid-template-columns: 150px 170px 130px 1fr auto;
+  grid-template-columns: 140px 1fr 1fr 130px auto;
   gap: 12px;
   align-items: end;
 }
@@ -510,7 +523,6 @@ table.data th.num { text-align: right; }
 .lv-req .btn { padding: 12px 22px; }
 @media (max-width: 1020px) {
   .lv-req { grid-template-columns: 1fr 1fr; }
-  .lv-req .lv-req-note { grid-column: 1 / -1; }
   .lv-req .btn { grid-column: 1 / -1; }
 }
 
@@ -862,7 +874,28 @@ table.data th.num { text-align: right; }
 #ph-year { padding: 8px 12px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 0.85rem; font-weight: 600; }
 tr.ph-row-open td { background: var(--blue-soft); }
 
-.ph-detail { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 18px; }
+.ph-detail { padding: 14px 4px 10px; }
+.ph-detail-tr > td { background: #f9fafb; padding: 0 14px; }
+.ph-anim { animation: detail-open 0.28s ease; }
+@keyframes detail-open {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.pay-table .btn.on { background: var(--blue-soft); color: var(--blue-deep); }
+
+/* 메모장 전체보기 */
+.memo-view {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.93rem;
+  line-height: 1.7;
+  background: #f9fafb;
+  border-radius: 12px;
+  padding: 16px;
+  max-height: 60vh;
+  overflow-y: auto;
+  color: var(--ink);
+}
 .ph-detail-head {
   display: flex;
   align-items: center;
