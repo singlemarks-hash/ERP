@@ -407,6 +407,12 @@ function pickedColor() {
   return r ? r.value : "";
 }
 
+function nextGrantDate(d) {
+  // 연차 발생일 + 1년 = 다음 갱신 예정일
+  const [y, m, dd] = d.split("-");
+  return `${Number(y) + 1}-${m}-${dd}`;
+}
+
 function recentMonths(n) {
   const list = [];
   const d = new Date();
@@ -453,10 +459,10 @@ async function renderHome() {
       </div>
       <div class="card">
         <div class="card-title">
-          <div>개인 메모장<div class="ct-desc">나만 보는 메모입니다. 입력하면 자동 저장됩니다.</div></div>
-          <span id="memo-status" class="memo-status"></span>
+          <div>개인 메모장<div class="ct-desc">나만 보는 메모입니다.</div></div>
+          <button class="btn btn-ghost btn-sm" id="memo-btn">수정</button>
         </div>
-        <textarea id="memo-area" class="memo-area" placeholder="메모를 입력하세요..."></textarea>
+        <textarea id="memo-area" class="memo-area" placeholder="[수정]을 눌러 메모를 작성하세요." readonly></textarea>
       </div>
     </div>
     <div class="widget-grid">
@@ -529,7 +535,7 @@ async function renderHome() {
     rows.filter((r) => r.empId === me.id || r.name === me.name)
       .map((r) => ({ ym, rec: normalizePayRow(r) })))
     .sort((a, b) => b.ym.localeCompare(a.ym) || (b.rec.payDate || "").localeCompare(a.rec.payDate || ""))
-    .slice(0, 6);
+    .slice(0, 5);
 
   $("#home-pay").innerHTML = payLines.length ? `
     <div class="table-wrap"><table class="data">
@@ -565,6 +571,7 @@ async function renderHome() {
       <div class="leave-chip remain"><div class="c-label">남은 연차</div><div class="c-value">${remain}일</div></div>
     </div>
     <div class="usage-line"><span>사용률</span><div class="bar ${remain < 0 ? "over" : ""}"><i style="width:${pct}%"></i></div><b>${pct}%</b></div>
+    ${lv.grantDate ? `<div class="mini-note" style="margin:0 0 14px">연차 발생일 ${esc(lv.grantDate)} · 다음 갱신 예정 ${esc(nextGrantDate(lv.grantDate))}</div>` : ""}
     <div class="type-bars">
       ${byType.map((b) => `<div class="type-bar">
         <span>${b.t}</span>
@@ -641,20 +648,32 @@ async function renderHome() {
     renderTodos();
   };
 
-  /* ── 개인 메모장 (자동 저장) ── */
+  /* ── 개인 메모장 (수정/저장) ── */
   const memoRef = db.collection(COL.memos).doc(me.id);
   const memoSnap = await memoRef.get();
   const memoArea = $("#memo-area");
+  const memoBtn = $("#memo-btn");
   memoArea.value = memoSnap.exists ? (memoSnap.data().text || "") : "";
-  let memoTimer = null;
-  memoArea.oninput = () => {
-    $("#memo-status").textContent = "저장 중...";
-    clearTimeout(memoTimer);
-    memoTimer = setTimeout(async () => {
+  let memoEditing = false;
+  memoBtn.onclick = async () => {
+    if (!memoEditing) {
+      memoEditing = true;
+      memoArea.readOnly = false;
+      memoArea.classList.add("editing");
+      memoBtn.textContent = "저장";
+      memoBtn.classList.remove("btn-ghost");
+      memoBtn.classList.add("btn-primary");
+      memoArea.focus();
+    } else {
       await memoRef.set({ text: memoArea.value });
-      $("#memo-status").textContent = "자동 저장됨";
-      setTimeout(() => { if ($("#memo-status")) $("#memo-status").textContent = ""; }, 2000);
-    }, 800);
+      memoEditing = false;
+      memoArea.readOnly = true;
+      memoArea.classList.remove("editing");
+      memoBtn.textContent = "수정";
+      memoBtn.classList.remove("btn-primary");
+      memoBtn.classList.add("btn-ghost");
+      toast("메모를 저장했습니다.");
+    }
   };
 }
 
@@ -1578,6 +1597,9 @@ async function renderLeave() {
         <div class="bar ${remain < 0 ? "over" : ""}"><i style="width:${pct}%"></i></div>
         <b>${pct}%</b><span>(${used}일 / ${allocated}일)</span>
       </div>
+      <div class="mini-note">${mine.grantDate
+        ? `연차 발생일 ${esc(mine.grantDate)} · 다음 갱신 예정 ${esc(nextGrantDate(mine.grantDate))}`
+        : "연차 발생일이 아직 설정되지 않았습니다. 경영지원본부에 문의하세요."}</div>
     </div>
 
     <div class="widget-grid">
@@ -1677,7 +1699,7 @@ async function renderLeaveAdmin() {
     <div class="card">
       <div class="card-title"><div>전 직원 연차 현황</div></div>
       <div class="table-wrap"><table class="data">
-        <thead><tr><th>이름</th><th>부서</th><th class="num">할당</th><th class="num">사용</th><th class="num">잔여</th><th>사용률</th></tr></thead>
+        <thead><tr><th>이름</th><th>부서</th><th>연차 발생일</th><th class="num">할당</th><th class="num">사용</th><th class="num">잔여</th><th>사용률</th></tr></thead>
         <tbody>${emps.map((e) => {
           const lv = lvMap[e.id] || { allocated: 0, records: [] };
           const u = (lv.records || []).reduce((s, r) => s + Number(r.days || 0), 0);
@@ -1685,6 +1707,7 @@ async function renderLeaveAdmin() {
           const p = lv.allocated ? Math.min(100, (u / lv.allocated) * 100) : 0;
           return `<tr>
             <td><b>${esc(e.name)}</b></td><td>${esc(e.dept)}</td>
+            <td>${esc(lv.grantDate || "-")}</td>
             <td class="num">${lv.allocated || 0}일</td><td class="num">${u}일</td>
             <td class="num"><b>${rm}일</b></td>
             <td><div class="bar ${rm < 0 ? "over" : ""}"><i style="width:${p}%"></i></div></td>
@@ -1779,21 +1802,26 @@ async function openLeaveAllocModal() {
         <select id="la-emp" required>${emps.map((e) =>
           `<option value="${e.id}">${esc(e.name)} (${esc(e.dept)}) — 현재 ${lvMap[e.id]?.allocated || 0}일</option>`).join("")}</select></label>
       <label class="field"><span class="field-label">할당 일수</span><input id="la-days" type="number" step="0.5" min="0" required /></label>
+      <label class="field"><span class="field-label">연차 발생일 (매년 이 날짜에 갱신)</span><input id="la-grant" type="date" /></label>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="la-cancel">취소</button>
         <button type="submit" class="btn btn-primary">저장</button>
       </div>
     </form>`);
   $("#la-cancel").onclick = closeModal;
+  const fillGrant = () => { $("#la-grant").value = lvMap[$("#la-emp").value]?.grantDate || ""; };
+  $("#la-emp").onchange = fillGrant;
+  fillGrant();
   $("#lva-form").onsubmit = async (ev) => {
     ev.preventDefault();
     const empId = $("#la-emp").value;
     const emp = emps.find((e) => e.id === empId);
     const days = Number($("#la-days").value);
+    const grantDate = $("#la-grant").value;
     const ref = db.collection(COL.leaves).doc(empId);
     const snap = await ref.get();
     const cur = snap.exists ? snap.data() : { records: [] };
-    await ref.set({ ...cur, allocated: days });
+    await ref.set({ ...cur, allocated: days, ...(grantDate ? { grantDate } : {}) });
     closeModal();
     renderLeave();
   };

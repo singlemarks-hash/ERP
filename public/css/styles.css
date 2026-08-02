@@ -352,9 +352,10 @@ table.data th.num { text-align: right; }
 .tile .t-edit button:hover { background: var(--blue-soft); color: var(--blue-deep); }
 .tile-sub { font-size: 0.8rem; font-weight: 600; color: var(--ink-faint); margin: 22px 0 10px; }
 
-/* 홈 위젯 2단 */
-.widget-grid { display: grid; grid-template-columns: 1.25fr 1fr; gap: 18px; align-items: start; margin-bottom: 18px; }
-.widget-grid .card { margin-bottom: 0; }
+/* 홈 위젯 2단 — 같은 줄의 카드 높이를 맞춘다 */
+.widget-grid { display: grid; grid-template-columns: 1.25fr 1fr; gap: 18px; align-items: stretch; margin-bottom: 18px; }
+.widget-grid .card { margin-bottom: 0; display: flex; flex-direction: column; }
+.widget-grid .card > .table-wrap, .widget-grid .card > #home-pay, .widget-grid .card > #home-leave { flex: 1; }
 .mini-note {
   background: #f9fafb;
   border-radius: 12px;
@@ -581,17 +582,20 @@ table.data th.num { text-align: right; }
 
 .memo-area {
   width: 100%;
-  min-height: 180px;
+  flex: 1;
+  min-height: 120px;
   padding: 13px 14px;
   border: 1.5px solid var(--line);
   border-radius: 12px;
   background: #f9fafb;
   font-size: 0.9rem;
   line-height: 1.65;
-  resize: vertical;
+  resize: none;
+  color: var(--ink);
 }
-.memo-area:focus { outline: none; border-color: var(--blue); background: #fff; }
-.memo-status { font-size: 0.75rem; font-weight: 500; color: var(--ink-faint); }
+.memo-area[readonly] { cursor: default; }
+.memo-area.editing { background: #fff; border-color: var(--blue); resize: vertical; }
+.memo-area.editing:focus { outline: none; }
 
 /* ───────── 급여 공통 색상 ───────── */
 .c-green { color: var(--green); }
