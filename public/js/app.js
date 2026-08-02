@@ -304,7 +304,7 @@ function renderSidebar() {
   const items = [
     { id: "home", ico: "home", label: "홈" },
     { id: "payhistory", ico: "payroll", label: "급여이력" },
-    { id: "leave", ico: "leave", label: "연차/휴가 관리" },
+    { id: "leave", ico: "leave", label: "휴가" },
     { id: "settings", ico: "settings", label: "설정" }
   ];
   let html = items.map((i) =>
@@ -1182,7 +1182,7 @@ const LV_TYPE_TONES = { "연차": ["dot-blue", ""], "반차": ["dot-amber", "gol
 
 async function renderLeave() {
   const main = $("#main");
-  main.innerHTML = pageHead("LEAVE", "연차/휴가 관리",
+  main.innerHTML = pageHead("LEAVE", "휴가",
     "나의 연차 보유·사용 현황을 확인하고, 휴가를 신청할 수 있습니다.") +
     `<div id="lv-body"><div class="empty">불러오는 중...</div></div>`;
 
