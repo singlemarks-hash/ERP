@@ -2077,13 +2077,37 @@ async function renderEmployees() {
       <td>${e.status === "재직" ? '<span class="badge ok">재직</span>' : '<span class="badge off">퇴사</span>'}</td>
       <td style="white-space:nowrap">
         <button class="btn btn-ghost btn-sm" data-empedit="${e.id}">수정</button>
-        ${e.passwordHash ? `<button class="btn btn-danger btn-sm" data-pwreset="${e.id}">비번 초기화</button>` : ""}
+        ${e.passwordHash ? `<button class="btn btn-ghost btn-sm" data-pwreset="${e.id}">비번 초기화</button>` : ""}
+        ${e.id !== me.id ? `<button class="btn btn-danger btn-sm" data-empdel="${e.id}">삭제</button>` : ""}
       </td>
     </tr>`).join("")}</tbody></table>` : `<div class="empty">등록된 직원이 없습니다.</div>`}
   </div></div>`;
 
   $("#emp-body").querySelectorAll("[data-empedit]").forEach((b) => {
     b.onclick = () => openEmployeeModal(emps.find((e) => e.id === b.dataset.empedit));
+  });
+  $("#emp-body").querySelectorAll("[data-empdel]").forEach((b) => {
+    b.onclick = async () => {
+      const e = emps.find((x) => x.id === b.dataset.empdel);
+      if (!confirm(`${e.name}님을 직원 목록에서 완전히 삭제할까요?\n\n연차·메모·할 일·개인 버튼 등 개인 데이터가 함께 삭제되며 되돌릴 수 없습니다.\n(급여 기록은 회계 이력으로 보존됩니다)\n\n퇴사 처리만 하려면 [수정]에서 재직 상태를 '퇴사'로 변경하세요.`)) return;
+      if (!confirm(`정말 삭제하시겠습니까? "${e.name}" 계정은 복구할 수 없습니다.`)) return;
+      // 개인 데이터 정리
+      const dels = [COL.personalButtons, COL.todos, COL.memos, COL.leaves, COL.settings]
+        .map((c) => db.collection(c).doc(e.id).delete().catch(() => {}));
+      await Promise.all(dels);
+      // 휴가 신청 삭제
+      const reqSnap = await db.collection(COL.leaveRequests).where("empId", "==", e.id).get();
+      await Promise.all(reqSnap.docs.map((d) => d.ref.delete().catch(() => {})));
+      // 사내 시스템 버튼 권한 회수
+      const sysSnap = await db.collection(COL.systems).get();
+      await Promise.all(sysSnap.docs
+        .filter((d) => ((d.data().grantIds) || []).includes(e.id))
+        .map((d) => d.ref.update({ grantIds: firebase.firestore.FieldValue.arrayRemove(e.id) }).catch(() => {})));
+      // 직원 문서 삭제
+      await db.collection(COL.employees).doc(e.id).delete();
+      toast(`${e.name}님을 삭제했습니다.`);
+      renderEmployees();
+    };
   });
   $("#emp-body").querySelectorAll("[data-pwreset]").forEach((b) => {
     b.onclick = async () => {
