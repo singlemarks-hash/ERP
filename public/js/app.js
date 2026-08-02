@@ -1015,10 +1015,12 @@ function downloadPayCsv(year, records) {
 }
 
 /* ───────── 급여관리 (경영지원본부 전용) — 직원별 급여장부 ───────── */
-let pmEmpId = null;      // 선택된 직원
+let pmEmpId = null;      // 선택된 직원 id, "" = 전체 직원 종합, null = 미정(첫 직원)
 let pmEditId = null;     // 수정 중인 레코드 { ym, id }
 let pmEditYm = null;
 let pmYear = null;
+let pmMonth = 0;         // 0 = 전체 월
+let pmEmps = [];
 
 function ymNow() {
   const d = new Date();
@@ -1030,42 +1032,68 @@ async function renderPayroll() {
   if (!pmYear) pmYear = new Date().getFullYear();
   const main = $("#main");
   main.innerHTML = pageHead("ADMIN", "급여관리",
-    "직원을 선택해 월별 급여를 기록합니다. 정기 급여일은 매월 10일 · 15일입니다.") +
+    "직원을 선택해 월별 급여를 기록하거나, 전체 직원 기록을 종합 조회합니다. 정기 급여일은 매월 10일 · 15일입니다.") +
     `<div id="pm-body"><div class="empty">불러오는 중...</div></div>`;
 
   const empSnap = await db.collection(COL.employees).where("status", "==", "재직").get();
   const emps = empSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
     .sort((a, b) => DEPTS.indexOf(a.dept) - DEPTS.indexOf(b.dept) || a.name.localeCompare(b.name, "ko"));
+  pmEmps = emps;
   if (!emps.length) {
     $("#pm-body").innerHTML = `<div class="empty">재직 직원이 없습니다. [직원 관리]에서 먼저 직원을 등록하세요.</div>`;
     return;
   }
-  if (!pmEmpId || !emps.some((e) => e.id === pmEmpId)) pmEmpId = emps[0].id;
-  const emp = emps.find((e) => e.id === pmEmpId);
-  const cat = catForEmp(emp);
+  if (pmEmpId && !emps.some((e) => e.id === pmEmpId)) pmEmpId = emps[0].id;
+  if (pmEmpId === null) pmEmpId = emps[0].id; // 최초 진입: 첫 직원
+  const emp = pmEmpId ? emps.find((e) => e.id === pmEmpId) : null;
 
   $("#pm-body").innerHTML = `
     <div class="card" style="padding:16px 20px">
       <div class="pm-emp-bar">
-        <label class="field" style="margin:0;min-width:220px"><span class="field-label">직원 선택</span>
-          <select id="pm-emp">${emps.map((e) =>
-            `<option value="${e.id}" ${e.id === pmEmpId ? "selected" : ""}>${esc(e.name)} (${esc(e.dept)}${e.grade ? " · " + esc(e.grade) : ""})</option>`).join("")}</select></label>
+        <label class="field" style="margin:0;min-width:230px"><span class="field-label">직원 선택</span>
+          <select id="pm-emp">
+            <option value="" ${!pmEmpId ? "selected" : ""}>전체 직원 (종합 조회)</option>
+            ${emps.map((e) =>
+              `<option value="${e.id}" ${e.id === pmEmpId ? "selected" : ""}>${esc(e.name)} (${esc(e.dept)}${e.grade ? " · " + esc(e.grade) : ""})</option>`).join("")}
+          </select></label>
         <div class="pm-emp-info">
-          <span class="badge dept">${esc(emp.dept)}</span>
-          <span class="badge">${cat}</span>
-          ${emp.grade ? `<span class="badge">${esc(emp.grade)}</span>` : ""}
-          ${emp.position ? `<span class="badge">${esc(emp.position)}</span>` : ""}
+          ${emp ? `
+            <span class="badge dept">${esc(emp.dept)}</span>
+            <span class="badge">${catForEmp(emp)}</span>
+            ${emp.grade ? `<span class="badge">${esc(emp.grade)}</span>` : ""}
+            ${emp.position ? `<span class="badge">${esc(emp.position)}</span>` : ""}`
+            : `<span class="badge admin">전체 직원 종합</span>`}
         </div>
       </div>
     </div>
+    ${emp ? `
     <div class="pm-grid">
       <div class="card" id="pm-form-card"></div>
       <div class="card" id="pm-history-card"></div>
-    </div>`;
+    </div>` : `
+    <div class="card" id="pm-history-card"></div>`}`;
 
-  $("#pm-emp").onchange = (ev) => { pmEmpId = ev.target.value; pmEditId = null; pmEditYm = null; renderPayroll(); };
+  $("#pm-emp").onchange = (ev) => {
+    pmEmpId = ev.target.value; // "" = 전체
+    pmEditId = null;
+    pmEditYm = null;
+    renderPayroll();
+  };
 
-  renderPayForm(emp, cat, null);
+  if (emp) {
+    // 수정 대기 상태면 해당 레코드를 불러와 폼에 채운다
+    if (pmEditId && pmEditYm) {
+      const snap = await db.collection(COL.payroll).doc(pmEditYm).collection("rows").doc(pmEditId).get();
+      if (snap.exists) {
+        renderPayForm(emp, catForEmp(emp), { ym: pmEditYm, ...normalizePayRow({ id: snap.id, ...snap.data() }) });
+      } else {
+        pmEditId = null; pmEditYm = null;
+        renderPayForm(emp, catForEmp(emp), null);
+      }
+    } else {
+      renderPayForm(emp, catForEmp(emp), null);
+    }
+  }
   renderPayHistoryAdmin(emp);
 }
 
@@ -1077,36 +1105,143 @@ function payItemRowHtml(kind, label, amount) {
   </div>`;
 }
 
+/* ── 한글 캘린더 팝업 ── */
+const CAL_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>';
+
+function closeCalPops() {
+  document.querySelectorAll(".cal-pop").forEach((e) => e.remove());
+}
+function calPopBase(anchor) {
+  closeCalPops();
+  const pop = document.createElement("div");
+  pop.className = "cal-pop";
+  document.body.appendChild(pop);
+  const place = () => {
+    const r = anchor.getBoundingClientRect();
+    pop.style.left = Math.max(8, Math.min(window.innerWidth - pop.offsetWidth - 8, r.left)) + "px";
+    pop.style.top = (r.bottom + 6 + pop.offsetHeight > window.innerHeight && r.top - pop.offsetHeight - 6 > 8
+      ? r.top - pop.offsetHeight - 6 : r.bottom + 6) + "px";
+  };
+  const close = (ev) => {
+    if (!pop.contains(ev.target) && ev.target !== anchor && !anchor.contains(ev.target)) {
+      pop.remove();
+      document.removeEventListener("mousedown", close);
+    }
+  };
+  setTimeout(() => document.addEventListener("mousedown", close), 0);
+  return { pop, place };
+}
+
+// 급여월 선택: 연도 이동 + 12개월 그리드
+function openMonthPicker(anchor, ym, onPick) {
+  const { pop, place } = calPopBase(anchor);
+  let year = Number((ym || ymNow()).slice(0, 4));
+  const selYm = ym || "";
+  const render = () => {
+    const years = [];
+    for (let y = year - 3; y <= year + 3; y++) years.push(y);
+    pop.innerHTML = `
+      <div class="cal-head">
+        <button type="button" class="cal-nav" data-nav="-1">&lsaquo;</button>
+        <select class="cal-ysel">${years.map((y) => `<option value="${y}" ${y === year ? "selected" : ""}>${y}년</option>`).join("")}</select>
+        <button type="button" class="cal-nav" data-nav="1">&rsaquo;</button>
+      </div>
+      <div class="cal-mgrid">
+        ${Array.from({ length: 12 }, (_, i) => i + 1).map((m) => {
+          const v = `${year}-${String(m).padStart(2, "0")}`;
+          return `<button type="button" class="cal-m ${v === selYm ? "on" : ""}" data-m="${v}">${m}월</button>`;
+        }).join("")}
+      </div>
+      <div class="cal-foot">
+        <button type="button" class="cal-link" data-act="clear">지우기</button>
+        <button type="button" class="cal-link primary" data-act="now">이번 달</button>
+      </div>`;
+    pop.querySelectorAll(".cal-nav").forEach((b) => { b.onclick = () => { year += Number(b.dataset.nav); render(); }; });
+    pop.querySelector(".cal-ysel").onchange = (ev) => { year = Number(ev.target.value); render(); };
+    pop.querySelectorAll(".cal-m").forEach((b) => {
+      b.onclick = () => { onPick(b.dataset.m); pop.remove(); };
+    });
+    pop.querySelector('[data-act="clear"]').onclick = () => { onPick(""); pop.remove(); };
+    pop.querySelector('[data-act="now"]').onclick = () => { onPick(ymNow()); pop.remove(); };
+    place();
+  };
+  render();
+}
+
+// 지급일 선택: 연/월 셀렉트 + 일 그리드
+function openDatePicker(anchor, dateStr, onPick) {
+  const { pop, place } = calPopBase(anchor);
+  const base = dateStr || new Date().toISOString().slice(0, 10);
+  let year = Number(base.slice(0, 4));
+  let month = Number(base.slice(5, 7));
+  const sel = dateStr || "";
+  const render = () => {
+    const years = [];
+    for (let y = year - 3; y <= year + 3; y++) years.push(y);
+    const first = new Date(year, month - 1, 1);
+    const startDow = first.getDay();
+    const daysIn = new Date(year, month, 0).getDate();
+    const prevDays = new Date(year, month - 1, 0).getDate();
+    const cells = [];
+    for (let i = startDow - 1; i >= 0; i--) cells.push({ d: prevDays - i, out: true });
+    for (let d = 1; d <= daysIn; d++) cells.push({ d, out: false });
+    while (cells.length % 7 !== 0) cells.push({ d: cells.length - startDow - daysIn + 1, out: true });
+    pop.innerHTML = `
+      <div class="cal-head">
+        <button type="button" class="cal-nav" data-nav="-1">&lsaquo;</button>
+        <select class="cal-ysel">${years.map((y) => `<option value="${y}" ${y === year ? "selected" : ""}>${y}년</option>`).join("")}</select>
+        <select class="cal-msel">${Array.from({ length: 12 }, (_, i) => i + 1).map((m) =>
+          `<option value="${m}" ${m === month ? "selected" : ""}>${m}월</option>`).join("")}</select>
+        <button type="button" class="cal-nav" data-nav="1">&rsaquo;</button>
+      </div>
+      <div class="cal-dow">${["일", "월", "화", "수", "목", "금", "토"].map((d) => `<span>${d}</span>`).join("")}</div>
+      <div class="cal-dgrid">
+        ${cells.map((c) => {
+          const v = c.out ? "" : `${year}-${String(month).padStart(2, "0")}-${String(c.d).padStart(2, "0")}`;
+          return `<button type="button" class="cal-d ${c.out ? "out" : ""} ${v && v === sel ? "on" : ""}" ${v ? `data-d="${v}"` : "disabled"}>${c.d}</button>`;
+        }).join("")}
+      </div>
+      <div class="cal-foot">
+        <button type="button" class="cal-link" data-act="clear">지우기</button>
+        <button type="button" class="cal-link primary" data-act="today">오늘</button>
+      </div>`;
+    const shift = (n) => { month += n; if (month < 1) { month = 12; year--; } if (month > 12) { month = 1; year++; } render(); };
+    pop.querySelectorAll(".cal-nav").forEach((b) => { b.onclick = () => shift(Number(b.dataset.nav)); });
+    pop.querySelector(".cal-ysel").onchange = (ev) => { year = Number(ev.target.value); render(); };
+    pop.querySelector(".cal-msel").onchange = (ev) => { month = Number(ev.target.value); render(); };
+    pop.querySelectorAll(".cal-d[data-d]").forEach((b) => {
+      b.onclick = () => { onPick(b.dataset.d); pop.remove(); };
+    });
+    pop.querySelector('[data-act="clear"]').onclick = () => { onPick(""); pop.remove(); };
+    pop.querySelector('[data-act="today"]').onclick = () => { onPick(new Date().toISOString().slice(0, 10)); pop.remove(); };
+    place();
+  };
+  render();
+}
+
 function renderPayForm(emp, cat, record) {
   const isEdit = !!record;
   const payItems = isEdit ? record.payments.map((p) => [p.label, p.amount])
     : PAY_TEMPLATE.map(([l, a]) => [l, a]);
   const deductItems = isEdit ? record.deductions.map((p) => [p.label, p.amount])
     : (cat === "3.3%" ? DEDUCT_TEMPLATE_33 : cat === "아티스트" ? DEDUCT_TEMPLATE_33 : DEDUCT_TEMPLATE_4).map(([l, a]) => [l, a]);
-  const ymDefault = isEdit ? pmEditYm : ymNow();
-  const dateDefault = record?.payDate || "";
+
+  let selYm = isEdit ? pmEditYm : ymNow();
+  let selDate = record?.payDate || "";
 
   $("#pm-form-card").innerHTML = `
     <div class="card-title">
-      <div><span class="pb-eyebrow">${isEdit ? "EDIT RECORD" : "NEW RECORD"}</span>${isEdit ? "기록 수정" : "월별 기록"}</div>
+      <div><span class="pb-eyebrow">${isEdit ? "기록 수정 중" : "새 기록"}</span>월별 기록</div>
       <span style="display:flex;gap:6px">
         ${isEdit ? `<button class="btn btn-ghost btn-sm" id="pm-cancel-edit">새 기록</button>` : ""}
         <button class="btn btn-primary btn-sm" id="pm-save"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg> 저장</button>
       </span>
     </div>
     <label class="field"><span class="field-label">급여월</span>
-      <div class="pm-date-row">
-        <select id="pm-y">${[-1, 0, 1].map((d) => {
-          const y = new Date().getFullYear() + d;
-          return `<option value="${y}" ${String(y) === ymDefault.slice(0, 4) ? "selected" : ""}>${y}년</option>`;
-        }).join("")}</select>
-        <select id="pm-m">${Array.from({ length: 12 }, (_, i) => i + 1).map((m) =>
-          `<option value="${m}" ${m === Number(ymDefault.slice(5, 7)) ? "selected" : ""}>${m}월</option>`).join("")}</select>
-      </div></label>
+      <button type="button" class="cal-input" id="pm-ym-btn"><span id="pm-ym-label"></span>${CAL_ICON}</button></label>
     <label class="field"><span class="field-label">지급일</span>
       <div class="pm-date-row">
-        <select id="pm-d"><option value="">미지정</option>${Array.from({ length: 31 }, (_, i) => i + 1).map((d) =>
-          `<option value="${d}" ${dateDefault && d === Number(dateDefault.slice(8, 10)) ? "selected" : ""}>${d}일</option>`).join("")}</select>
+        <button type="button" class="cal-input" id="pm-d-btn"><span id="pm-d-label"></span>${CAL_ICON}</button>
         <button type="button" class="btn btn-ghost btn-sm" data-payday="10">10일</button>
         <button type="button" class="btn btn-ghost btn-sm" data-payday="15">15일</button>
       </div></label>
@@ -1122,6 +1257,22 @@ function renderPayForm(emp, cat, record) {
     <div class="pb-net"><span>이번 달 실수령</span><b id="pm-net"></b></div>
     <label class="field" style="margin-top:14px"><span class="field-label">메모 (선택)</span><input id="pm-note" value="${esc(record?.note || "")}" placeholder="예: 상여금은 생행셋 2위" /></label>`;
 
+  const syncDates = () => {
+    $("#pm-ym-label").textContent = selYm ? `${selYm.slice(0, 4)}년 ${Number(selYm.slice(5, 7))}월` : "급여월 선택";
+    $("#pm-d-label").textContent = selDate ? selDate.replace(/-/g, "/") : "미지정";
+  };
+  syncDates();
+
+  $("#pm-ym-btn").onclick = () => openMonthPicker($("#pm-ym-btn"), selYm, (v) => { selYm = v; syncDates(); });
+  $("#pm-d-btn").onclick = () => openDatePicker($("#pm-d-btn"), selDate || (selYm ? `${selYm}-10` : ""), (v) => { selDate = v; syncDates(); });
+  $("#pm-form-card").querySelectorAll("[data-payday]").forEach((b) => {
+    b.onclick = () => {
+      const base = selYm || ymNow();
+      selDate = `${base}-${String(b.dataset.payday).padStart(2, "0")}`;
+      syncDates();
+    };
+  });
+
   const recalc = () => {
     const sumOf = (sel) => [...$("#pm-form-card").querySelectorAll(`${sel} .pi-amount`)]
       .reduce((s, i) => s + (Number(i.value) || 0), 0);
@@ -1130,13 +1281,11 @@ function renderPayForm(emp, cat, record) {
     $("#pm-deduct-total").textContent = fmt(d) + "원";
     $("#pm-net").textContent = fmt(p - d) + "원";
   };
-  const wireRows = () => {
-    $("#pm-form-card").querySelectorAll(".pi-row").forEach((row) => {
-      row.querySelector(".pi-amount").oninput = recalc;
-      row.querySelector(".pi-del").onclick = () => { row.remove(); recalc(); };
-    });
+  const wireRow = (row) => {
+    row.querySelector(".pi-amount").oninput = recalc;
+    row.querySelector(".pi-del").onclick = () => { row.remove(); recalc(); };
   };
-  wireRows();
+  $("#pm-form-card").querySelectorAll(".pi-row").forEach(wireRow);
   recalc();
 
   const addItem = (containerSel, kind) => {
@@ -1144,21 +1293,17 @@ function renderPayForm(emp, cat, record) {
     div.innerHTML = payItemRowHtml(kind, "", 0);
     const row = div.firstElementChild;
     $(containerSel).appendChild(row);
-    row.querySelector(".pi-amount").oninput = recalc;
-    row.querySelector(".pi-del").onclick = () => { row.remove(); recalc(); };
+    wireRow(row);
     row.querySelector(".pi-label").focus();
   };
   $("#pm-add-pay").onclick = () => addItem("#pm-pay-items", "pay");
   $("#pm-add-deduct").onclick = () => addItem("#pm-deduct-items", "deduct");
 
-  $("#pm-form-card").querySelectorAll("[data-payday]").forEach((b) => {
-    b.onclick = () => { $("#pm-d").value = b.dataset.payday; };
-  });
   if (isEdit) $("#pm-cancel-edit").onclick = () => { pmEditId = null; pmEditYm = null; renderPayForm(emp, cat, null); };
 
   $("#pm-save").onclick = async () => {
-    const ym = `${$("#pm-y").value}-${String($("#pm-m").value).padStart(2, "0")}`;
-    const day = $("#pm-d").value;
+    if (!selYm) { toast("급여월을 선택하세요."); return; }
+    const ym = selYm;
     const collect = (sel) => [...$("#pm-form-card").querySelectorAll(`${sel} .pi-row`)]
       .map((row) => ({ label: row.querySelector(".pi-label").value.trim(), amount: Number(row.querySelector(".pi-amount").value) || 0 }))
       .filter((p) => p.label);
@@ -1166,7 +1311,7 @@ function renderPayForm(emp, cat, record) {
       empId: emp.id,
       name: emp.name,
       category: cat,
-      payDate: day ? `${ym}-${String(day).padStart(2, "0")}` : "",
+      payDate: selDate,
       payments: collect("#pm-pay-items"),
       deductions: collect("#pm-deduct-items"),
       note: $("#pm-note").value.trim()
@@ -1194,21 +1339,34 @@ function renderPayForm(emp, cat, record) {
 
 async function renderPayHistoryAdmin(emp) {
   const card = $("#pm-history-card");
+  const isAll = !emp;
   card.innerHTML = `
     <div class="card-title">
-      <div><span class="pb-eyebrow">HISTORY</span>기록 목록</div>
-      <select id="pm-year">${[0, 1, 2].map((i) => {
-        const y = new Date().getFullYear() - i;
-        return `<option value="${y}" ${y === pmYear ? "selected" : ""}>${y}년</option>`;
-      }).join("")}</select>
+      <div><span class="pb-eyebrow">기록 조회</span>기록 목록${isAll ? " — 전체 직원" : ""}</div>
+      <span style="display:flex;gap:8px">
+        <select id="pm-year">${[0, 1, 2].map((i) => {
+          const y = new Date().getFullYear() - i;
+          return `<option value="${y}" ${y === pmYear ? "selected" : ""}>${y}년</option>`;
+        }).join("")}</select>
+        <select id="pm-month">
+          <option value="0" ${!pmMonth ? "selected" : ""}>전체 월</option>
+          ${Array.from({ length: 12 }, (_, i) => i + 1).map((m) =>
+            `<option value="${m}" ${m === pmMonth ? "selected" : ""}>${m}월</option>`).join("")}
+        </select>
+      </span>
     </div>
     <div id="pm-history"><div class="empty">불러오는 중...</div></div>`;
   $("#pm-year").onchange = (ev) => { pmYear = Number(ev.target.value); renderPayHistoryAdmin(emp); };
+  $("#pm-month").onchange = (ev) => { pmMonth = Number(ev.target.value); renderPayHistoryAdmin(emp); };
 
-  const records = await loadPayRecordsForYear(pmYear, (r) => r.empId === emp.id || r.name === emp.name);
+  let records = await loadPayRecordsForYear(pmYear,
+    emp ? ((r) => r.empId === emp.id || r.name === emp.name) : null);
+  if (pmMonth) records = records.filter((r) => Number(r.ym.slice(5, 7)) === pmMonth);
+
   const sumNet = records.reduce((s, r) => s + r.net, 0);
   const sumPay = records.reduce((s, r) => s + r.payTotal, 0);
   const sumDeduct = records.reduce((s, r) => s + r.deductTotal, 0);
+  const scope = `${pmYear}년${pmMonth ? " " + pmMonth + "월" : ""}`;
 
   $("#pm-history").innerHTML = records.length ? `
     <div class="pb-stats">
@@ -1217,8 +1375,9 @@ async function renderPayHistoryAdmin(emp) {
       <div><span>총 공제</span><b class="c-red">${fmt(sumDeduct)}원</b></div>
     </div>
     <div class="table-wrap"><table class="data pay-table">
-      <thead><tr><th>월</th><th>지급일</th><th class="num">총 지급</th><th class="num">총 공제</th><th class="num">실수령</th><th>메모</th><th></th></tr></thead>
+      <thead><tr>${isAll ? "<th>직원</th>" : ""}<th>월</th><th>지급일</th><th class="num">총 지급</th><th class="num">총 공제</th><th class="num">실수령</th><th>메모</th><th></th></tr></thead>
       <tbody>${records.map((r) => `<tr>
+        ${isAll ? `<td><b>${esc(r.name)}</b></td>` : ""}
         <td><b>${r.ym}</b></td>
         <td>${esc(r.payDate || "-")}</td>
         <td class="num"><span class="hov c-green" data-hv="${r.id}" data-ym="${r.ym}" data-kind="pay">${fmt(r.payTotal)}원</span></td>
@@ -1228,18 +1387,20 @@ async function renderPayHistoryAdmin(emp) {
         <td><button class="row-menu-btn" data-pm-menu="${r.id}" data-ym="${r.ym}" title="메뉴">&#8943;</button></td>
       </tr>`).join("")}</tbody>
     </table></div>`
-    : `<div class="empty">${pmYear}년 기록이 없습니다. 왼쪽에서 첫 기록을 저장하세요.</div>`;
+    : `<div class="empty">${scope} 기록이 없습니다.${emp ? " 왼쪽에서 첫 기록을 저장하세요." : ""}</div>`;
 
   attachPayHover($("#pm-history"), records);
   $("#pm-history").querySelectorAll("[data-pm-menu]").forEach((b) => {
     b.onclick = (ev) => {
       ev.stopPropagation();
       const r = records.find((x) => x.id === b.dataset.pmMenu && x.ym === b.dataset.ym);
+      const recEmp = emp || pmEmps.find((e) => e.id === r.empId) ||
+        { name: r.name, dept: "-", grade: "", position: "", joinDate: "" };
       openRowMenu(b, [
         {
           label: "명세서 출력",
           icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>',
-          onClick: () => printPayslip(emp, r)
+          onClick: () => printPayslip(recEmp, r)
         },
         {
           label: "수정",
@@ -1247,7 +1408,8 @@ async function renderPayHistoryAdmin(emp) {
           onClick: () => {
             pmEditId = r.id;
             pmEditYm = r.ym;
-            renderPayForm(emp, catForEmp(emp), r);
+            if (!emp && r.empId) pmEmpId = r.empId; // 전체 보기에서 수정 → 해당 직원으로 전환
+            renderPayroll();
             window.scrollTo({ top: 0, behavior: "smooth" });
           }
         },
@@ -1256,9 +1418,9 @@ async function renderPayHistoryAdmin(emp) {
           cls: "danger",
           icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/><path d="M10 11v6M14 11v6"/></svg>',
           onClick: async () => {
-            if (!confirm(`${emp.name}님의 ${r.ym} (지급일 ${r.payDate || "-"}) 기록을 삭제할까요?`)) return;
+            if (!confirm(`${r.name}님의 ${r.ym} (지급일 ${r.payDate || "-"}) 기록을 삭제할까요?`)) return;
             await db.collection(COL.payroll).doc(r.ym).collection("rows").doc(r.id).delete();
-            if (pmEditId === r.id) { pmEditId = null; pmEditYm = null; renderPayForm(emp, catForEmp(emp), null); }
+            if (pmEditId === r.id) { pmEditId = null; pmEditYm = null; }
             renderPayHistoryAdmin(emp);
           }
         }

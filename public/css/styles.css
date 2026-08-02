@@ -616,6 +616,88 @@ table.data th.num { text-align: right; }
 /* ───────── 급여관리 (급여장부) ───────── */
 .pm-grid { display: grid; grid-template-columns: 350px 1fr; gap: 18px; align-items: start; }
 
+/* 캘린더 입력 버튼 */
+.cal-input {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 11px 13px;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 0.92rem;
+  color: var(--ink);
+  text-align: left;
+}
+.cal-input:hover, .cal-input:focus-visible { border-color: var(--blue); outline: none; }
+.cal-input svg { width: 17px; height: 17px; color: var(--ink-faint); flex-shrink: 0; }
+.pm-date-row .cal-input { flex: 1; }
+
+/* 캘린더 팝업 */
+.cal-pop {
+  position: fixed;
+  z-index: 320;
+  background: var(--surface);
+  border-radius: 16px;
+  box-shadow: 0 8px 30px rgba(25, 31, 40, 0.18);
+  padding: 14px;
+  width: 300px;
+}
+.cal-head { display: flex; gap: 6px; align-items: center; margin-bottom: 10px; }
+.cal-head select {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+.cal-nav {
+  width: 34px;
+  height: 36px;
+  border: none;
+  background: #f2f4f6;
+  border-radius: 10px;
+  font-size: 1.05rem;
+  color: var(--ink-soft);
+}
+.cal-nav:hover { background: var(--blue-soft); color: var(--blue-deep); }
+.cal-mgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.cal-m {
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  padding: 12px 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.cal-m:hover { background: #f2f4f6; }
+.cal-m.on { background: var(--blue); color: #fff; }
+.cal-dow { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: 0.74rem; color: var(--ink-faint); margin-bottom: 2px; }
+.cal-dgrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.cal-d {
+  border: none;
+  background: transparent;
+  border-radius: 9px;
+  padding: 8px 0;
+  font-size: 0.86rem;
+  font-weight: 500;
+  color: var(--ink);
+}
+.cal-d:hover:not(:disabled) { background: #f2f4f6; }
+.cal-d.out { color: var(--line-strong); }
+.cal-d.on { background: var(--blue); color: #fff; font-weight: 700; }
+.cal-foot { display: flex; justify-content: space-between; border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; }
+.cal-link { border: none; background: transparent; font-size: 0.86rem; font-weight: 600; color: var(--ink-soft); }
+.cal-link:hover { color: var(--ink); }
+.cal-link.primary { color: var(--blue); }
+
+#pm-month { padding: 8px 12px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 0.85rem; font-weight: 600; }
+
 /* 행 ⋯ 메뉴 */
 .row-menu-btn {
   border: none;
