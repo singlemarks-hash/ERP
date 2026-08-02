@@ -2483,7 +2483,7 @@ function openEmployeeModal(emp) {
       </div>
       <div class="grid-2">
         <label class="field"><span class="field-label">이메일</span><input id="ef-email" type="email" value="${esc(emp?.email || "")}" /></label>
-      <label class="field"><span class="field-label">인사정보 URL (스프레드시트 등 — 목록에서 이름 클릭 시 이동)</span>
+      <label class="field"><span class="field-label">인사정보 URL</span>
         <input id="ef-hrurl" type="url" placeholder="https://docs.google.com/spreadsheets/..." value="${esc(emp?.hrUrl || "")}" /></label>
         <label class="field"><span class="field-label">연락처</span><input id="ef-phone" type="tel" placeholder="010-0000-0000" value="${esc(emp?.phone || "")}" /></label>
       </div>
