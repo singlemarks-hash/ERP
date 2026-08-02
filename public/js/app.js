@@ -2,9 +2,9 @@
 "use strict";
 
 const DEPTS = ["대표", "경영지원본부", "오프라인사업부", "온라인사업부"];
-const EMP_TYPES = ["정직원(4대보험)", "3.3% 사업소득", "아티스트"];
+const EMP_TYPES = ["정직원(4대보험)", "3.3% 사업소득"];
 const GRADES = ["L0 (파트타이머)", "L1", "L2", "L3", "L4", "L5 (대표)"];
-const PAY_CATS = ["4대보험", "3.3%", "아티스트"];
+const PAY_CATS = ["4대보험", "3.3%"];
 const LEAVE_TYPES = ["연차", "반차", "병가", "경조", "기타"];
 const SESSION_KEY = "quote_erp_session_v1";
 
@@ -931,7 +931,6 @@ const DEDUCT_TEMPLATE_33 = [["소득세", 0], ["지방세", 0]];
 function catForEmp(emp) {
   const t = (emp?.empType || "");
   if (t.includes("3.3")) return "3.3%";
-  if (t.includes("아티스트")) return "아티스트";
   return "4대보험";
 }
 
@@ -1329,7 +1328,7 @@ function renderPayForm(emp, cat, record) {
   const payItems = isEdit ? record.payments.map((p) => [p.label, p.amount])
     : PAY_TEMPLATE.map(([l, a]) => [l, a]);
   const deductItems = isEdit ? record.deductions.map((p) => [p.label, p.amount])
-    : (cat === "3.3%" ? DEDUCT_TEMPLATE_33 : cat === "아티스트" ? DEDUCT_TEMPLATE_33 : DEDUCT_TEMPLATE_4).map(([l, a]) => [l, a]);
+    : (cat === "3.3%" ? DEDUCT_TEMPLATE_33 : DEDUCT_TEMPLATE_4).map(([l, a]) => [l, a]);
 
   let selYm = isEdit ? pmEditYm : ymNow();
   let selDate = record?.payDate || "";
@@ -2047,7 +2046,7 @@ async function renderEmployees() {
         <div class="lv-stat"><span class="lv-ico t-blue">${LV_ICONS.used}</span>
           <div><div class="s-label">재직 인원</div><div class="s-value">${active.length}명</div></div></div>
         <div class="lv-stat"><span class="lv-ico t-green">${ICONS.employees ? `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>` : ""}</span>
-          <div><div class="s-label">4대보험 / 3.3% / 아티스트</div><div class="s-value">${typeCount("4대보험") + typeCount("사대보험")} / ${typeCount("3.3")} / ${typeCount("아티스트")}</div></div></div>
+          <div><div class="s-label">4대보험 / 3.3%</div><div class="s-value">${typeCount("4대보험") + typeCount("사대보험")} / ${typeCount("3.3")}</div></div></div>
         <div class="lv-stat"><span class="lv-ico t-amber">${LV_ICONS.pending}</span>
           <div><div class="s-label">비밀번호 미설정</div><div class="s-value">${active.filter((e) => !e.passwordHash).length}명</div></div></div>
         <div class="lv-stat"><span class="lv-ico t-purple">${LV_ICONS.remain}</span>
