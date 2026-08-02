@@ -621,11 +621,9 @@ tr.ph-row-open td { background: var(--blue-soft); }
   margin-bottom: 14px;
 }
 .ph-detail-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-.ph-col { background: #f9fafb; border-radius: 14px; padding: 14px 16px; }
-.ph-col.pb-pay { background: var(--green-soft); }
-.ph-col.pb-deduct { background: var(--red-soft); }
+.ph-col { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
 .ph-col-title { font-size: 0.83rem; font-weight: 700; margin-bottom: 6px; }
-.ph-col-net { background: var(--green-soft); display: flex; flex-direction: column; }
+.ph-col-net { display: flex; flex-direction: column; }
 .ph-net-amt { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; color: var(--green); margin-top: 10px; font-variant-numeric: tabular-nums; }
 .ph-net-amt span { font-size: 1rem; font-weight: 700; margin-left: 2px; }
 .ph-col-net .p-meta { font-size: 0.78rem; }
