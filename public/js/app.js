@@ -269,37 +269,77 @@ function enterApp() {
   $("#sidebar-toggle").onclick = () => $("#sidebar").classList.toggle("open");
 }
 
+/* 라인 아이콘 (stroke 기반 인라인 SVG) */
+const ICONS = {
+  home: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9.5 21v-6h5v6"/></svg>',
+  payroll: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M3 9h2M19 15h2"/></svg>',
+  leave: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><path d="m9.5 15 2 2 3.5-3.5"/></svg>',
+  settings: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z"/></svg>',
+  employees: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.2 3.4-5 6.5-5s5.7 1.8 6.5 5"/><circle cx="17.5" cy="9.5" r="2.5"/><path d="M16.5 15.2c2.5.3 4.3 1.8 5 4.3"/></svg>',
+  monitor: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5c0 4.6 3.2 8.4 7.5 10 4.3-1.6 7.5-5.4 7.5-10V6L12 3Z"/><path d="m9 12 2 2 4-4"/></svg>'
+};
+
 function renderSidebar() {
   $("#user-card").innerHTML = `
-    <div class="u-name">${esc(me.name)}</div>
-    <span class="u-role">${roleLabel(me.role)}</span>
-    <div class="u-meta">
-      <span><b>부서</b> ${esc(me.dept)}</span>
-      ${me.position ? `<span><b>직급</b> ${esc(me.position)}</span>` : ""}
-      ${me.email ? `<span><b>메일</b> ${esc(me.email)}</span>` : ""}
-      ${me.joinDate ? `<span><b>입사</b> ${esc(me.joinDate)}</span>` : ""}
-      <span><b>구분</b> ${esc(me.empType || "-")}</span>
-    </div>`;
+    <div class="profile-top">
+      <span class="avatar">${esc((me.name || "?").charAt(0))}</span>
+      <div>
+        <div class="p-name">${esc(me.name)} 님</div>
+        <div class="p-badges">
+          <span class="badge dept">${esc(me.dept)}</span>
+          <span class="badge ${me.role}">${roleLabel(me.role)}</span>
+        </div>
+      </div>
+    </div>
+    <ul class="p-meta">
+      ${me.position ? `<li><b>직급</b> ${esc(me.position)}</li>` : ""}
+      ${me.joinDate ? `<li><b>입사일</b> ${esc(me.joinDate)}</li>` : ""}
+      ${me.email ? `<li><b>이메일</b> ${esc(me.email)}</li>` : ""}
+      ${me.phone ? `<li><b>연락처</b> ${esc(me.phone)}</li>` : ""}
+      <li><b>구분</b> ${esc(me.empType || "-")}</li>
+    </ul>
+    <button class="btn btn-ghost btn-sm p-info-btn" id="my-info-btn">내 정보 보기</button>`;
+  $("#my-info-btn").onclick = openMyInfoModal;
 
   const items = [
-    { id: "home", ico: "⌂", label: "홈" },
-    { id: "payroll", ico: "₩", label: "급여대장" },
-    { id: "leave", ico: "☀", label: "연차/휴가 관리" },
-    { id: "settings", ico: "⚙", label: "설정" }
+    { id: "home", label: "홈" },
+    { id: "payroll", label: "급여대장" },
+    { id: "leave", label: "연차/휴가 관리" },
+    { id: "settings", label: "설정" }
   ];
   let html = items.map((i) =>
-    `<button class="nav-item" data-view="${i.id}"><span class="ico">${i.ico}</span>${i.label}</button>`).join("");
+    `<button class="nav-item" data-view="${i.id}">${ICONS[i.id]}${i.label}</button>`).join("");
   if (isAdmin()) {
-    html += `<div class="nav-label">관리자 (경영지원본부)</div>` + [
-      { id: "employees", ico: "☰", label: "직원 관리" },
-      { id: "monitor", ico: "◉", label: "권한 모니터링" }
-    ].map((i) => `<button class="nav-item" data-view="${i.id}"><span class="ico">${i.ico}</span>${i.label}</button>`).join("");
+    html += `<div class="nav-label">관리자 메뉴</div>` + [
+      { id: "employees", label: "직원 관리" },
+      { id: "monitor", label: "권한 모니터링" }
+    ].map((i) => `<button class="nav-item" data-view="${i.id}">${ICONS[i.id]}${i.label}</button>`).join("");
   }
   const nav = $("#nav");
   nav.innerHTML = html;
   nav.querySelectorAll(".nav-item").forEach((b) => {
     b.onclick = () => { navigate(b.dataset.view); $("#sidebar").classList.remove("open"); };
   });
+}
+
+function openMyInfoModal() {
+  const row = (k, v) => v ? `<li><b>${k}</b> ${esc(v)}</li>` : "";
+  openModal(`
+    <h3>내 정보</h3>
+    <p class="modal-desc">정보 수정이 필요하면 경영지원본부에 요청하세요.</p>
+    <ul class="p-meta" style="font-size:.88rem">
+      ${row("이름", me.name)}
+      ${row("부서", me.dept)}
+      ${row("직급", me.position)}
+      ${row("권한", roleLabel(me.role))}
+      ${row("입사일", me.joinDate)}
+      ${row("이메일", me.email)}
+      ${row("연락처", me.phone)}
+      ${row("고용 구분", me.empType)}
+      ${row("재직 상태", me.status)}
+    </ul>
+    <div class="modal-actions"><button class="btn btn-primary" id="mi-close">닫기</button></div>`);
+  $("#mi-close").onclick = closeModal;
 }
 
 function navigate(view) {
@@ -325,12 +365,79 @@ function pageHead(eyebrow, title, desc, actionsHtml) {
   </div>`;
 }
 
-/* ───────── 홈 ───────── */
+/* ───────── 홈 (대시보드) ───────── */
+const TILE_TONES = [
+  ["var(--seal-soft)", "var(--seal)"],
+  ["var(--gold-soft)", "var(--gold-ink)"],
+  ["var(--ok-soft)", "var(--ok)"],
+  ["var(--plum-soft)", "var(--plum)"]
+];
+
+function recentMonths(n) {
+  const list = [];
+  const d = new Date();
+  for (let i = 0; i < n; i++) {
+    list.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+    d.setMonth(d.getMonth() - 1);
+  }
+  return list;
+}
+
 async function renderHome() {
   const main = $("#main");
-  main.innerHTML = pageHead("HOME", "홈",
-    "자주 쓰는 사내 툴로 바로 이동하세요. 공용 바로가기 URL은 경영지원본부가 관리합니다.");
+  const today = new Date();
+  const dateStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일 (${"일월화수목금토"[today.getDay()]})`;
 
+  main.innerHTML = `
+    <div class="home-greet">
+      <div>
+        <div class="g-title">안녕하세요, <em>${esc(me.name)}</em> 님</div>
+        <p class="g-sub">${esc(me.dept)} · 오늘도 좋은 하루 보내세요.</p>
+      </div>
+      <span class="g-date">${dateStr}</span>
+    </div>
+    <div class="card" id="shortcut-card">
+      <div class="card-title">
+        <div>바로가기<div class="ct-desc">자주 사용하는 사내 서비스로 이동하세요.${isAdmin() ? " 공용 바로가기는 경영지원본부가 관리합니다." : ""}</div></div>
+        <span style="display:flex;gap:6px">
+          ${isAdmin() ? `<button class="btn btn-ghost btn-sm" id="pub-add">+ 공용 추가</button>` : ""}
+          <button class="btn btn-ghost btn-sm" id="my-add">+ 내 바로가기</button>
+        </span>
+      </div>
+      <div id="shortcut-body"></div>
+    </div>
+    <div class="widget-grid">
+      <div class="card">
+        <div class="card-title">
+          <div>급여대장<div class="ct-desc">${canViewAll() ? "최근 6개월 인건비 현황입니다." : "내 최근 6개월 급여 현황입니다."}</div></div>
+          <button class="btn btn-ghost btn-sm" data-goto="payroll">상세보기 →</button>
+        </div>
+        <div id="home-pay"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">
+          <div>연차/휴가<div class="ct-desc">나의 연차 사용 현황입니다.</div></div>
+          <button class="btn btn-ghost btn-sm" data-goto="leave">사용 내역 →</button>
+        </div>
+        <div id="home-leave"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="toggle-row flat">
+        <div class="toggle-info">
+          <b>업데이트 이메일 수신</b>
+          <p>급여·연차·공지 등 업데이트 내용을 이메일로 받습니다.</p>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="home-email-toggle" />
+          <span class="knob"></span>
+        </label>
+      </div>
+    </div>`;
+
+  main.querySelectorAll("[data-goto]").forEach((b) => { b.onclick = () => navigate(b.dataset.goto); });
+
+  /* ── 바로가기 타일 ── */
   const [pubSnap, myBtnSnap] = await Promise.all([
     db.collection(COL.homeButtons).get(),
     db.collection(COL.personalButtons).doc(me.id).get()
@@ -339,32 +446,27 @@ async function renderHome() {
     .sort((a, b) => (a.order || 0) - (b.order || 0));
   const myBtns = myBtnSnap.exists ? (myBtnSnap.data().items || []) : [];
 
-  const shortcut = (b, editHtml) => `
-    <a class="shortcut" href="${esc(b.url)}" target="_blank" rel="noopener">
+  const tile = (b, i, editHtml) => {
+    const [bg, fg] = TILE_TONES[i % TILE_TONES.length];
+    return `
+    <a class="tile" href="${esc(b.url)}" target="_blank" rel="noopener">
       ${editHtml || ""}
-      <div class="sc-label">${esc(b.label)}</div>
-      <div class="sc-desc">${esc(b.desc || b.url)}</div>
+      <span class="tile-ico" style="background:${bg};color:${fg}">${esc((b.label || "?").charAt(0))}</span>
+      <span><span class="t-label">${esc(b.label)}</span>
+      <div class="t-desc">${esc(b.desc || "")}</div></span>
     </a>`;
+  };
 
-  main.innerHTML += `
-    <div class="card">
-      <div class="card-title">공용 바로가기
-        ${isAdmin() ? `<button class="btn btn-ghost btn-sm" id="pub-add">+ 버튼 추가</button>` : ""}
-      </div>
-      ${pubBtns.length
-        ? `<div class="shortcut-grid">${pubBtns.map((b) => shortcut(b, isAdmin()
-            ? `<span class="sc-edit"><button data-edit="${b.id}">수정</button><button data-del="${b.id}">삭제</button></span>` : "")).join("")}</div>`
-        : `<div class="empty">등록된 공용 버튼이 없습니다.${isAdmin() ? " [+ 버튼 추가]로 사내 툴 URL을 등록하세요." : " 경영지원본부에 등록을 요청하세요."}</div>`}
-    </div>
-    <div class="card">
-      <div class="card-title">내 바로가기 <button class="btn btn-ghost btn-sm" id="my-add">+ 버튼 추가</button></div>
-      ${myBtns.length
-        ? `<div class="shortcut-grid">${myBtns.map((b, i) => shortcut(b,
-            `<span class="sc-edit"><button data-myedit="${i}">수정</button><button data-mydel="${i}">삭제</button></span>`)).join("")}</div>`
-        : `<div class="empty">나만 쓰는 버튼을 자유롭게 추가할 수 있습니다.</div>`}
-    </div>`;
+  $("#shortcut-body").innerHTML = `
+    ${pubBtns.length
+      ? `<div class="tile-grid">${pubBtns.map((b, i) => tile(b, i, isAdmin()
+          ? `<span class="t-edit"><button data-edit="${b.id}">수정</button><button data-del="${b.id}">삭제</button></span>` : "")).join("")}</div>`
+      : `<div class="empty">등록된 공용 바로가기가 없습니다.${isAdmin() ? " [+ 공용 추가]로 사내 툴 주소를 등록하세요." : " 경영지원본부에 등록을 요청하세요."}</div>`}
+    ${myBtns.length
+      ? `<div class="tile-sub">내 바로가기</div>
+         <div class="tile-grid">${myBtns.map((b, i) => tile(b, i + 1,
+          `<span class="t-edit"><button data-myedit="${i}">수정</button><button data-mydel="${i}">삭제</button></span>`)).join("")}</div>` : ""}`;
 
-  // 공용 버튼 (admin)
   if (isAdmin()) {
     $("#pub-add").onclick = () => openButtonModal(null, pubBtns.length);
     main.querySelectorAll("[data-edit]").forEach((b) => {
@@ -374,15 +476,13 @@ async function renderHome() {
       b.onclick = async (e) => {
         e.preventDefault();
         const btn = pubBtns.find((x) => x.id === b.dataset.del);
-        if (!confirm(`공용 버튼 "${btn.label}"을(를) 삭제할까요?`)) return;
+        if (!confirm(`공용 바로가기 "${btn.label}"을(를) 삭제할까요?`)) return;
         await db.collection(COL.homeButtons).doc(btn.id).delete();
         await audit("공용 버튼 삭제", btn.label);
         renderHome();
       };
     });
   }
-
-  // 개인 버튼
   $("#my-add").onclick = () => openMyButtonModal(myBtns, null);
   main.querySelectorAll("[data-myedit]").forEach((b) => {
     b.onclick = (e) => { e.preventDefault(); openMyButtonModal(myBtns, Number(b.dataset.myedit)); };
@@ -391,12 +491,75 @@ async function renderHome() {
     b.onclick = async (e) => {
       e.preventDefault();
       const idx = Number(b.dataset.mydel);
-      if (!confirm(`내 버튼 "${myBtns[idx].label}"을(를) 삭제할까요?`)) return;
+      if (!confirm(`내 바로가기 "${myBtns[idx].label}"을(를) 삭제할까요?`)) return;
       myBtns.splice(idx, 1);
       await db.collection(COL.personalButtons).doc(me.id).set({ items: myBtns });
       renderHome();
     };
   });
+
+  /* ── 급여 위젯: 최근 6개월 ── */
+  const months = recentMonths(6);
+  const monthRows = await Promise.all(months.map((ym) =>
+    db.collection(COL.payroll).doc(ym).collection("rows").get().then((s) => ({
+      ym, rows: s.docs.map((d) => d.data())
+    }))));
+  const payLines = monthRows.map(({ ym, rows }) => {
+    const list = canViewAll() ? rows : rows.filter((r) => r.empId === me.id || r.name === me.name);
+    const sum = (k) => list.reduce((s, r) => s + (Number(r[k]) || 0), 0);
+    return { ym, count: list.length, gross: sum("gross"), extra: sum("meal") + sum("extra"), net: sum("net") };
+  }).filter((l) => l.count > 0);
+
+  $("#home-pay").innerHTML = payLines.length ? `
+    <div class="table-wrap"><table class="data">
+      <thead><tr><th>지급월</th>${canViewAll() ? '<th class="num">인원</th>' : ""}<th class="num">세전 합계</th><th class="num">식대·수당</th><th class="num">세후 합계</th></tr></thead>
+      <tbody>${payLines.map((l) => `<tr>
+        <td><b>${l.ym.replace("-", ".")}</b></td>
+        ${canViewAll() ? `<td class="num">${l.count}명</td>` : ""}
+        <td class="num">${fmt(l.gross)}</td>
+        <td class="num">${l.extra ? fmt(l.extra) : "-"}</td>
+        <td class="num">${l.net ? fmt(l.net) : "-"}</td>
+      </tr>`).join("")}</tbody>
+    </table></div>
+    <div class="mini-note">월별 상세 내역은 [급여대장] 메뉴에서 확인하세요.</div>`
+    : `<div class="empty">최근 6개월 급여 데이터가 없습니다.${isAdmin() ? " [급여대장]에서 입력을 시작하세요." : ""}</div>`;
+
+  /* ── 연차 위젯 ── */
+  const lvSnap = await db.collection(COL.leaves).doc(me.id).get();
+  const lv = lvSnap.exists ? lvSnap.data() : { allocated: 0, records: [] };
+  const recs = lv.records || [];
+  const used = recs.reduce((s, r) => s + (Number(r.days) || 0), 0);
+  const remain = (Number(lv.allocated) || 0) - used;
+  const pct = lv.allocated ? Math.min(100, Math.round((used / lv.allocated) * 100)) : 0;
+  const byType = LEAVE_TYPES.map((t, i) => {
+    const days = recs.filter((r) => r.type === t).reduce((s, r) => s + (Number(r.days) || 0), 0);
+    return { t, days, tone: ["", "gold", "ok", "plum", ""][i % 5] };
+  });
+  const maxType = Math.max(1, ...byType.map((b) => b.days));
+
+  $("#home-leave").innerHTML = `
+    <div class="leave-chips">
+      <div class="leave-chip"><div class="c-label">총 연차</div><div class="c-value">${lv.allocated || 0}일</div></div>
+      <div class="leave-chip"><div class="c-label">사용</div><div class="c-value">${used}일</div></div>
+      <div class="leave-chip remain"><div class="c-label">남은 연차</div><div class="c-value">${remain}일</div></div>
+    </div>
+    <div class="usage-line"><span>사용률</span><div class="bar ${remain < 0 ? "over" : ""}"><i style="width:${pct}%"></i></div><b>${pct}%</b></div>
+    <div class="type-bars">
+      ${byType.map((b) => `<div class="type-bar">
+        <span>${b.t}</span>
+        <div class="bar ${b.tone}"><i style="width:${Math.round((b.days / maxType) * 100)}%"></i></div>
+        <span class="tb-num">${b.days}일</span>
+      </div>`).join("")}
+    </div>`;
+
+  /* ── 이메일 토글 (설정과 동기화) ── */
+  const setSnap = await db.collection(COL.settings).doc(me.id).get();
+  const toggle = $("#home-email-toggle");
+  toggle.checked = setSnap.exists && !!setSnap.data().emailNotif;
+  toggle.onchange = async (ev) => {
+    await db.collection(COL.settings).doc(me.id).set({ emailNotif: ev.target.checked }, { merge: true });
+    toast(ev.target.checked ? "이메일 수신을 켰습니다." : "이메일 수신을 껐습니다.");
+  };
 }
 
 function openButtonModal(btn, nextOrder) {
@@ -818,7 +981,10 @@ function openEmployeeModal(emp) {
         <label class="field"><span class="field-label">직급</span><input id="ef-pos" value="${esc(emp?.position || "")}" /></label>
         <label class="field"><span class="field-label">입사일</span><input id="ef-join" type="date" value="${esc(emp?.joinDate || "")}" /></label>
       </div>
-      <label class="field"><span class="field-label">이메일</span><input id="ef-email" type="email" value="${esc(emp?.email || "")}" /></label>
+      <div class="grid-2">
+        <label class="field"><span class="field-label">이메일</span><input id="ef-email" type="email" value="${esc(emp?.email || "")}" /></label>
+        <label class="field"><span class="field-label">연락처</span><input id="ef-phone" type="tel" placeholder="010-0000-0000" value="${esc(emp?.phone || "")}" /></label>
+      </div>
       <div class="grid-2">
         <label class="field"><span class="field-label">고용 구분</span>
           <select id="ef-type">${EMP_TYPES.map((t) => `<option ${emp?.empType === t ? "selected" : ""}>${t}</option>`).join("")}</select></label>
@@ -851,6 +1017,7 @@ function openEmployeeModal(emp) {
       position: $("#ef-pos").value.trim(),
       joinDate: $("#ef-join").value,
       email: $("#ef-email").value.trim(),
+      phone: $("#ef-phone").value.trim(),
       empType: $("#ef-type").value,
       role: $("#ef-role").value,
       status: $("#ef-status").value
