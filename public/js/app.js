@@ -523,18 +523,17 @@ async function renderHome() {
     }))));
   const payLines = monthRows.map(({ ym, rows }) => {
     const list = rows.filter((r) => r.empId === me.id || r.name === me.name);
-    const sum = (k) => list.reduce((s, r) => s + (Number(r[k]) || 0), 0);
-    return { ym, count: list.length, gross: sum("gross"), extra: sum("meal") + sum("extra"), net: sum("net") };
+    return { ym, count: list.length, agg: list.length ? aggregatePayMonth(list) : null };
   }).filter((l) => l.count > 0);
 
   $("#home-pay").innerHTML = payLines.length ? `
     <div class="table-wrap"><table class="data">
-      <thead><tr><th>지급월</th><th class="num">세전</th><th class="num">식대·수당</th><th class="num">실수령</th></tr></thead>
+      <thead><tr><th>지급월</th><th class="num">기본급</th><th class="num">수당·상여</th><th class="num">실지급액</th></tr></thead>
       <tbody>${payLines.map((l) => `<tr>
         <td><b>${l.ym.replace("-", ".")}</b></td>
-        <td class="num">${fmt(l.gross)}</td>
-        <td class="num">${l.extra ? fmt(l.extra) : "-"}</td>
-        <td class="num">${l.net ? fmt(l.net) : "-"}</td>
+        <td class="num">${fmt(l.agg.gross)}</td>
+        <td class="num">${fmt(l.agg.allowance + l.agg.meal + l.agg.bonus + l.agg.extra)}</td>
+        <td class="num"><b>${fmt(l.agg.net)}</b></td>
       </tr>`).join("")}</tbody>
     </table></div>
     <div class="mini-note">월별 상세 명세는 [급여이력]에서 확인하세요.</div>`
@@ -744,100 +743,157 @@ function openMyButtonModal(items, idx) {
 }
 
 /* ───────── 급여이력 (본인 급여 조회) ───────── */
-function myPayAmount(rows) {
-  // 실수령액(net)이 입력돼 있으면 실수령 기준, 없으면 세전+식대+수당 합계
+const DEDUCT_ITEMS = [
+  ["pension", "국민연금"], ["health", "건강보험"], ["longcare", "장기요양보험"],
+  ["employment", "고용보험"], ["incomeTax", "소득세"], ["localTax", "지방소득세"], ["otherDeduct", "기타 공제"]
+];
+const PAY_ITEMS = [["gross", "기본급"], ["allowance", "직책수당"], ["meal", "식대"], ["bonus", "성과급"], ["extra", "기타 수당"]];
+
+function aggregatePayMonth(rows) {
   const sum = (k) => rows.reduce((s, r) => s + (Number(r[k]) || 0), 0);
-  const net = sum("net");
-  return net > 0 ? { amount: net, basis: "실수령" } : { amount: sum("gross") + sum("meal") + sum("extra"), basis: "세전" };
+  const payTotal = PAY_ITEMS.reduce((s, [k]) => s + sum(k), 0);
+  let deductTotal = DEDUCT_ITEMS.reduce((s, [k]) => s + sum(k), 0);
+  let net = sum("net");
+  if (!net) net = payTotal - deductTotal;
+  if (!deductTotal && net) deductTotal = Math.max(0, payTotal - net);
+  const withDate = rows.find((r) => r.payDate);
+  const withPayInfo = rows.find((r) => r.payMethod || r.account);
+  return {
+    payTotal, deductTotal, net,
+    gross: sum("gross"), allowance: sum("allowance"), meal: sum("meal"), bonus: sum("bonus"), extra: sum("extra"),
+    taxBase: sum("taxBase") || payTotal,
+    payDate: withDate ? withDate.payDate : "",
+    payMethod: withPayInfo ? withPayInfo.payMethod : "",
+    account: withPayInfo ? withPayInfo.account : "",
+    rows
+  };
 }
+
+let phOpenYm = null;
 
 async function renderPayHistory() {
   const main = $("#main");
-  main.innerHTML = pageHead("MY PAY", "급여이력", "내 급여 지급 내역입니다. 월을 누르면 상세 명세를 볼 수 있습니다.") +
+  main.innerHTML = pageHead("MY PAY", "급여이력", "내 급여 지급 내역입니다.") +
     `<div id="ph-body"><div class="empty">불러오는 중...</div></div>`;
 
-  const months = recentMonths(24);
+  const months = recentMonths(36);
   const monthRows = await Promise.all(months.map((ym) =>
     db.collection(COL.payroll).doc(ym).collection("rows").get().then((s) => ({
       ym,
       rows: s.docs.map((d) => d.data()).filter((r) => r.empId === me.id || r.name === me.name)
     }))));
-  const entries = monthRows.filter((e) => e.rows.length > 0);
+  const entries = monthRows.filter((e) => e.rows.length > 0)
+    .map((e) => ({ ym: e.ym, agg: aggregatePayMonth(e.rows) }));
 
   if (!entries.length) {
     $("#ph-body").innerHTML = `<div class="empty">아직 등록된 급여 내역이 없습니다.<br/>급여가 입력되면 이곳에서 월별로 확인할 수 있습니다.</div>`;
     return;
   }
 
-  const latest = entries[0];
-  const latestPay = myPayAmount(latest.rows);
-  const [ly, lm] = latest.ym.split("-").map(Number);
-  const yearTotal = entries.filter((e) => e.ym.startsWith(String(ly)))
-    .reduce((s, e) => s + myPayAmount(e.rows).amount, 0);
+  const years = [...new Set(entries.map((e) => e.ym.slice(0, 4)))];
+  const curYear = years[0];
 
-  const rowHtml = (e) => {
-    const [y, m] = e.ym.split("-").map(Number);
-    const pay = myPayAmount(e.rows);
-    const cats = [...new Set(e.rows.map((r) => r.category))];
-    return `<button class="pay-row" data-ym="${e.ym}">
-      <span class="pr-left">
-        <span class="pr-month">${m}월 급여</span>
-        <span class="pr-sub">${y}년 · ${cats.join(" · ")}</span>
-      </span>
-      <span class="pr-right">
-        <span class="pr-amt">${fmt(pay.amount)}원</span>
-        <span class="pr-basis">${pay.basis}</span>
-      </span>
-    </button>`;
+  const renderTable = (year) => {
+    const list = entries.filter((e) => e.ym.startsWith(year));
+    const detail = phOpenYm ? list.find((e) => e.ym === phOpenYm) : null;
+
+    $("#ph-table").innerHTML = `
+      <div class="table-wrap"><table class="data">
+        <thead><tr>
+          <th>지급월</th><th class="num">기본급</th><th class="num">수당</th><th class="num">상여</th>
+          <th class="num">공제액 합계</th><th class="num">실지급액</th><th>지급일</th><th></th>
+        </tr></thead>
+        <tbody>${list.map(({ ym, agg }) => {
+          const m = Number(ym.split("-")[1]);
+          const open = ym === phOpenYm;
+          return `<tr class="${open ? "ph-row-open" : ""}">
+            <td><b>${ym.replace("-", ".")}</b></td>
+            <td class="num">${fmt(agg.gross)}</td>
+            <td class="num">${fmt(agg.allowance + agg.meal + agg.extra)}</td>
+            <td class="num">${agg.bonus ? fmt(agg.bonus) : "-"}</td>
+            <td class="num">${fmt(agg.deductTotal)}</td>
+            <td class="num"><b>${fmt(agg.net)}</b></td>
+            <td>${esc(agg.payDate || "-")}</td>
+            <td><button class="btn btn-ghost btn-sm" data-ph-toggle="${ym}">${open ? "닫기" : "상세보기"} ${open ? "" : "›"}</button></td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table></div>
+      ${detail ? renderPayDetailPanel(detail.ym, detail.agg) : ""}`;
+
+    $("#ph-table").querySelectorAll("[data-ph-toggle]").forEach((b) => {
+      b.onclick = () => { phOpenYm = phOpenYm === b.dataset.phToggle ? null : b.dataset.phToggle; renderTable(year); };
+    });
+    const dl = $("#ph-download");
+    if (dl) dl.onclick = () => downloadPayCsv(year, list);
   };
 
-  // 연도별 그룹
-  const years = [...new Set(entries.map((e) => e.ym.slice(0, 4)))];
-  const listHtml = years.map((y) => `
-    <div class="pay-year">${y}년</div>
-    <div class="pay-list">${entries.filter((e) => e.ym.startsWith(y)).map(rowHtml).join("")}</div>`).join("");
-
   $("#ph-body").innerHTML = `
-    <div class="pay-hero">
-      <div class="ph-label">${lm}월 급여 (${latestPay.basis})</div>
-      <div class="ph-amount">${fmt(latestPay.amount)}<span>원</span></div>
-      <div class="ph-sub">${ly}년 올해 누적 ${fmt(yearTotal)}원을 받았어요</div>
-    </div>
-    ${listHtml}`;
+    <div class="card">
+      <div class="card-title">
+        <div>급여 이력 조회<div class="ct-desc">최근 급여 내역을 확인하세요.</div></div>
+        <span style="display:flex;gap:8px">
+          <select id="ph-year">${years.map((y) => `<option value="${y}">${y}년</option>`).join("")}</select>
+          <button class="btn btn-ghost btn-sm" id="ph-download">⬇ 엑셀 다운로드</button>
+        </span>
+      </div>
+      <div id="ph-table"></div>
+      <div class="mini-note">급여 명세서 원본은 경영지원본부에 요청하세요.</div>
+    </div>`;
 
-  $("#ph-body").querySelectorAll(".pay-row").forEach((b) => {
-    b.onclick = () => {
-      const e = entries.find((x) => x.ym === b.dataset.ym);
-      openPayDetailModal(e.ym, e.rows);
-    };
-  });
+  $("#ph-year").onchange = (ev) => { phOpenYm = null; renderTable(ev.target.value); };
+  renderTable(curYear);
 }
 
-function openPayDetailModal(ym, rows) {
+function renderPayDetailPanel(ym, agg) {
   const [y, m] = ym.split("-").map(Number);
-  const pay = myPayAmount(rows);
-  const line = (label, v, strong) => v ? `<div class="ps-line ${strong ? "strong" : ""}"><span>${label}</span><b>${fmt(v)}원</b></div>` : "";
-  const body = rows.map((r) => {
-    const gross = Number(r.gross) || 0, meal = Number(r.meal) || 0, extra = Number(r.extra) || 0, net = Number(r.net) || 0;
-    const deduct = net > 0 ? Math.max(0, gross + meal + extra - net) : 0;
-    return `
-      <div class="ps-block">
-        <div class="ps-cat"><span class="cat-chip ${r.category === "3.3%" ? "c33" : r.category === "사대보험" ? "c4" : "cart"}">${esc(r.category)}</span></div>
-        ${line("세전금액", gross)}
-        ${line("식대", meal)}
-        ${line("추가 수당", extra)}
-        ${deduct ? `<div class="ps-line minus"><span>공제 합계</span><b>-${fmt(deduct)}원</b></div>` : ""}
-        ${line("실수령액", net, true)}
-        ${r.note ? `<div class="ps-note">${esc(r.note)}</div>` : ""}
-      </div>`;
-  }).join("");
-  openModal(`
-    <h3>${y}년 ${m}월 급여 명세</h3>
-    <div class="ps-total"><span>${pay.basis} 합계</span><b>${fmt(pay.amount)}원</b></div>
-    ${body}
-    <p class="modal-desc" style="margin-top:14px">급여 명세서 원본은 경영지원본부에 요청하세요.</p>
-    <div class="modal-actions"><button class="btn btn-primary" id="ps-close">닫기</button></div>`);
-  $("#ps-close").onclick = closeModal;
+  const payLine = (label, v) => `<div class="ps-line"><span>${label}</span><b>${fmt(v)}</b></div>`;
+  const payHtml = PAY_ITEMS.filter(([k]) => agg[k]).map(([k, label]) => payLine(label, agg[k])).join("") ||
+    `<div class="ps-line"><span>기본급</span><b>${fmt(agg.gross)}</b></div>`;
+  const deductHtml = DEDUCT_ITEMS.map(([k, label]) => {
+    const v = agg.rows.reduce((s, r) => s + (Number(r[k]) || 0), 0);
+    return v ? payLine(label, v) : "";
+  }).join("") || `<div class="empty" style="padding:14px;font-size:.8rem">등록된 공제 항목이 없습니다.</div>`;
+  const incomeTax = agg.rows.reduce((s, r) => s + (Number(r.incomeTax) || 0), 0);
+  const localTax = agg.rows.reduce((s, r) => s + (Number(r.localTax) || 0), 0);
+
+  return `
+    <div class="ph-detail">
+      <div class="ph-detail-head">${y}.${String(m).padStart(2, "0")} 급여 내역
+        <button class="btn btn-ghost btn-sm" data-ph-toggle="${ym}">상세 내역 닫기 ⌃</button></div>
+      <div class="ph-detail-grid">
+        <div class="ph-col"><div class="ph-col-title">지급 항목</div>${payHtml}
+          <div class="ps-line strong"><span>지급액 합계</span><b>${fmt(agg.payTotal)}</b></div></div>
+        <div class="ph-col"><div class="ph-col-title">공제 항목</div>${deductHtml}
+          <div class="ps-line strong"><span>공제액 합계</span><b>${fmt(agg.deductTotal)}</b></div></div>
+        <div class="ph-col"><div class="ph-col-title">세금 정보</div>
+          ${payLine("과세표준", agg.taxBase)}
+          ${payLine("소득세", incomeTax)}
+          ${payLine("지방소득세", localTax)}</div>
+        <div class="ph-col ph-col-net">
+          <div class="ph-col-title">실지급액(원)</div>
+          <div class="ph-net-amt">${fmt(agg.net)}<span>원</span></div>
+          <ul class="p-meta" style="margin-top:14px">
+            ${agg.payDate ? `<li><b>지급일</b> ${esc(agg.payDate)}</li>` : ""}
+            ${agg.payMethod ? `<li><b>지급 방법</b> ${esc(agg.payMethod)}</li>` : ""}
+            ${agg.account ? `<li><b>지급 계좌</b> ${esc(agg.account)}</li>` : ""}
+          </ul>
+        </div>
+      </div>
+    </div>`;
+}
+
+function downloadPayCsv(year, list) {
+  const header = ["지급월", "기본급", "수당", "상여", "공제액 합계", "실지급액", "지급일"];
+  const rows = list.map(({ ym, agg }) => [
+    ym, agg.gross, agg.allowance + agg.meal + agg.extra, agg.bonus, agg.deductTotal, agg.net, agg.payDate || ""
+  ]);
+  const csv = "﻿" + [header, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${me.name}_${year}년_급여이력.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 /* ───────── 급여관리 (경영지원본부 전용) ───────── */
@@ -873,7 +929,8 @@ async function renderPayroll() {
   const rows = rowsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
   rows.sort((a, b) => PAY_CATS.indexOf(a.category) - PAY_CATS.indexOf(b.category) || a.name.localeCompare(b.name, "ko"));
 
-  const total = rows.reduce((s, r) => s + (Number(r.gross) || 0) + (Number(r.meal) || 0) + (Number(r.extra) || 0), 0);
+  const total = rows.reduce((s, r) => s + ["gross", "allowance", "meal", "bonus", "extra"]
+    .reduce((t, k) => t + (Number(r[k]) || 0), 0), 0);
   const catCount = (c) => rows.filter((r) => r.category === c).length;
   const chip = (c) => `<span class="cat-chip ${c === "3.3%" ? "c33" : c === "사대보험" ? "c4" : "cart"}">${c}</span>`;
 
@@ -933,11 +990,34 @@ async function openPayrollModal(row) {
           </select></label>
       </div>
       <label class="field"><span class="field-label">이름</span><input id="pf-name" required value="${esc(row?.name || "")}" /></label>
+
+      <div class="form-section">지급 항목</div>
       <div class="grid-2">
-        <label class="field"><span class="field-label">세전금액</span><input id="pf-gross" type="number" min="0" required value="${row?.gross ?? ""}" /></label>
+        <label class="field"><span class="field-label">기본급</span><input id="pf-gross" type="number" min="0" required value="${row?.gross ?? ""}" /></label>
+        <label class="field"><span class="field-label">직책수당</span><input id="pf-allowance" type="number" min="0" value="${row?.allowance ?? ""}" /></label>
         <label class="field"><span class="field-label">식대</span><input id="pf-meal" type="number" min="0" value="${row?.meal ?? ""}" /></label>
-        <label class="field"><span class="field-label">추가 수당</span><input id="pf-extra" type="number" min="0" value="${row?.extra ?? ""}" /></label>
-        <label class="field"><span class="field-label">세후금액</span><input id="pf-net" type="number" min="0" value="${row?.net ?? ""}" /></label>
+        <label class="field"><span class="field-label">성과급(상여)</span><input id="pf-bonus" type="number" min="0" value="${row?.bonus ?? ""}" /></label>
+        <label class="field"><span class="field-label">기타 수당</span><input id="pf-extra" type="number" min="0" value="${row?.extra ?? ""}" /></label>
+      </div>
+
+      <div class="form-section">공제 항목 (선택)</div>
+      <div class="grid-2">
+        <label class="field"><span class="field-label">국민연금</span><input id="pf-pension" type="number" min="0" value="${row?.pension ?? ""}" /></label>
+        <label class="field"><span class="field-label">건강보험</span><input id="pf-health" type="number" min="0" value="${row?.health ?? ""}" /></label>
+        <label class="field"><span class="field-label">장기요양보험</span><input id="pf-longcare" type="number" min="0" value="${row?.longcare ?? ""}" /></label>
+        <label class="field"><span class="field-label">고용보험</span><input id="pf-employment" type="number" min="0" value="${row?.employment ?? ""}" /></label>
+        <label class="field"><span class="field-label">소득세</span><input id="pf-incomeTax" type="number" min="0" value="${row?.incomeTax ?? ""}" /></label>
+        <label class="field"><span class="field-label">지방소득세</span><input id="pf-localTax" type="number" min="0" value="${row?.localTax ?? ""}" /></label>
+        <label class="field"><span class="field-label">기타 공제</span><input id="pf-otherDeduct" type="number" min="0" value="${row?.otherDeduct ?? ""}" /></label>
+        <label class="field"><span class="field-label">과세표준 (선택)</span><input id="pf-taxBase" type="number" min="0" value="${row?.taxBase ?? ""}" /></label>
+      </div>
+
+      <div class="form-section">지급 정보</div>
+      <div class="grid-2">
+        <label class="field"><span class="field-label">세후 실지급액</span><input id="pf-net" type="number" min="0" value="${row?.net ?? ""}" /></label>
+        <label class="field"><span class="field-label">지급일</span><input id="pf-payDate" type="date" value="${esc(row?.payDate || "")}" /></label>
+        <label class="field"><span class="field-label">지급 방법</span><input id="pf-payMethod" placeholder="계좌이체" value="${esc(row?.payMethod || "")}" /></label>
+        <label class="field"><span class="field-label">지급 계좌</span><input id="pf-account" placeholder="국민은행 1234-****-5678" value="${esc(row?.account || "")}" /></label>
       </div>
       <label class="field"><span class="field-label">비고</span><input id="pf-note" value="${esc(row?.note || "")}" /></label>
       <div class="modal-actions">
@@ -952,14 +1032,20 @@ async function openPayrollModal(row) {
   };
   $("#pay-form").onsubmit = async (ev) => {
     ev.preventDefault();
+    const num = (id) => Number($(id).value) || 0;
     const data = {
       category: $("#pf-cat").value,
       empId: $("#pf-emp").value || null,
       name: $("#pf-name").value.trim(),
-      gross: Number($("#pf-gross").value) || 0,
-      meal: Number($("#pf-meal").value) || 0,
-      extra: Number($("#pf-extra").value) || 0,
-      net: Number($("#pf-net").value) || 0,
+      gross: num("#pf-gross"), allowance: num("#pf-allowance"), meal: num("#pf-meal"),
+      bonus: num("#pf-bonus"), extra: num("#pf-extra"),
+      pension: num("#pf-pension"), health: num("#pf-health"), longcare: num("#pf-longcare"),
+      employment: num("#pf-employment"), incomeTax: num("#pf-incomeTax"), localTax: num("#pf-localTax"),
+      otherDeduct: num("#pf-otherDeduct"), taxBase: num("#pf-taxBase"),
+      net: num("#pf-net"),
+      payDate: $("#pf-payDate").value,
+      payMethod: $("#pf-payMethod").value.trim(),
+      account: $("#pf-account").value.trim(),
       note: $("#pf-note").value.trim()
     };
     const col = db.collection(COL.payroll).doc(payrollYM).collection("rows");
