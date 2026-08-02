@@ -499,7 +499,7 @@ async function renderHome() {
     </div>
     <div class="card" id="shortcut-card">
       <div class="card-title">
-        <div>바로가기<div class="ct-desc">내 계정에 권한이 부여된 사내 시스템으로 이동하세요.${isAdmin() ? " 버튼과 권한은 [사내 시스템]에서 관리합니다." : ""}</div></div>
+        <div>바로가기</div>
         <span style="display:flex;gap:6px">
           ${canManageOps() ? `<button class="btn btn-ghost btn-sm" data-goto="systems">시스템 관리</button>` : ""}
           <button class="btn btn-ghost btn-sm" id="my-add">+ 내 바로가기</button>
