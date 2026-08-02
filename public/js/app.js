@@ -1837,9 +1837,9 @@ async function renderLeaveAdmin() {
     <div class="card">
       <div class="card-title"><div>승인 대기 신청 <span class="badge warn">${reqs.length}건</span></div></div>
       ${reqs.length ? `<div class="table-wrap"><table class="data pay-table">
-        <thead><tr><th>직원</th><th>기간</th><th>유형</th><th class="num">일수</th>${isAdmin() ? "<th></th>" : ""}</tr></thead>
+        <thead><tr><th>직원</th><th>신청일시</th><th>기간</th><th>유형</th><th class="num">일수</th>${isAdmin() ? "<th></th>" : ""}</tr></thead>
         <tbody>${reqs.map((r) => `<tr>
-          <td><b>${esc(r.name)}</b></td><td>${fmtPeriod(r.date, r.endDate)}</td><td>${esc(r.type)}</td>
+          <td><b>${esc(r.name)}</b></td><td>${fmtTs(r.createdAt)}</td><td>${fmtPeriod(r.date, r.endDate)}</td><td>${esc(r.type)}</td>
           <td class="num">${r.days}일</td>
           ${isAdmin() ? `<td style="white-space:nowrap">
             <button class="btn btn-primary btn-sm" data-approve="${r.id}">승인</button>
@@ -2066,7 +2066,7 @@ async function renderEmployees() {
     </div>`;
 
   $("#emp-body").innerHTML = statsHtml + `<div class="card"><div class="table-wrap">
-    ${emps.length ? `<table class="data"><thead><tr>
+    ${emps.length ? `<table class="data pay-table"><thead><tr>
       <th>이름</th><th>부서</th><th>직급</th><th>직책</th><th>이메일</th><th>입사일</th><th>고용 구분</th><th>역할</th><th>비밀번호</th><th>상태</th><th></th>
     </tr></thead><tbody>
     ${emps.map((e) => `<tr>
@@ -2076,9 +2076,9 @@ async function renderEmployees() {
       <td>${e.passwordHash ? '<span class="badge ok">설정됨</span>' : '<span class="badge warn">미설정</span>'}</td>
       <td>${e.status === "재직" ? '<span class="badge ok">재직</span>' : '<span class="badge off">퇴사</span>'}</td>
       <td style="white-space:nowrap">
-        <button class="btn btn-ghost btn-sm" data-empedit="${e.id}">수정</button>
-        ${e.passwordHash ? `<button class="btn btn-ghost btn-sm" data-pwreset="${e.id}">비번 초기화</button>` : ""}
-        ${e.id !== me.id ? `<button class="btn btn-danger btn-sm" data-empdel="${e.id}">삭제</button>` : ""}
+        <button class="icon-btn" data-empedit="${e.id}" title="수정"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.8 2.8 0 0 1 4 4L8 20l-5 1 1-5L17 3Z"/></svg></button>
+        ${e.passwordHash ? `<button class="icon-btn" data-pwreset="${e.id}" title="비밀번호 초기화"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4.5"/><path d="m11 12 9-9m-4 4 3 3"/></svg></button>` : ""}
+        ${e.id !== me.id ? `<button class="icon-btn danger" data-empdel="${e.id}" title="삭제"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/><path d="M10 11v6M14 11v6"/></svg></button>` : ""}
       </td>
     </tr>`).join("")}</tbody></table>` : `<div class="empty">등록된 직원이 없습니다.</div>`}
   </div></div>`;
@@ -2090,7 +2090,7 @@ async function renderEmployees() {
     b.onclick = async () => {
       const e = emps.find((x) => x.id === b.dataset.empdel);
       if (!confirm(`${e.name}님을 직원 목록에서 완전히 삭제할까요?\n\n연차·메모·할 일·개인 버튼 등 개인 데이터가 함께 삭제되며 되돌릴 수 없습니다.\n(급여 기록은 회계 이력으로 보존됩니다)\n\n퇴사 처리만 하려면 [수정]에서 재직 상태를 '퇴사'로 변경하세요.`)) return;
-      if (!confirm(`정말 삭제하시겠습니까? "${e.name}" 계정은 복구할 수 없습니다.`)) return;
+      if (!confirm(`정말로 삭제할까요?\n"${e.name}" 계정은 복구할 수 없습니다.`)) return;
       // 개인 데이터 정리
       const dels = [COL.personalButtons, COL.todos, COL.memos, COL.leaves, COL.settings]
         .map((c) => db.collection(c).doc(e.id).delete().catch(() => {}));

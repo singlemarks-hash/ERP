@@ -727,6 +727,24 @@ table.data th.num { text-align: right; }
 
 #pm-month { padding: 8px 12px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 0.85rem; font-weight: 600; }
 
+/* 아이콘 액션 버튼 */
+.icon-btn {
+  border: none;
+  background: #f2f4f6;
+  border-radius: 9px;
+  width: 32px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--ink-soft);
+  vertical-align: middle;
+}
+.icon-btn + .icon-btn { margin-left: 4px; }
+.icon-btn svg { width: 15px; height: 15px; }
+.icon-btn:hover { background: var(--blue-soft); color: var(--blue-deep); }
+.icon-btn.danger { color: var(--red); background: var(--red-soft); }
+.icon-btn.danger:hover { background: #fbdcdf; }
+
 /* 행 ⋯ 메뉴 */
 .row-menu-btn {
   border: none;
