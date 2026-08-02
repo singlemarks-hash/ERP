@@ -19,5 +19,6 @@ const COL = {
   payroll: "payroll", // payroll/{YYYY-MM}/rows/{id}
   leaves: "leaves",
   leaveRequests: "leaveRequests",
-  settings: "settings"
+  settings: "settings",
+  notices: "notices"   // 공지사항 (전체/부서/개별 게시)
 };

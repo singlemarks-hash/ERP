@@ -475,6 +475,72 @@ function nextGrantDate(d) {
   return `${Number(y) + 1}-${m}-${dd}`;
 }
 
+/* ── 공지사항 ── */
+function canPostNotice() { return me && me.role !== "member"; }
+function noticeTargetsMe(n) {
+  if (n.scope === "all") return true;
+  if (n.scope === "dept") return (n.depts || []).includes(me.dept);
+  if (n.scope === "personal") return (n.targetIds || []).includes(me.id);
+  return false;
+}
+function noticeScopeLabel(n) {
+  if (n.scope === "all") return "전체 공지";
+  if (n.scope === "dept") return `부서 공지 · ${(n.depts || []).join(", ")}`;
+  return "개별 공지";
+}
+const noticeExpanded = new Set(); // 확인함 이후 다시 펼친 공지 (세션 한정)
+
+async function renderHomeNotices() {
+  const area = document.getElementById("home-notices");
+  if (!area) return;
+  const snap = await db.collection(COL.notices).get();
+  const notices = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    .filter(noticeTargetsMe)
+    .sort((a, b) => {
+      const ta = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+      const tb = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+      return tb - ta;
+    });
+
+  area.innerHTML = notices.map((n) => {
+    const acked = (n.ackIds || []).includes(me.id);
+    const open = !acked || noticeExpanded.has(n.id);
+    return `
+    <div class="notice-card ${open ? "open" : ""}" data-nid="${n.id}">
+      <div class="nt-head" ${acked ? `data-nt-toggle="${n.id}"` : ""}>
+        <span class="nt-ico">📢</span>
+        <span class="nt-badge">공지</span>
+        <b class="nt-title">${esc(n.title)}</b>
+        <span class="nt-scope">${noticeScopeLabel(n)}</span>
+        ${acked ? `<span class="badge ok">확인함</span><span class="nt-arrow">${open ? "⌃" : "⌄"}</span>` : ""}
+      </div>
+      ${open ? `
+      <div class="nt-body">${linkify(n.body || "")}</div>
+      <div class="nt-foot">
+        <span class="nt-meta">${esc(n.authorName || "")} · ${fmtTs(n.createdAt)}</span>
+        ${!acked ? `<button class="btn btn-primary btn-sm" data-nt-ack="${n.id}">확인함</button>` : ""}
+      </div>` : ""}
+    </div>`;
+  }).join("");
+
+  area.querySelectorAll("[data-nt-ack]").forEach((b) => {
+    b.onclick = async () => {
+      await db.collection(COL.notices).doc(b.dataset.ntAck).update({
+        ackIds: firebase.firestore.FieldValue.arrayUnion(me.id)
+      });
+      noticeExpanded.delete(b.dataset.ntAck);
+      renderHomeNotices();
+    };
+  });
+  area.querySelectorAll("[data-nt-toggle]").forEach((h) => {
+    h.onclick = () => {
+      const id = h.dataset.ntToggle;
+      if (noticeExpanded.has(id)) noticeExpanded.delete(id); else noticeExpanded.add(id);
+      renderHomeNotices();
+    };
+  });
+}
+
 function recentMonths(n) {
   const list = [];
   const d = new Date();
@@ -512,6 +578,7 @@ async function renderHome() {
       </div>
       <div id="shortcut-body"></div>
     </div>
+    <div id="home-notices"></div>
     <div class="widget-grid">
       <div class="card">
         <div class="card-title">
@@ -833,6 +900,8 @@ async function renderHome() {
       toast("메모를 저장했습니다.");
     }
   };
+
+  renderHomeNotices();
 }
 
 /* ───────── 사내 시스템 (관리자: 버튼 등록 + 계정별 권한 부여) ───────── */
@@ -2130,6 +2199,148 @@ async function renderSettings() {
   $("#set-email").onchange = async (ev) => {
     await db.collection(COL.settings).doc(me.id).set({ emailNotif: ev.target.checked }, { merge: true });
     toast(ev.target.checked ? "이메일 알람을 켰습니다." : "이메일 알람을 껐습니다.");
+  };
+
+  /* ── 공지사항 관리 (임원 이상) ── */
+  if (canPostNotice()) {
+    main.innerHTML += `
+      <div class="card">
+        <div class="card-title">
+          <div>공지사항<div class="ct-desc">등록한 공지는 대상 임직원의 홈 화면에 표시됩니다.</div></div>
+          <button class="btn btn-primary btn-sm" id="nt-new">📢 공지사항 등록하기</button>
+        </div>
+        <div id="nt-list"><div class="empty">불러오는 중...</div></div>
+      </div>`;
+    $("#nt-new").onclick = () => openNoticeModal(null);
+    renderMyNotices();
+  }
+}
+
+async function renderMyNotices() {
+  const list = document.getElementById("nt-list");
+  if (!list) return;
+  const snap = await db.collection(COL.notices).get();
+  const notices = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    .filter((n) => isAdmin() || n.authorId === me.id)
+    .sort((a, b) => {
+      const ta = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+      const tb = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+      return tb - ta;
+    });
+
+  list.innerHTML = notices.length ? `<div class="table-wrap"><table class="data pay-table">
+    <thead><tr><th>제목</th><th>게시 범위</th><th>게시자</th><th>게시일</th><th class="num">확인</th><th></th></tr></thead>
+    <tbody>${notices.map((n) => `<tr>
+      <td><b>${esc(n.title)}</b></td>
+      <td>${noticeScopeLabel(n)}</td>
+      <td>${esc(n.authorName || "-")}</td>
+      <td>${fmtTs(n.createdAt)}</td>
+      <td class="num">${(n.ackIds || []).length}명</td>
+      <td style="white-space:nowrap">
+        <button class="icon-btn" data-ntedit="${n.id}" title="수정"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.8 2.8 0 0 1 4 4L8 20l-5 1 1-5L17 3Z"/></svg></button>
+        <button class="icon-btn danger" data-ntdel="${n.id}" title="철회(삭제)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/><path d="M10 11v6M14 11v6"/></svg></button>
+      </td>
+    </tr>`).join("")}</tbody></table></div>`
+    : `<div class="empty">등록한 공지가 없습니다. [공지사항 등록하기]로 첫 공지를 게시하세요.</div>`;
+
+  list.querySelectorAll("[data-ntedit]").forEach((b) => {
+    b.onclick = () => {
+      const n = notices.find((x) => x.id === b.dataset.ntedit);
+      openNoticeModal(n);
+    };
+  });
+  list.querySelectorAll("[data-ntdel]").forEach((b) => {
+    b.onclick = async () => {
+      const n = notices.find((x) => x.id === b.dataset.ntdel);
+      if (!confirm(`"${n.title}" 공지를 철회할까요?\n대상 임직원의 홈에서 즉시 사라집니다.`)) return;
+      await db.collection(COL.notices).doc(n.id).delete();
+      toast("공지를 철회했습니다.");
+      renderMyNotices();
+    };
+  });
+}
+
+async function openNoticeModal(notice) {
+  const empSnap = await db.collection(COL.employees).where("status", "==", "재직").get();
+  const emps = sortByGrade(empSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+  const scope = notice?.scope || "all";
+
+  openModal(`
+    <h3>${notice ? "공지 수정" : "공지사항 등록"}</h3>
+    <p class="modal-desc">게시하면 대상 임직원의 홈 화면 바로가기 아래에 공지 카드가 표시됩니다.</p>
+    <form id="nt-form">
+      <label class="field"><span class="field-label">제목</span>
+        <input id="nf-title" required maxlength="80" value="${esc(notice?.title || "")}" placeholder="예: 8월 전사 워크숍 안내" /></label>
+      <label class="field"><span class="field-label">내용</span>
+        <textarea id="nf-body" class="pm-note" rows="4" required placeholder="공지 내용을 입력하세요. URL은 자동으로 링크가 됩니다.">${esc(notice?.body || "")}</textarea></label>
+
+      <div class="field"><span class="field-label">게시 범위 — 어디에 뿌릴지 먼저 선택하세요</span>
+        <div class="nt-scope-pick">
+          <label class="nt-radio"><input type="radio" name="nf-scope" value="all" ${scope === "all" ? "checked" : ""} /><span>1. 전체 공지</span></label>
+          <label class="nt-radio"><input type="radio" name="nf-scope" value="dept" ${scope === "dept" ? "checked" : ""} /><span>2. 부서별 공지</span></label>
+          <label class="nt-radio"><input type="radio" name="nf-scope" value="personal" ${scope === "personal" ? "checked" : ""} /><span>3. 개별 공지</span></label>
+        </div>
+      </div>
+
+      <div id="nf-dept-box" class="grant-list ${scope === "dept" ? "" : "hidden"}" style="max-height:150px">
+        ${DEPTS.map((d) => `<label class="grant-row">
+          <input type="checkbox" data-nfdept="${d}" ${(notice?.depts || []).includes(d) ? "checked" : ""} /><span>${d}</span></label>`).join("")}
+      </div>
+      <div id="nf-emp-box" class="grant-list ${scope === "personal" ? "" : "hidden"}" style="max-height:220px">
+        ${DEPTS.map((d) => {
+          const list = emps.filter((e) => e.dept === d);
+          return list.length ? `<div class="grant-dept">${d}</div>` + list.map((e) => `
+            <label class="grant-row"><input type="checkbox" data-nfemp="${e.id}" ${(notice?.targetIds || []).includes(e.id) ? "checked" : ""} />
+            <span>${esc(e.name)}</span><em>${esc(e.position || "")}</em></label>`).join("") : "";
+        }).join("")}
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="nf-cancel">취소</button>
+        <button type="submit" class="btn btn-primary">${notice ? "수정 저장" : "게시"}</button>
+      </div>
+    </form>`);
+
+  $("#nf-cancel").onclick = closeModal;
+  document.querySelectorAll('input[name="nf-scope"]').forEach((r) => {
+    r.onchange = () => {
+      $("#nf-dept-box").classList.toggle("hidden", r.value !== "dept" || !r.checked);
+      $("#nf-emp-box").classList.toggle("hidden", r.value !== "personal" || !r.checked);
+      if (r.checked && r.value === "dept") { $("#nf-dept-box").classList.remove("hidden"); $("#nf-emp-box").classList.add("hidden"); }
+      if (r.checked && r.value === "personal") { $("#nf-emp-box").classList.remove("hidden"); $("#nf-dept-box").classList.add("hidden"); }
+      if (r.checked && r.value === "all") { $("#nf-dept-box").classList.add("hidden"); $("#nf-emp-box").classList.add("hidden"); }
+    };
+  });
+
+  $("#nt-form").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const scopeSel = document.querySelector('input[name="nf-scope"]:checked').value;
+    const depts = [...document.querySelectorAll("[data-nfdept]:checked")].map((c) => c.dataset.nfdept);
+    const targetIds = [...document.querySelectorAll("[data-nfemp]:checked")].map((c) => c.dataset.nfemp);
+    if (scopeSel === "dept" && !depts.length) { toast("공지할 부서를 선택하세요."); return; }
+    if (scopeSel === "personal" && !targetIds.length) { toast("공지할 직원을 선택하세요."); return; }
+    const data = {
+      title: $("#nf-title").value.trim(),
+      body: $("#nf-body").value.trim(),
+      scope: scopeSel,
+      depts: scopeSel === "dept" ? depts : [],
+      targetIds: scopeSel === "personal" ? targetIds : []
+    };
+    if (notice) {
+      await db.collection(COL.notices).doc(notice.id).update(data);
+      toast("공지를 수정했습니다.");
+    } else {
+      await db.collection(COL.notices).add({
+        ...data,
+        authorId: me.id,
+        authorName: me.name,
+        ackIds: [],
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      toast("공지를 게시했습니다. 대상 임직원의 홈에 표시됩니다.");
+    }
+    closeModal();
+    renderMyNotices();
   };
 }
 

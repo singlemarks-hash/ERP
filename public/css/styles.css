@@ -745,6 +745,63 @@ table.data th.num { text-align: right; }
 .icon-btn.danger { color: var(--red); background: var(--red-soft); }
 .icon-btn.danger:hover { background: #fbdcdf; }
 
+/* ───────── 공지사항 카드 (그린 임팩트) ───────── */
+.notice-card {
+  background: linear-gradient(135deg, #e6f4ec 0%, #f0faf4 100%);
+  border: 1.5px solid var(--green);
+  border-left: 6px solid var(--green);
+  border-radius: var(--radius);
+  box-shadow: 0 2px 10px rgba(31, 164, 91, 0.12);
+  padding: 16px 20px;
+  margin-bottom: 14px;
+}
+.notice-card .nt-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.notice-card .nt-head[data-nt-toggle] { cursor: pointer; }
+.notice-card .nt-ico { font-size: 1.15rem; }
+.notice-card .nt-badge {
+  background: var(--green);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  border-radius: 7px;
+  padding: 2px 9px;
+  letter-spacing: 0.05em;
+}
+.notice-card .nt-title { font-size: 1rem; font-weight: 800; }
+.notice-card .nt-scope { font-size: 0.75rem; font-weight: 600; color: var(--green); background: #fff; border: 1px solid var(--green-soft); border-radius: 99px; padding: 2px 10px; }
+.notice-card .nt-arrow { margin-left: auto; color: var(--green); font-weight: 700; }
+.notice-card .nt-body {
+  margin-top: 12px;
+  font-size: 0.92rem;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: rgba(255, 255, 255, 0.65);
+  border-radius: 12px;
+  padding: 13px 16px;
+}
+.notice-card .nt-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
+.notice-card .nt-meta { font-size: 0.76rem; color: var(--ink-soft); }
+.notice-card.open { animation: detail-open 0.28s ease; }
+
+/* 공지 범위 선택 */
+.nt-scope-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.nt-radio {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.nt-radio span { white-space: nowrap; }
+.nt-radio:has(input:checked) { border-color: var(--green); background: var(--green-soft); color: var(--green); }
+.nt-radio input { accent-color: var(--green); }
+
 /* 보관함 */
 .archive-list { display: grid; gap: 8px; max-height: 50vh; overflow-y: auto; }
 .archive-row {
