@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1차: 익명 인증 세션이 있는 요청만 허용 (외부 무단 접근 차단).
+    // 앱 화면 단에서 역할(role) 기반으로 기능을 제한하며,
+    // 2차 로드맵에서 Cloud Functions + Custom Claims 로 서버측 강제 예정.
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
