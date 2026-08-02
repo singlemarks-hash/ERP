@@ -1473,10 +1473,10 @@ function openRowMenu(anchor, items) {
   setTimeout(() => document.addEventListener("click", close), 0);
 }
 
-/* ── 급여 지급명세서 출력 (A4 / PDF) ── */
+/* ── 급여 지급명세서 출력 (법정 양식 · A4) ── */
 function printPayslip(emp, r) {
   const [y, m] = r.ym.split("-").map(Number);
-  const payDate = r.payDate ? r.payDate.replace(/-/g, ". ").replace(/^20/, "") + "." : "—";
+  const payDate = r.payDate ? r.payDate.slice(2).replace(/-/g, ". ") + "." : "—";
   const rowsN = Math.max(r.payments.length, r.deductions.length, 1);
   const bodyRows = Array.from({ length: rowsN }, (_, i) => {
     const p = r.payments[i], d = r.deductions[i];
@@ -1485,49 +1485,73 @@ function printPayslip(emp, r) {
       <td>${d ? esc(d.label) : ""}</td><td class="num">${d ? fmt(d.amount) + "원" : ""}</td>
     </tr>`;
   }).join("");
+  const birth = emp.birthDate ? emp.birthDate.replace(/-/g, ".") : "—";
 
   const html = `<!DOCTYPE html>
 <html lang="ko"><head><meta charset="UTF-8" />
 <title>${y}년 ${m}월 급여 지급명세서 - ${esc(emp.name)}</title>
 <style>
-  @page { size: A4; margin: 16mm 14mm; }
+  @page { size: A4; margin: 15mm 13mm; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: "Pretendard Variable", Pretendard, "Malgun Gothic", sans-serif; color: #191f28; font-size: 12px; line-height: 1.5; }
-  h1 { text-align: center; font-size: 22px; margin: 8px 0 26px; letter-spacing: -0.02em; }
-  .head-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  body { font-family: "Pretendard Variable", Pretendard, "Malgun Gothic", sans-serif; color: #26282c; font-size: 12px; line-height: 1.5; background: #eceef0; }
+  .sheet { width: 210mm; max-width: 100%; margin: 0 auto; background: #fff; padding: 15mm 13mm; min-height: 297mm; }
+  @media print { body { background: #fff; } .sheet { width: auto; min-height: auto; padding: 0; } .noprint { display: none; } }
+  h1 { text-align: center; font-size: 23px; font-weight: 800; margin: 4px 0 28px; letter-spacing: -0.02em; }
+  .head-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
   .head-row b { font-size: 14px; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 22px; }
-  th, td { border: 1px solid #191f28; padding: 8px 10px; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 24px; table-layout: fixed; }
+  th, td { border: 1px solid #26282c; padding: 9px 12px; font-size: 12px; word-break: break-all; }
   th { background: #f1f2f4; font-weight: 700; text-align: center; }
-  td.label { background: #f1f2f4; font-weight: 700; text-align: center; width: 16%; }
+  td.label { background: #f1f2f4; font-weight: 700; text-align: center; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .center { text-align: center; }
   .sec-title { text-align: center; font-size: 14px; font-weight: 800; margin: 0 0 10px; }
   .total td { font-weight: 800; background: #f1f2f4; }
   .net td { font-weight: 800; background: #dfe5f5; font-size: 13px; }
-  .center { text-align: center; }
-  .footer { text-align: center; color: #6b7684; margin-top: 30px; font-size: 12px; }
-  @media print { .noprint { display: none; } }
-  .noprint { text-align: center; margin: 16px 0; }
+  .footer { text-align: center; color: #6b7684; margin-top: 34px; font-size: 12px; }
+  .noprint { text-align: center; padding: 14px 0; }
   .noprint button { padding: 10px 22px; font-size: 14px; border-radius: 8px; border: none; background: #3182f6; color: #fff; cursor: pointer; }
 </style></head><body>
 <div class="noprint"><button onclick="window.print()">인쇄 / PDF 저장</button></div>
-<h1>${y}년 ${m}월 급여 지급명세서</h1>
-<div class="head-row"><b>작은따옴표</b><span>지급일: ${payDate}</span></div>
-<table>
-  <tr><td class="label">성명</td><td style="width:34%">${esc(emp.name)}</td><td class="label">직위(직급)</td><td>${esc(emp.grade || emp.position || "—")}</td></tr>
-  <tr><td class="label">부서</td><td>${esc(emp.dept)}</td><td class="label">직책</td><td>${esc(emp.position || "—")}</td></tr>
-  <tr><td class="label">입사일</td><td>${esc(emp.joinDate || "—")}</td><td class="label">퇴사일</td><td>—</td></tr>
-</table>
-<div class="sec-title">세부 내역</div>
-<table>
-  <tr><th colspan="2">지 급</th><th colspan="2">공 제</th></tr>
-  <tr><th>임금 항목</th><th>지급 금액</th><th>공제 항목</th><th>공제 금액</th></tr>
-  ${bodyRows}
-  <tr class="total"><td class="center">지급액 계</td><td class="num">${fmt(r.payTotal)}원</td><td class="center">공제액 계</td><td class="num">${fmt(r.deductTotal)}원</td></tr>
-  <tr class="net"><td colspan="2" class="center">실수령액(원)</td><td colspan="2" class="num">${fmt(r.net)}원</td></tr>
-</table>
-${r.note ? `<table><tr><td class="label">메모</td><td>${esc(r.note)}</td></tr></table>` : ""}
-<div class="footer">귀하의 노고에 감사드립니다.</div>
+<div class="sheet">
+  <h1>${y}년 ${m}월 급여 지급명세서</h1>
+  <div class="head-row"><b>작은따옴표</b><span>지급일: ${payDate}</span></div>
+  <table>
+    <colgroup><col style="width:18%"/><col style="width:32%"/><col style="width:18%"/><col style="width:32%"/></colgroup>
+    <tr><td class="label">성명</td><td>${esc(emp.name)}</td><td class="label">생년월일</td><td>${birth}</td></tr>
+    <tr><td class="label">부서</td><td>${esc(emp.dept)}</td><td class="label">직위(직급)</td><td>${esc(emp.grade || emp.position || "—")}</td></tr>
+    <tr><td class="label">입사일</td><td>${esc(emp.joinDate || "—")}</td><td class="label">퇴사일</td><td>—</td></tr>
+  </table>
+
+  <div class="sec-title">세부 내역</div>
+  <table>
+    <colgroup><col style="width:25%"/><col style="width:25%"/><col style="width:25%"/><col style="width:25%"/></colgroup>
+    <tr><th colspan="2">지 급</th><th colspan="2">공 제</th></tr>
+    <tr><th>임금 항목</th><th>지급 금액</th><th>공제 항목</th><th>공제 금액</th></tr>
+    ${bodyRows}
+    <tr class="total"><td class="center">지급액 계</td><td class="num">${fmt(r.payTotal)}원</td><td class="center">공제액 계</td><td class="num">${fmt(r.deductTotal)}원</td></tr>
+    <tr class="net"><td colspan="2" class="center">실수령액(원)</td><td colspan="2" class="num">${fmt(r.net)}원</td></tr>
+  </table>
+
+  <table>
+    <colgroup><col style="width:25%"/><col style="width:25%"/><col style="width:25%"/><col style="width:25%"/></colgroup>
+    <tr><th>기본근로시간수</th><th>야간근로시간수</th><th>휴일근로시간수</th><th>연장근로시간수</th></tr>
+    <tr><td class="center">—</td><td class="center">—</td><td class="center">—</td><td class="center">—</td></tr>
+  </table>
+
+  <div class="sec-title">계산 방법</div>
+  <table>
+    <colgroup><col style="width:16%"/><col style="width:34%"/><col style="width:16%"/><col style="width:34%"/></colgroup>
+    <tr><th>구분</th><th>산출식 또는 산출방법</th><th>구분</th><th>산출식 또는 산출방법</th></tr>
+    <tr><td class="center">기본급</td><td>기본근로시간수 x 통상시급(주휴수당 포함)</td><td></td><td></td></tr>
+    <tr><td class="center">야간근로수당</td><td>야간근로시간수 x 통상시급 x 0.5</td><td></td><td></td></tr>
+    <tr><td class="center">연장근로수당</td><td>연장근로시간수 x 통상시급 x 1.5</td><td></td><td></td></tr>
+    <tr><td class="center">휴일근로수당</td><td>휴일근로시간수 x 통상시급 x 1.5</td><td></td><td></td></tr>
+  </table>
+
+  ${r.note ? `<table><colgroup><col style="width:18%"/><col style="width:82%"/></colgroup><tr><td class="label">메모</td><td>${esc(r.note)}</td></tr></table>` : ""}
+  <div class="footer">귀하의 노고에 감사드립니다.</div>
+</div>
 <script>window.onload = () => setTimeout(() => window.print(), 300);</` + `script>
 </body></html>`;
 
@@ -1915,6 +1939,7 @@ function openEmployeeModal(emp) {
           <select id="ef-grade"><option value="">미지정</option>${GRADES.map((g) => `<option value="${g.split(" ")[0]}" ${emp?.grade === g.split(" ")[0] ? "selected" : ""}>${g}</option>`).join("")}</select></label>
         <label class="field"><span class="field-label">직책 (예: 본부장, 부장)</span><input id="ef-pos" value="${esc(emp?.position || "")}" /></label>
         <label class="field"><span class="field-label">입사일</span><input id="ef-join" type="date" value="${esc(emp?.joinDate || "")}" /></label>
+        <label class="field"><span class="field-label">생년월일 (명세서용)</span><input id="ef-birth" type="date" value="${esc(emp?.birthDate || "")}" /></label>
       </div>
       <div class="grid-2">
         <label class="field"><span class="field-label">이메일</span><input id="ef-email" type="email" value="${esc(emp?.email || "")}" /></label>
@@ -1953,6 +1978,7 @@ function openEmployeeModal(emp) {
       grade: $("#ef-grade").value,
       position: $("#ef-pos").value.trim(),
       joinDate: $("#ef-join").value,
+      birthDate: $("#ef-birth").value,
       email: $("#ef-email").value.trim(),
       phone: $("#ef-phone").value.trim(),
       empType: $("#ef-type").value,
