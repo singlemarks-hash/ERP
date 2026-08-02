@@ -512,7 +512,102 @@ table.data th.num { text-align: right; }
   .lv-req .btn { grid-column: 1 / -1; }
 }
 
+/* ───────── 급여 공통 색상 ───────── */
+.c-green { color: var(--green); }
+.c-red { color: var(--red); }
+
+/* 요약 스탯 (실수령/총 지급/총 공제) */
+.pb-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+.pb-stats > div { padding: 14px 18px; border-right: 1px solid var(--line); }
+.pb-stats > div:last-child { border-right: none; }
+.pb-stats span { display: block; font-size: 0.76rem; font-weight: 600; color: var(--ink-soft); }
+.pb-stats b { font-size: 1.25rem; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+
+.pb-eyebrow { display: block; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.12em; color: var(--ink-faint); margin-bottom: 2px; }
+
+/* ───────── 급여관리 (급여장부) ───────── */
+.pm-grid { display: grid; grid-template-columns: 400px 1fr; gap: 18px; align-items: start; }
+.pm-grid .card { margin-bottom: 0; }
+.pm-emp-bar { display: flex; align-items: end; gap: 14px; flex-wrap: wrap; }
+.pm-emp-info { display: flex; gap: 5px; flex-wrap: wrap; padding-bottom: 8px; }
+.pm-date-row { display: flex; gap: 6px; align-items: center; }
+.pm-date-row input { flex: 1; }
+#pm-year { padding: 8px 12px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 0.85rem; font-weight: 600; }
+
+.pb-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin: 18px 0 8px;
+}
+.pb-pay-head { background: var(--green-soft); color: var(--green); }
+.pb-deduct-head { background: var(--red-soft); color: var(--red); }
+.pb-pay-head .btn, .pb-deduct-head .btn { background: rgba(255, 255, 255, 0.7); }
+
+.pi-row { display: grid; grid-template-columns: 1fr 130px 28px; gap: 8px; align-items: center; margin-bottom: 7px; }
+.pi-row input {
+  padding: 9px 11px;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 0.88rem;
+}
+.pi-row input:focus { outline: none; border-color: var(--blue); }
+.pi-row .pi-amount { text-align: right; font-variant-numeric: tabular-nums; }
+.pi-row .pi-del {
+  border: none;
+  background: transparent;
+  color: var(--ink-faint);
+  font-size: 1.05rem;
+  border-radius: 8px;
+  height: 28px;
+}
+.pi-row .pi-del:hover { color: var(--red); background: var(--red-soft); }
+
+.pb-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f2f4f6;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+.pb-total b { font-size: 1.05rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.pb-total-pay b { color: var(--green); }
+.pb-total-deduct b { color: var(--red); }
+
+.pb-net {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--green-soft);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-top: 14px;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+.pb-net b { font-size: 1.3rem; font-weight: 800; color: var(--green); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 1100px) { .pm-grid { grid-template-columns: 1fr; } }
+
 /* ───────── 급여이력 (표 + 상세 패널) ───────── */
+.ph-date { font-size: 0.8rem; font-weight: 500; color: var(--ink-soft); margin-left: 8px; }
+.pb-pay .ph-col-title { margin-bottom: 4px; }
 #ph-year { padding: 8px 12px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 0.85rem; font-weight: 600; }
 tr.ph-row-open td { background: var(--blue-soft); }
 
@@ -525,11 +620,13 @@ tr.ph-row-open td { background: var(--blue-soft); }
   font-weight: 700;
   margin-bottom: 14px;
 }
-.ph-detail-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.ph-detail-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .ph-col { background: #f9fafb; border-radius: 14px; padding: 14px 16px; }
+.ph-col.pb-pay { background: var(--green-soft); }
+.ph-col.pb-deduct { background: var(--red-soft); }
 .ph-col-title { font-size: 0.83rem; font-weight: 700; margin-bottom: 6px; }
-.ph-col-net { background: var(--blue-soft); display: flex; flex-direction: column; }
-.ph-net-amt { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; color: var(--blue-deep); margin-top: 10px; font-variant-numeric: tabular-nums; }
+.ph-col-net { background: var(--green-soft); display: flex; flex-direction: column; }
+.ph-net-amt { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; color: var(--green); margin-top: 10px; font-variant-numeric: tabular-nums; }
 .ph-net-amt span { font-size: 1rem; font-weight: 700; margin-left: 2px; }
 .ph-col-net .p-meta { font-size: 0.78rem; }
 @media (max-width: 1020px) { .ph-detail-grid { grid-template-columns: 1fr 1fr; } }
