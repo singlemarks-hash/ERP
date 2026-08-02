@@ -420,6 +420,7 @@ const BTN_COLORS = [
   { key: "purple", hex: "#7048e8", label: "퍼플" }
 ];
 const DEFAULT_BTN_COLOR = "#d9dee3";
+let homeEditMode = false;
 
 function colorPickerHtml(selected) {
   return `<div class="color-picker" id="color-picker">
@@ -502,8 +503,11 @@ async function renderHome() {
         <div>바로가기</div>
         <span style="display:flex;gap:6px">
           ${canManageOps() ? `<button class="btn btn-ghost btn-sm" data-goto="systems">시스템 관리</button>` : ""}
-          <button class="btn btn-ghost btn-sm" id="sys-archive">보관함</button>
-          <button class="btn btn-ghost btn-sm" id="my-add">+ 내 바로가기</button>
+          ${homeEditMode ? `
+            <button class="btn btn-ghost btn-sm" id="my-add">+ 새 등록</button>
+            <button class="btn btn-ghost btn-sm" id="sys-archive">보관함</button>
+            <button class="btn btn-primary btn-sm" id="home-edit">완료</button>`
+          : `<button class="btn btn-ghost btn-sm" id="home-edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M17 3a2.8 2.8 0 0 1 4 4L8 20l-5 1 1-5L17 3Z"/></svg> 편집</button>`}
         </span>
       </div>
       <div id="shortcut-body"></div>
@@ -549,7 +553,7 @@ async function renderHome() {
 
   main.querySelectorAll("[data-goto]").forEach((b) => { b.onclick = () => navigate(b.dataset.goto); });
 
-  /* ── 바로가기 타일: 권한 부여된 사내 시스템 + 내 바로가기 ── */
+  /* ── 바로가기: 편집 모드 + 보관함 ── */
   const [sysSnap, myBtnSnap] = await Promise.all([
     db.collection(COL.systems).get(),
     db.collection(COL.personalButtons).doc(me.id).get()
@@ -560,9 +564,11 @@ async function renderHome() {
   const pbData = myBtnSnap.exists ? myBtnSnap.data() : {};
   const myBtns = pbData.items || [];
   let hiddenSys = pbData.hiddenSystems || [];
-  const visibleSystems = mySystems.filter((s) => !hiddenSys.includes(s.id));
-  const saveHidden = () => db.collection(COL.personalButtons).doc(me.id)
-    .set({ hiddenSystems: hiddenSys }, { merge: true });
+  const savePB = () => db.collection(COL.personalButtons).doc(me.id)
+    .set({ items: myBtns, hiddenSystems: hiddenSys }, { merge: true });
+
+  const visibleSystems = mySystems.filter((sy) => !hiddenSys.includes(sy.id));
+  const visibleMy = myBtns.map((b, i) => ({ b, i })).filter((x) => !x.b.hidden);
 
   const tile = (b, i, editHtml) => `
     <a class="tile" href="${esc(b.url)}" target="_blank" rel="noopener" style="border-color:${esc(b.color || DEFAULT_BTN_COLOR)}">
@@ -571,78 +577,93 @@ async function renderHome() {
       <span class="t-desc">${esc(b.desc || "")}</span>
     </a>`;
 
-  $("#shortcut-body").innerHTML = `
-    ${visibleSystems.length
-      ? `<div class="tile-grid">${visibleSystems.map((b, i) => tile(b, i,
-          `<span class="t-edit"><button data-syshide="${b.id}" title="보관함으로 이동">보관</button></span>`)).join("")}</div>`
-      : mySystems.length
-        ? `<div class="empty">모든 버튼이 보관함에 있습니다. [보관함]에서 다시 꺼낼 수 있어요.</div>`
-        : `<div class="empty">사용 권한이 부여된 사내 시스템이 없습니다.${isAdmin() ? " [사내 시스템]에서 버튼을 등록하고 권한을 부여하세요." : " 필요한 시스템은 경영지원본부에 요청하세요."}</div>`}
-    ${myBtns.length
-      ? `<div class="tile-sub">내 바로가기</div>
-         <div class="tile-grid">${myBtns.map((b, i) => tile(b, i + 1,
-          `<span class="t-edit"><button data-myedit="${i}">수정</button><button data-mydel="${i}">삭제</button></span>`)).join("")}</div>` : ""}`;
+  $("#shortcut-body").innerHTML = (visibleSystems.length || visibleMy.length) ? `
+    <div class="tile-grid">
+      ${visibleSystems.map((b, i) => tile(b, i, homeEditMode
+        ? `<span class="t-edit"><button data-syshide="${b.id}" title="보관함으로 이동">보관</button></span>` : "")).join("")}
+      ${visibleMy.map(({ b, i }, k) => tile(b, k + 1, homeEditMode
+        ? `<span class="t-edit"><button data-myedit="${i}">수정</button><button data-myhide="${i}">보관</button></span>` : "")).join("")}
+    </div>`
+    : (mySystems.length || myBtns.length)
+      ? `<div class="empty">모든 버튼이 보관함에 있습니다. [편집] → [보관함]에서 다시 꺼낼 수 있어요.</div>`
+      : `<div class="empty">표시할 버튼이 없습니다.${isAdmin() ? " [사내 시스템]에서 버튼을 등록하고 권한을 부여하세요." : " [편집] → [+ 새 등록]으로 나만의 버튼을 추가하거나, 필요한 시스템은 경영지원본부에 요청하세요."}</div>`;
+
+  $("#home-edit").onclick = () => { homeEditMode = !homeEditMode; renderHome(); };
 
   main.querySelectorAll("[data-syshide]").forEach((b) => {
     b.onclick = async (e) => {
       e.preventDefault();
       hiddenSys.push(b.dataset.syshide);
-      await saveHidden();
+      await savePB();
       renderHome();
     };
   });
+  main.querySelectorAll("[data-myhide]").forEach((b) => {
+    b.onclick = async (e) => {
+      e.preventDefault();
+      myBtns[Number(b.dataset.myhide)].hidden = true;
+      await savePB();
+      renderHome();
+    };
+  });
+  main.querySelectorAll("[data-myedit]").forEach((b) => {
+    b.onclick = (e) => { e.preventDefault(); openMyButtonModal(myBtns, Number(b.dataset.myedit)); };
+  });
 
-  $("#sys-archive").onclick = () => {
+  const myAdd = $("#my-add");
+  if (myAdd) myAdd.onclick = () => openMyButtonModal(myBtns, null);
+
+  const archiveBtn = $("#sys-archive");
+  if (archiveBtn) archiveBtn.onclick = () => {
     const renderArchive = () => {
+      const hiddenSystems = mySystems.filter((sy) => hiddenSys.includes(sy.id));
+      const hiddenMy = myBtns.map((b, i) => ({ b, i })).filter((x) => x.b.hidden);
       openModal(`
         <h3>보관함</h3>
-        <p class="modal-desc">내 계정에 권한이 부여된 사내 시스템입니다. 홈에 표시할 버튼을 자유롭게 구성하세요.</p>
-        ${mySystems.length ? `<div class="archive-list">
-          ${mySystems.map((sy) => {
-            const hidden = hiddenSys.includes(sy.id);
-            return `<div class="archive-row">
-              <i class="dot" style="background:${esc(sy.color || DEFAULT_BTN_COLOR)}"></i>
-              <span class="ar-label">${esc(sy.label)}</span>
-              ${hidden
-                ? `<button class="btn btn-primary btn-sm" data-arshow="${sy.id}">바로가기에 추가</button>`
-                : `<button class="btn btn-ghost btn-sm" data-arhide="${sy.id}">보관</button>`}
-            </div>`;
-          }).join("")}
-        </div>` : `<div class="empty">권한이 부여된 시스템이 없습니다.</div>`}
+        <p class="modal-desc">보관된 버튼입니다. [등록]하면 바로가기에 복구됩니다. 직접 만든 버튼만 삭제할 수 있어요.</p>
+        ${(hiddenSystems.length || hiddenMy.length) ? `<div class="archive-list">
+          ${hiddenSystems.map((sy) => `<div class="archive-row">
+            <i class="dot" style="background:${esc(sy.color || DEFAULT_BTN_COLOR)}"></i>
+            <span class="ar-label">${esc(sy.label)}</span>
+            <span class="badge">사내 시스템</span>
+            <button class="btn btn-primary btn-sm" data-arsys="${sy.id}">등록</button>
+          </div>`).join("")}
+          ${hiddenMy.map(({ b, i }) => `<div class="archive-row">
+            <i class="dot" style="background:${esc(b.color || DEFAULT_BTN_COLOR)}"></i>
+            <span class="ar-label">${esc(b.label)}</span>
+            <span class="badge dept">내 바로가기</span>
+            <button class="btn btn-primary btn-sm" data-army="${i}">등록</button>
+            <button class="btn btn-danger btn-sm" data-ardel="${i}">삭제</button>
+          </div>`).join("")}
+        </div>` : `<div class="empty">보관된 버튼이 없습니다.</div>`}
         <div class="modal-actions"><button class="btn btn-primary" id="ar-close">닫기</button></div>`);
       $("#ar-close").onclick = () => { closeModal(); renderHome(); };
-      $("#modal").querySelectorAll("[data-arshow]").forEach((b) => {
-        b.onclick = async () => {
-          hiddenSys = hiddenSys.filter((id) => id !== b.dataset.arshow);
-          await saveHidden();
+      $("#modal").querySelectorAll("[data-arsys]").forEach((bt) => {
+        bt.onclick = async () => {
+          hiddenSys = hiddenSys.filter((id) => id !== bt.dataset.arsys);
+          await savePB();
           renderArchive();
         };
       });
-      $("#modal").querySelectorAll("[data-arhide]").forEach((b) => {
-        b.onclick = async () => {
-          hiddenSys.push(b.dataset.arhide);
-          await saveHidden();
+      $("#modal").querySelectorAll("[data-army]").forEach((bt) => {
+        bt.onclick = async () => {
+          delete myBtns[Number(bt.dataset.army)].hidden;
+          await savePB();
+          renderArchive();
+        };
+      });
+      $("#modal").querySelectorAll("[data-ardel]").forEach((bt) => {
+        bt.onclick = async () => {
+          const i = Number(bt.dataset.ardel);
+          if (!confirm(`"${myBtns[i].label}" 버튼을 정말로 삭제할까요?\n삭제하면 복구할 수 없습니다.`)) return;
+          myBtns.splice(i, 1);
+          await savePB();
           renderArchive();
         };
       });
     };
     renderArchive();
   };
-
-  $("#my-add").onclick = () => openMyButtonModal(myBtns, null);
-  main.querySelectorAll("[data-myedit]").forEach((b) => {
-    b.onclick = (e) => { e.preventDefault(); openMyButtonModal(myBtns, Number(b.dataset.myedit)); };
-  });
-  main.querySelectorAll("[data-mydel]").forEach((b) => {
-    b.onclick = async (e) => {
-      e.preventDefault();
-      const idx = Number(b.dataset.mydel);
-      if (!confirm(`내 바로가기 "${myBtns[idx].label}"을(를) 삭제할까요?`)) return;
-      myBtns.splice(idx, 1);
-      await db.collection(COL.personalButtons).doc(me.id).set({ items: myBtns }, { merge: true });
-      renderHome();
-    };
-  });
 
   /* ── 급여 위젯: 최근 6개월 ── */
   const months = recentMonths(6);
