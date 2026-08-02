@@ -727,6 +727,28 @@ table.data th.num { text-align: right; }
 
 #pm-month { padding: 8px 12px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 0.85rem; font-weight: 600; }
 
+/* 근속 표기 (위계 낮춤) */
+.tenure { font-style: normal; font-size: 0.78em; font-weight: 500; color: var(--ink-faint); }
+.tenure-days { display: block; font-size: 0.7rem; font-weight: 500; color: var(--ink-faint); margin-top: 1px; }
+
+/* 투두 카운트 */
+.todo-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 99px;
+  background: var(--blue-soft);
+  color: var(--blue-deep);
+  font-size: 0.76rem;
+  font-weight: 700;
+  vertical-align: 2px;
+}
+
+/* 비활성 버튼 */
+.btn:disabled { background: #e8ebee; color: var(--ink-faint); cursor: not-allowed; }
+
 /* 아이콘 액션 버튼 */
 .icon-btn {
   border: none;

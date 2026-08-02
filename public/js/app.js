@@ -299,7 +299,7 @@ function renderSidebar() {
     <ul class="p-meta">
       ${me.grade ? `<li><b>직급</b> ${esc(me.grade)}</li>` : ""}
       ${me.position ? `<li><b>직책</b> ${esc(me.position)}</li>` : ""}
-      ${me.joinDate ? `<li><b>입사일</b> ${esc(me.joinDate)}</li>` : ""}
+      ${me.joinDate ? `<li><b>입사일</b> ${esc(me.joinDate)} <em class="tenure">${tenureYM(me.joinDate)} 근무</em></li>` : ""}
       ${me.email ? `<li><b>이메일</b> ${esc(me.email)}</li>` : ""}
       ${me.phone ? `<li><b>연락처</b> ${esc(me.phone)}</li>` : ""}
       <li><b>구분</b> ${empTypeShort(me.empType)}</li>
@@ -369,7 +369,7 @@ function openMyInfoModal() {
       ${row("직급", me.grade)}
       ${row("직책", me.position)}
       ${row("권한", roleLabel(me.role))}
-      ${row("입사일", me.joinDate)}
+      ${me.joinDate ? `<li><b>입사일</b> ${esc(me.joinDate)} <em class="tenure">${tenureYM(me.joinDate)} 근무</em></li>` : ""}
       ${row("이메일", me.email)}
       ${row("연락처", me.phone)}
       ${row("고용 구분", empTypeShort(me.empType))}
@@ -582,11 +582,11 @@ async function renderHome() {
     <div class="widget-grid">
       <div class="card">
         <div class="card-title">
-          <div>업무 할 일<div class="ct-desc">오늘 처리할 일을 적어두세요. 체크하면 목록에서 사라집니다.</div></div>
+          <div>업무 할 일 <span class="todo-count" id="todo-count"></span><div class="ct-desc">오늘 처리할 일을 적어두세요. 체크하면 목록에서 사라집니다.</div></div>
         </div>
         <form id="todo-form" class="todo-add">
           <input id="todo-input" placeholder="할 일을 입력하고 Enter" maxlength="200" autocomplete="off" />
-          <button type="submit" class="btn btn-primary btn-sm">추가</button>
+          <button type="submit" class="btn btn-primary btn-sm" id="todo-add-btn" disabled>추가</button>
         </form>
         <div id="todo-list"></div>
       </div>
@@ -794,6 +794,8 @@ async function renderHome() {
   const saveTodos = () => todoRef.set({ items: todoItems });
 
   const renderTodos = () => {
+    const cnt = $("#todo-count");
+    if (cnt) cnt.textContent = todoItems.length ? todoItems.length : "0";
     $("#todo-list").innerHTML = todoItems.length ? todoItems.map((t, i) => `
       <div class="todo-row" data-i="${i}">
         <label class="todo-check"><input type="checkbox" data-done="${i}" /><span></span></label>
@@ -845,12 +847,16 @@ async function renderHome() {
   };
   renderTodos();
 
+  $("#todo-input").oninput = () => {
+    $("#todo-add-btn").disabled = !$("#todo-input").value.trim();
+  };
   $("#todo-form").onsubmit = async (ev) => {
     ev.preventDefault();
     const v = $("#todo-input").value.trim();
     if (!v) return;
     todoItems.push({ text: v });
     $("#todo-input").value = "";
+    $("#todo-add-btn").disabled = true;
     await saveTodos();
     renderTodos();
   };
@@ -1078,6 +1084,15 @@ function empTypeShort(t) {
   if (t.includes("3.3")) return "3.3%";
   if (t.includes("보험")) return "4대보험";
   return t;
+}
+function tenureYM(joinDate) {
+  if (!joinDate) return "";
+  const st = new Date(joinDate), now = new Date();
+  let months = (now.getFullYear() - st.getFullYear()) * 12 + (now.getMonth() - st.getMonth());
+  if (now.getDate() < st.getDate()) months--;
+  if (months < 0) return "";
+  const y = Math.floor(months / 12), m = months % 12;
+  return y ? (m ? `${y}년 ${m}개월` : `${y}년`) : `${m}개월`;
 }
 function workDaysLabel(joinDate) {
   if (!joinDate) return "";
@@ -2394,7 +2409,9 @@ async function renderEmployees() {
     </tr></thead><tbody>
     ${emps.map((e) => `<tr>
       <td><b>${esc(e.name)}</b></td><td>${esc(e.dept)}</td><td>${esc(e.grade || "-")}</td><td>${esc(e.position || "-")}</td>
-      <td>${esc(e.email || "-")}</td><td>${esc(e.joinDate || "-")}${workDaysLabel(e.joinDate)}</td><td>${empTypeShort(e.empType)}</td>
+      <td>${esc(e.email || "-")}</td>
+      <td>${e.joinDate ? `${esc(e.joinDate)} <em class="tenure">${tenureYM(e.joinDate)} 근무</em><span class="tenure-days">${workDaysLabel(e.joinDate).replace(/[()]/g, "")}</span>` : "-"}</td>
+      <td>${empTypeShort(e.empType)}</td>
       <td><span class="badge ${e.role}">${roleLabel(e.role)}</span></td>
       <td>${e.passwordHash ? '<span class="badge ok">설정됨</span>' : '<span class="badge warn">미설정</span>'}</td>
       <td>${e.status === "재직" ? '<span class="badge ok">재직</span>' : '<span class="badge off">퇴사</span>'}</td>
