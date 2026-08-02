@@ -1016,6 +1016,15 @@ function workDaysLabel(joinDate) {
   return days > 0 ? ` (총 ${fmt(days)}일 근무)` : "";
 }
 
+function gradeN(e) { return e.grade ? Number(String(e.grade).replace(/[^0-9]/g, "")) : -1; }
+function sortByGrade(emps) {
+  return emps.slice().sort((a, b) =>
+    gradeN(b) - gradeN(a) ||
+    DEPTS.indexOf(a.dept) - DEPTS.indexOf(b.dept) ||
+    (a.joinDate || "9999").localeCompare(b.joinDate || "9999") ||
+    a.name.localeCompare(b.name, "ko"));
+}
+
 function catForEmp(emp) {
   const t = (emp?.empType || "");
   if (t.includes("3.3")) return "3.3%";
@@ -1227,8 +1236,7 @@ async function renderPayroll() {
     `<div id="pm-body"><div class="empty">불러오는 중...</div></div>`;
 
   const empSnap = await db.collection(COL.employees).where("status", "==", "재직").get();
-  const emps = empSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
-    .sort((a, b) => DEPTS.indexOf(a.dept) - DEPTS.indexOf(b.dept) || a.name.localeCompare(b.name, "ko"));
+  const emps = sortByGrade(empSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
   pmEmps = emps;
   if (!emps.length) {
     $("#pm-body").innerHTML = `<div class="empty">재직 직원이 없습니다. [직원 관리]에서 먼저 직원을 등록하세요.</div>`;
@@ -2135,12 +2143,7 @@ async function renderEmployees() {
   $("#emp-add").onclick = () => openEmployeeModal(null);
 
   const snap = await db.collection(COL.employees).get();
-  const gradeN = (e) => e.grade ? Number(String(e.grade).replace(/[^0-9]/g, "")) : -1;
-  const emps = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) =>
-    gradeN(b) - gradeN(a) ||
-    DEPTS.indexOf(a.dept) - DEPTS.indexOf(b.dept) ||
-    (a.joinDate || "9999").localeCompare(b.joinDate || "9999") ||
-    a.name.localeCompare(b.name, "ko"));
+  const emps = sortByGrade(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
 
   /* ── 재직 현황 요약 ── */
   const active = emps.filter((e) => e.status === "재직");
