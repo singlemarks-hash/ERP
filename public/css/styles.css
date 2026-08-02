@@ -745,6 +745,18 @@ table.data th.num { text-align: right; }
 .icon-btn.danger { color: var(--red); background: var(--red-soft); }
 .icon-btn.danger:hover { background: #fbdcdf; }
 
+/* 보관함 */
+.archive-list { display: grid; gap: 8px; max-height: 50vh; overflow-y: auto; }
+.archive-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+.archive-row .ar-label { flex: 1; font-size: 0.92rem; font-weight: 600; }
+
 /* 행 ⋯ 메뉴 */
 .row-menu-btn {
   border: none;
