@@ -12,7 +12,7 @@ const FIREBASE_CONFIG = {
 // 컬렉션 경로 상수 — 추후 멀티테넌트(SaaS) 전환 시 이곳만 companies/{id}/... 로 바꾸면 된다.
 const COL = {
   employees: "employees",
-  homeButtons: "homeButtons",
+  systems: "systems", // 사내 시스템 버튼 (계정별 권한 부여)
   personalButtons: "personalButtons",
   payroll: "payroll", // payroll/{YYYY-MM}/rows/{id}
   leaves: "leaves",

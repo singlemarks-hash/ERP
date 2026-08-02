@@ -408,6 +408,35 @@ table.data th.num { text-align: right; }
 .switch input:checked + .knob::after { transform: translateX(20px); }
 .switch input:focus-visible + .knob { outline: 2px solid var(--blue); outline-offset: 2px; }
 
+/* ───────── 사내 시스템 권한 관리 ───────── */
+.grant-all {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--blue-soft);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 0.88rem;
+  cursor: pointer;
+  margin-bottom: 12px;
+}
+.grant-all input { width: 17px; height: 17px; accent-color: var(--blue); }
+.grant-list { max-height: 320px; overflow-y: auto; border: 1.5px solid var(--line); border-radius: 12px; padding: 6px 14px 10px; }
+.grant-list.disabled { opacity: 0.45; }
+.grant-dept { font-size: 0.72rem; font-weight: 700; color: var(--ink-faint); margin: 10px 0 4px; }
+.grant-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 2px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  border-radius: 8px;
+}
+.grant-row:hover { background: #f9fafb; }
+.grant-row input { width: 16px; height: 16px; accent-color: var(--blue); }
+.grant-row em { font-style: normal; font-size: 0.76rem; color: var(--ink-faint); }
+
 /* ───────── 연차/휴가 ───────── */
 .lv-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
 .lv-stat {

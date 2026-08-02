@@ -286,7 +286,8 @@ const ICONS = {
   settings: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z"/></svg>',
   employees: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.2 3.4-5 6.5-5s5.7 1.8 6.5 5"/><circle cx="17.5" cy="9.5" r="2.5"/><path d="M16.5 15.2c2.5.3 4.3 1.8 5 4.3"/></svg>',
   monitor: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5c0 4.6 3.2 8.4 7.5 10 4.3-1.6 7.5-5.4 7.5-10V6L12 3Z"/><path d="m9 12 2 2 4-4"/></svg>',
-  ledger: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>'
+  ledger: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>',
+  grid: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg>'
 };
 
 function renderSidebar() {
@@ -321,6 +322,7 @@ function renderSidebar() {
     `<button class="nav-item" data-view="${i.id}">${ICONS[i.ico]}${i.label}</button>`).join("");
   if (isAdmin()) {
     html += `<div class="nav-label">관리자 메뉴</div>` + [
+      { id: "systems", ico: "grid", label: "사내 시스템" },
       { id: "paymanage", ico: "ledger", label: "급여관리" },
       { id: "employees", ico: "employees", label: "직원 관리" },
       { id: "monitor", ico: "monitor", label: "권한 모니터링" }
@@ -362,6 +364,7 @@ function navigate(view) {
     paymanage: renderPayroll,
     leave: renderLeave,
     settings: renderSettings,
+    systems: renderSystems,
     employees: renderEmployees,
     monitor: renderMonitor
   }[view];
@@ -410,9 +413,9 @@ async function renderHome() {
     </div>
     <div class="card" id="shortcut-card">
       <div class="card-title">
-        <div>바로가기<div class="ct-desc">자주 사용하는 사내 서비스로 이동하세요.${isAdmin() ? " 공용 바로가기는 경영지원본부가 관리합니다." : ""}</div></div>
+        <div>바로가기<div class="ct-desc">내 계정에 권한이 부여된 사내 시스템으로 이동하세요.${isAdmin() ? " 버튼과 권한은 [사내 시스템]에서 관리합니다." : ""}</div></div>
         <span style="display:flex;gap:6px">
-          ${isAdmin() ? `<button class="btn btn-ghost btn-sm" id="pub-add">+ 공용 추가</button>` : ""}
+          ${isAdmin() ? `<button class="btn btn-ghost btn-sm" data-goto="systems">시스템 관리</button>` : ""}
           <button class="btn btn-ghost btn-sm" id="my-add">+ 내 바로가기</button>
         </span>
       </div>
@@ -449,12 +452,13 @@ async function renderHome() {
 
   main.querySelectorAll("[data-goto]").forEach((b) => { b.onclick = () => navigate(b.dataset.goto); });
 
-  /* ── 바로가기 타일 ── */
-  const [pubSnap, myBtnSnap] = await Promise.all([
-    db.collection(COL.homeButtons).get(),
+  /* ── 바로가기 타일: 권한 부여된 사내 시스템 + 내 바로가기 ── */
+  const [sysSnap, myBtnSnap] = await Promise.all([
+    db.collection(COL.systems).get(),
     db.collection(COL.personalButtons).doc(me.id).get()
   ]);
-  const pubBtns = pubSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+  const mySystems = sysSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    .filter((s) => isAdmin() || s.allowAll || (s.grantIds || []).includes(me.id))
     .sort((a, b) => (a.order || 0) - (b.order || 0));
   const myBtns = myBtnSnap.exists ? (myBtnSnap.data().items || []) : [];
 
@@ -470,31 +474,14 @@ async function renderHome() {
   };
 
   $("#shortcut-body").innerHTML = `
-    ${pubBtns.length
-      ? `<div class="tile-grid">${pubBtns.map((b, i) => tile(b, i, isAdmin()
-          ? `<span class="t-edit"><button data-edit="${b.id}">수정</button><button data-del="${b.id}">삭제</button></span>` : "")).join("")}</div>`
-      : `<div class="empty">등록된 공용 바로가기가 없습니다.${isAdmin() ? " [+ 공용 추가]로 사내 툴 주소를 등록하세요." : " 경영지원본부에 등록을 요청하세요."}</div>`}
+    ${mySystems.length
+      ? `<div class="tile-grid">${mySystems.map((b, i) => tile(b, i)).join("")}</div>`
+      : `<div class="empty">사용 권한이 부여된 사내 시스템이 없습니다.${isAdmin() ? " [사내 시스템]에서 버튼을 등록하고 권한을 부여하세요." : " 필요한 시스템은 경영지원본부에 요청하세요."}</div>`}
     ${myBtns.length
       ? `<div class="tile-sub">내 바로가기</div>
          <div class="tile-grid">${myBtns.map((b, i) => tile(b, i + 1,
           `<span class="t-edit"><button data-myedit="${i}">수정</button><button data-mydel="${i}">삭제</button></span>`)).join("")}</div>` : ""}`;
 
-  if (isAdmin()) {
-    $("#pub-add").onclick = () => openButtonModal(null, pubBtns.length);
-    main.querySelectorAll("[data-edit]").forEach((b) => {
-      b.onclick = (e) => { e.preventDefault(); openButtonModal(pubBtns.find((x) => x.id === b.dataset.edit)); };
-    });
-    main.querySelectorAll("[data-del]").forEach((b) => {
-      b.onclick = async (e) => {
-        e.preventDefault();
-        const btn = pubBtns.find((x) => x.id === b.dataset.del);
-        if (!confirm(`공용 바로가기 "${btn.label}"을(를) 삭제할까요?`)) return;
-        await db.collection(COL.homeButtons).doc(btn.id).delete();
-        await audit("공용 버튼 삭제", btn.label);
-        renderHome();
-      };
-    });
-  }
   $("#my-add").onclick = () => openMyButtonModal(myBtns, null);
   main.querySelectorAll("[data-myedit]").forEach((b) => {
     b.onclick = (e) => { e.preventDefault(); openMyButtonModal(myBtns, Number(b.dataset.myedit)); };
@@ -573,36 +560,139 @@ async function renderHome() {
   };
 }
 
-function openButtonModal(btn, nextOrder) {
+/* ───────── 사내 시스템 (관리자: 버튼 등록 + 계정별 권한 부여) ───────── */
+async function renderSystems() {
+  if (!isAdmin()) return navigate("home");
+  const main = $("#main");
+  main.innerHTML = pageHead("SYSTEMS", "사내 시스템",
+    "회사에서 사용하는 사이트 버튼을 등록하고, 계정별로 사용 권한을 부여합니다. 권한이 부여된 직원의 홈에 버튼이 자동으로 나타납니다.",
+    `<button class="btn btn-primary btn-sm" id="sys-add">+ 시스템 추가</button>`) +
+    `<div id="sys-body"><div class="empty">불러오는 중...</div></div>`;
+  $("#sys-add").onclick = () => openSystemModal(null);
+
+  const [sysSnap, empSnap] = await Promise.all([
+    db.collection(COL.systems).get(),
+    db.collection(COL.employees).where("status", "==", "재직").get()
+  ]);
+  const systems = sysSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+  const emps = empSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const activeCount = emps.length;
+
+  $("#sys-body").innerHTML = systems.length ? `<div class="card"><div class="table-wrap">
+    <table class="data"><thead><tr>
+      <th>시스템</th><th>URL</th><th>설명</th><th>사용 권한</th><th></th>
+    </tr></thead><tbody>
+    ${systems.map((s) => {
+      const n = s.allowAll ? activeCount : (s.grantIds || []).filter((id) => emps.some((e) => e.id === id)).length;
+      return `<tr>
+        <td><b>${esc(s.label)}</b></td>
+        <td><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url)}</a></td>
+        <td>${esc(s.desc || "-")}</td>
+        <td>${s.allowAll ? '<span class="badge ok">전체 공개</span>' : `<span class="badge ${n ? "admin" : "off"}">${n}명</span>`}</td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-primary btn-sm" data-grant="${s.id}">권한 관리</button>
+          <button class="btn btn-ghost btn-sm" data-sysedit="${s.id}">수정</button>
+          <button class="btn btn-danger btn-sm" data-sysdel="${s.id}">삭제</button>
+        </td>
+      </tr>`;
+    }).join("")}</tbody></table>
+  </div></div>`
+    : `<div class="empty">등록된 사내 시스템이 없습니다. [+ 시스템 추가]로 회사에서 쓰는 사이트를 등록하세요.</div>`;
+
+  $("#sys-body").querySelectorAll("[data-sysedit]").forEach((b) => {
+    b.onclick = () => openSystemModal(systems.find((s) => s.id === b.dataset.sysedit));
+  });
+  $("#sys-body").querySelectorAll("[data-grant]").forEach((b) => {
+    b.onclick = () => openGrantModal(systems.find((s) => s.id === b.dataset.grant), emps);
+  });
+  $("#sys-body").querySelectorAll("[data-sysdel]").forEach((b) => {
+    b.onclick = async () => {
+      const s = systems.find((x) => x.id === b.dataset.sysdel);
+      if (!confirm(`사내 시스템 "${s.label}"을(를) 삭제할까요?\n권한을 받은 직원들의 홈에서도 사라집니다.`)) return;
+      await db.collection(COL.systems).doc(s.id).delete();
+      await audit("사내 시스템 삭제", s.label);
+      renderSystems();
+    };
+  });
+}
+
+function openSystemModal(sys) {
   openModal(`
-    <h3>${btn ? "공용 버튼 수정" : "공용 버튼 추가"}</h3>
-    <p class="modal-desc">공용 바로가기의 URL은 경영지원본부(관리자)만 편집할 수 있습니다.</p>
-    <form id="btn-form">
-      <label class="field"><span class="field-label">버튼 이름</span><input id="bf-label" required value="${esc(btn?.label || "")}" /></label>
-      <label class="field"><span class="field-label">URL</span><input id="bf-url" type="url" required placeholder="https://..." value="${esc(btn?.url || "")}" /></label>
-      <label class="field"><span class="field-label">설명 (선택)</span><input id="bf-desc" value="${esc(btn?.desc || "")}" /></label>
+    <h3>${sys ? "사내 시스템 수정" : "사내 시스템 추가"}</h3>
+    <p class="modal-desc">등록 후 [권한 관리]에서 사용할 직원을 지정하세요.</p>
+    <form id="sys-form">
+      <label class="field"><span class="field-label">시스템 이름</span><input id="sf-label" required value="${esc(sys?.label || "")}" /></label>
+      <label class="field"><span class="field-label">URL</span><input id="sf-url" type="url" required placeholder="https://..." value="${esc(sys?.url || "")}" /></label>
+      <label class="field"><span class="field-label">설명 (선택)</span><input id="sf-desc" value="${esc(sys?.desc || "")}" /></label>
       <div class="modal-actions">
-        <button type="button" class="btn btn-ghost" id="bf-cancel">취소</button>
+        <button type="button" class="btn btn-ghost" id="sf-cancel">취소</button>
         <button type="submit" class="btn btn-primary">저장</button>
       </div>
     </form>`);
-  $("#bf-cancel").onclick = closeModal;
-  $("#btn-form").onsubmit = async (ev) => {
+  $("#sf-cancel").onclick = closeModal;
+  $("#sys-form").onsubmit = async (ev) => {
     ev.preventDefault();
     const data = {
-      label: $("#bf-label").value.trim(),
-      url: $("#bf-url").value.trim(),
-      desc: $("#bf-desc").value.trim()
+      label: $("#sf-label").value.trim(),
+      url: $("#sf-url").value.trim(),
+      desc: $("#sf-desc").value.trim()
     };
-    if (btn) {
-      await db.collection(COL.homeButtons).doc(btn.id).update(data);
-      await audit("공용 버튼 수정", `${data.label} → ${data.url}`);
+    if (sys) {
+      await db.collection(COL.systems).doc(sys.id).update(data);
+      await audit("사내 시스템 수정", `${data.label} → ${data.url}`);
     } else {
-      await db.collection(COL.homeButtons).add({ ...data, order: nextOrder || 0 });
-      await audit("공용 버튼 추가", `${data.label} → ${data.url}`);
+      await db.collection(COL.systems).add({ ...data, allowAll: false, grantIds: [], order: Date.now() % 100000 });
+      await audit("사내 시스템 추가", `${data.label} → ${data.url}`);
     }
     closeModal();
-    renderHome();
+    renderSystems();
+  };
+}
+
+function openGrantModal(sys, emps) {
+  const grantIds = new Set(sys.grantIds || []);
+  const byDept = DEPTS.map((d) => ({
+    dept: d,
+    list: emps.filter((e) => e.dept === d).sort((a, b) => a.name.localeCompare(b.name, "ko"))
+  })).filter((g) => g.list.length);
+
+  openModal(`
+    <h3>권한 관리 — ${esc(sys.label)}</h3>
+    <p class="modal-desc">체크된 직원의 홈에 이 버튼이 자동으로 나타납니다. (총괄 관리자는 항상 모든 버튼이 보입니다)</p>
+    <label class="grant-all">
+      <input type="checkbox" id="gr-all" ${sys.allowAll ? "checked" : ""} />
+      <span><b>전체 공개</b> — 모든 재직 직원에게 표시</span>
+    </label>
+    <div id="gr-list" class="grant-list ${sys.allowAll ? "disabled" : ""}">
+      ${byDept.map((g) => `
+        <div class="grant-dept">${g.dept}</div>
+        ${g.list.map((e) => `
+          <label class="grant-row">
+            <input type="checkbox" data-gid="${e.id}" ${grantIds.has(e.id) ? "checked" : ""} ${sys.allowAll ? "disabled" : ""} />
+            <span>${esc(e.name)}</span><em>${esc(e.position || "")}</em>
+          </label>`).join("")}`).join("")}
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" id="gr-cancel">취소</button>
+      <button type="button" class="btn btn-primary" id="gr-save">권한 저장</button>
+    </div>`);
+
+  $("#gr-cancel").onclick = closeModal;
+  $("#gr-all").onchange = (ev) => {
+    const on = ev.target.checked;
+    $("#gr-list").classList.toggle("disabled", on);
+    $("#gr-list").querySelectorAll("input").forEach((i) => (i.disabled = on));
+  };
+  $("#gr-save").onclick = async () => {
+    const allowAll = $("#gr-all").checked;
+    const ids = allowAll ? [] : [...$("#gr-list").querySelectorAll("input:checked")].map((i) => i.dataset.gid);
+    await db.collection(COL.systems).doc(sys.id).update({ allowAll, grantIds: ids });
+    const names = emps.filter((e) => ids.includes(e.id)).map((e) => e.name).join(", ");
+    await audit("시스템 권한 변경", `${sys.label} → ${allowAll ? "전체 공개" : (names || "없음")}`);
+    toast("권한을 저장했습니다. 해당 직원의 홈에 반영됩니다.");
+    closeModal();
+    renderSystems();
   };
 }
 
