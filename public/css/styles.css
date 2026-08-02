@@ -614,7 +614,47 @@ table.data th.num { text-align: right; }
 .pb-eyebrow { display: block; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.12em; color: var(--ink-faint); margin-bottom: 2px; }
 
 /* ───────── 급여관리 (급여장부) ───────── */
-.pm-grid { display: grid; grid-template-columns: 400px 1fr; gap: 18px; align-items: start; }
+.pm-grid { display: grid; grid-template-columns: 350px 1fr; gap: 18px; align-items: start; }
+
+/* 행 ⋯ 메뉴 */
+.row-menu-btn {
+  border: none;
+  background: #f2f4f6;
+  border-radius: 10px;
+  width: 34px;
+  height: 30px;
+  font-size: 1.05rem;
+  color: var(--ink-soft);
+  line-height: 1;
+}
+.row-menu-btn:hover { background: var(--blue-soft); color: var(--blue-deep); }
+.row-menu {
+  position: fixed;
+  z-index: 320;
+  background: var(--surface);
+  border-radius: 14px;
+  box-shadow: 0 8px 30px rgba(25, 31, 40, 0.18);
+  padding: 6px;
+  min-width: 150px;
+}
+.row-menu .rm-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 9px;
+  padding: 9px 12px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: left;
+}
+.row-menu .rm-item:hover { background: #f2f4f6; }
+.row-menu .rm-item.danger { color: var(--red); }
+.row-menu .rm-item.danger:hover { background: var(--red-soft); }
+.row-menu .rm-item svg { width: 16px; height: 16px; flex-shrink: 0; }
 .pm-grid .card { margin-bottom: 0; }
 .pm-emp-bar { display: flex; align-items: end; gap: 14px; flex-wrap: wrap; }
 .pm-emp-info { display: flex; gap: 5px; flex-wrap: wrap; padding-bottom: 8px; }

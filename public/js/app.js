@@ -1225,32 +1225,135 @@ async function renderPayHistoryAdmin(emp) {
         <td class="num"><span class="hov c-red" data-hv="${r.id}" data-ym="${r.ym}" data-kind="deduct">${fmt(r.deductTotal)}원</span></td>
         <td class="num"><b class="c-green">${fmt(r.net)}원</b></td>
         <td class="memo">${esc(r.note || "—")}</td>
-        <td style="white-space:nowrap">
-          <button class="btn btn-ghost btn-sm" data-pm-edit="${r.id}" data-ym="${r.ym}">수정</button>
-          <button class="btn btn-danger btn-sm" data-pm-del="${r.id}" data-ym="${r.ym}">삭제</button></td>
+        <td><button class="row-menu-btn" data-pm-menu="${r.id}" data-ym="${r.ym}" title="메뉴">&#8943;</button></td>
       </tr>`).join("")}</tbody>
     </table></div>`
     : `<div class="empty">${pmYear}년 기록이 없습니다. 왼쪽에서 첫 기록을 저장하세요.</div>`;
 
   attachPayHover($("#pm-history"), records);
-  $("#pm-history").querySelectorAll("[data-pm-edit]").forEach((b) => {
-    b.onclick = () => {
-      const r = records.find((x) => x.id === b.dataset.pmEdit && x.ym === b.dataset.ym);
-      pmEditId = r.id;
-      pmEditYm = r.ym;
-      renderPayForm(emp, catForEmp(emp), r);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+  $("#pm-history").querySelectorAll("[data-pm-menu]").forEach((b) => {
+    b.onclick = (ev) => {
+      ev.stopPropagation();
+      const r = records.find((x) => x.id === b.dataset.pmMenu && x.ym === b.dataset.ym);
+      openRowMenu(b, [
+        {
+          label: "명세서 출력",
+          icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>',
+          onClick: () => printPayslip(emp, r)
+        },
+        {
+          label: "수정",
+          icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.8 2.8 0 0 1 4 4L8 20l-5 1 1-5L17 3Z"/></svg>',
+          onClick: () => {
+            pmEditId = r.id;
+            pmEditYm = r.ym;
+            renderPayForm(emp, catForEmp(emp), r);
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }
+        },
+        {
+          label: "삭제",
+          cls: "danger",
+          icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/><path d="M10 11v6M14 11v6"/></svg>',
+          onClick: async () => {
+            if (!confirm(`${emp.name}님의 ${r.ym} (지급일 ${r.payDate || "-"}) 기록을 삭제할까요?`)) return;
+            await db.collection(COL.payroll).doc(r.ym).collection("rows").doc(r.id).delete();
+            if (pmEditId === r.id) { pmEditId = null; pmEditYm = null; renderPayForm(emp, catForEmp(emp), null); }
+            renderPayHistoryAdmin(emp);
+          }
+        }
+      ]);
     };
   });
-  $("#pm-history").querySelectorAll("[data-pm-del]").forEach((b) => {
-    b.onclick = async () => {
-      const r = records.find((x) => x.id === b.dataset.pmDel && x.ym === b.dataset.ym);
-      if (!confirm(`${emp.name}님의 ${r.ym} (지급일 ${r.payDate || "-"}) 기록을 삭제할까요?`)) return;
-      await db.collection(COL.payroll).doc(r.ym).collection("rows").doc(r.id).delete();
-      if (pmEditId === r.id) { pmEditId = null; pmEditYm = null; renderPayForm(emp, catForEmp(emp), null); }
-      renderPayHistoryAdmin(emp);
-    };
+}
+
+/* ── 행 드롭다운 메뉴 (⋯) ── */
+function openRowMenu(anchor, items) {
+  let menu = document.getElementById("rowmenu");
+  if (menu) menu.remove();
+  menu = document.createElement("div");
+  menu.id = "rowmenu";
+  menu.className = "row-menu";
+  menu.innerHTML = items.map((it, i) =>
+    `<button class="rm-item ${it.cls || ""}" data-rm="${i}">${it.icon}${it.label}</button>`).join("");
+  document.body.appendChild(menu);
+  const rect = anchor.getBoundingClientRect();
+  const left = Math.max(8, Math.min(window.innerWidth - menu.offsetWidth - 8, rect.right - menu.offsetWidth));
+  const top = rect.bottom + 6 + menu.offsetHeight > window.innerHeight
+    ? rect.top - menu.offsetHeight - 6 : rect.bottom + 6;
+  menu.style.left = left + "px";
+  menu.style.top = top + "px";
+  menu.querySelectorAll("[data-rm]").forEach((b) => {
+    b.onclick = () => { menu.remove(); items[Number(b.dataset.rm)].onClick(); };
   });
+  const close = (ev) => {
+    if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener("click", close); }
+  };
+  setTimeout(() => document.addEventListener("click", close), 0);
+}
+
+/* ── 급여 지급명세서 출력 (A4 / PDF) ── */
+function printPayslip(emp, r) {
+  const [y, m] = r.ym.split("-").map(Number);
+  const payDate = r.payDate ? r.payDate.replace(/-/g, ". ").replace(/^20/, "") + "." : "—";
+  const rowsN = Math.max(r.payments.length, r.deductions.length, 1);
+  const bodyRows = Array.from({ length: rowsN }, (_, i) => {
+    const p = r.payments[i], d = r.deductions[i];
+    return `<tr>
+      <td>${p ? esc(p.label) : ""}</td><td class="num">${p ? fmt(p.amount) + "원" : ""}</td>
+      <td>${d ? esc(d.label) : ""}</td><td class="num">${d ? fmt(d.amount) + "원" : ""}</td>
+    </tr>`;
+  }).join("");
+
+  const html = `<!DOCTYPE html>
+<html lang="ko"><head><meta charset="UTF-8" />
+<title>${y}년 ${m}월 급여 지급명세서 - ${esc(emp.name)}</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Pretendard Variable", Pretendard, "Malgun Gothic", sans-serif; color: #191f28; font-size: 12px; line-height: 1.5; }
+  h1 { text-align: center; font-size: 22px; margin: 8px 0 26px; letter-spacing: -0.02em; }
+  .head-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .head-row b { font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 22px; }
+  th, td { border: 1px solid #191f28; padding: 8px 10px; font-size: 12px; }
+  th { background: #f1f2f4; font-weight: 700; text-align: center; }
+  td.label { background: #f1f2f4; font-weight: 700; text-align: center; width: 16%; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .sec-title { text-align: center; font-size: 14px; font-weight: 800; margin: 0 0 10px; }
+  .total td { font-weight: 800; background: #f1f2f4; }
+  .net td { font-weight: 800; background: #dfe5f5; font-size: 13px; }
+  .center { text-align: center; }
+  .footer { text-align: center; color: #6b7684; margin-top: 30px; font-size: 12px; }
+  @media print { .noprint { display: none; } }
+  .noprint { text-align: center; margin: 16px 0; }
+  .noprint button { padding: 10px 22px; font-size: 14px; border-radius: 8px; border: none; background: #3182f6; color: #fff; cursor: pointer; }
+</style></head><body>
+<div class="noprint"><button onclick="window.print()">인쇄 / PDF 저장</button></div>
+<h1>${y}년 ${m}월 급여 지급명세서</h1>
+<div class="head-row"><b>작은따옴표</b><span>지급일: ${payDate}</span></div>
+<table>
+  <tr><td class="label">성명</td><td style="width:34%">${esc(emp.name)}</td><td class="label">직위(직급)</td><td>${esc(emp.grade || emp.position || "—")}</td></tr>
+  <tr><td class="label">부서</td><td>${esc(emp.dept)}</td><td class="label">직책</td><td>${esc(emp.position || "—")}</td></tr>
+  <tr><td class="label">입사일</td><td>${esc(emp.joinDate || "—")}</td><td class="label">퇴사일</td><td>—</td></tr>
+</table>
+<div class="sec-title">세부 내역</div>
+<table>
+  <tr><th colspan="2">지 급</th><th colspan="2">공 제</th></tr>
+  <tr><th>임금 항목</th><th>지급 금액</th><th>공제 항목</th><th>공제 금액</th></tr>
+  ${bodyRows}
+  <tr class="total"><td class="center">지급액 계</td><td class="num">${fmt(r.payTotal)}원</td><td class="center">공제액 계</td><td class="num">${fmt(r.deductTotal)}원</td></tr>
+  <tr class="net"><td colspan="2" class="center">실수령액(원)</td><td colspan="2" class="num">${fmt(r.net)}원</td></tr>
+</table>
+${r.note ? `<table><tr><td class="label">메모</td><td>${esc(r.note)}</td></tr></table>` : ""}
+<div class="footer">귀하의 노고에 감사드립니다.</div>
+<script>window.onload = () => setTimeout(() => window.print(), 300);</` + `script>
+</body></html>`;
+
+  const win = window.open("", "_blank");
+  if (!win) { toast("팝업이 차단되었습니다. 이 사이트의 팝업을 허용해주세요."); return; }
+  win.document.write(html);
+  win.document.close();
 }
 
 /* ───────── 연차/휴가 ───────── */
