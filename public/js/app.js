@@ -52,10 +52,13 @@ function randSalt() {
   crypto.getRandomValues(a);
   return Array.from(a).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
+// 이 이메일로 등록된 직원은 로그인 시 자동으로 총괄 관리자 권한을 가진다.
+const ADMIN_EMAILS = ["wlstntrtr@gmail.com"];
+
 function isAdmin() { return me && me.role === "admin"; }
 function canViewAll() { return me && (me.role === "admin" || me.role === "executive"); }
 function roleForDept(dept) {
-  if (dept === "경영지원본부") return "admin";
+  // 관리자 권한은 자동 부여하지 않는다 — [직원 관리]에서 지정된 사람에게만 수동 부여.
   if (dept === "대표") return "executive";
   return "member";
 }
@@ -197,6 +200,12 @@ function openSetPasswordModal(emp, typedPw) {
 
 async function loginSuccess(emp) {
   me = { id: emp.id, ...emp };
+  // 지정 관리자 이메일은 로그인 시 자동으로 총괄 관리자 권한 부여
+  if (emp.email && ADMIN_EMAILS.includes(emp.email.toLowerCase()) && emp.role !== "admin") {
+    await db.collection(COL.employees).doc(emp.id).update({ role: "admin" });
+    me.role = "admin";
+    await audit("역할 변경", `${emp.name} → 총괄 관리자 (지정 관리자 이메일 자동 부여)`);
+  }
   localStorage.setItem(SESSION_KEY, emp.id);
   await db.collection(COL.employees).doc(emp.id).update({
     lastLoginAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -1071,7 +1080,7 @@ async function renderEmployees() {
 function openEmployeeModal(emp) {
   openModal(`
     <h3>${emp ? "직원 정보 수정" : "직원 등록"}</h3>
-    <p class="modal-desc">부서를 선택하면 역할이 자동 제안됩니다. (경영지원본부 → 총괄 관리자)</p>
+    <p class="modal-desc">관리자 권한(총괄 관리자)은 지정된 담당자에게만 부여하세요. 관리자 메뉴는 총괄 관리자에게만 표시됩니다.</p>
     <form id="emp-form">
       <div class="grid-2">
         <label class="field"><span class="field-label">이름</span><input id="ef-name" required value="${esc(emp?.name || "")}" /></label>
