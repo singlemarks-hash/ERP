@@ -408,6 +408,55 @@ table.data th.num { text-align: right; }
 .switch input:checked + .knob::after { transform: translateX(20px); }
 .switch input:focus-visible + .knob { outline: 2px solid var(--blue); outline-offset: 2px; }
 
+/* ───────── 연차/휴가 ───────── */
+.lv-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.lv-stat {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.lv-stat .s-label { font-size: 0.76rem; font-weight: 600; color: var(--ink-soft); }
+.lv-stat .s-value { font-size: 1.3rem; font-weight: 800; letter-spacing: -0.02em; margin-top: 1px; }
+.lv-ico {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.lv-ico svg { width: 22px; height: 22px; stroke: currentColor; }
+.lv-ico.t-blue { background: var(--blue-soft); color: var(--blue); }
+.lv-ico.t-green { background: var(--green-soft); color: var(--green); }
+.lv-ico.t-purple { background: var(--purple-soft); color: var(--purple); }
+.lv-ico.t-amber { background: var(--amber-soft); color: var(--amber); }
+
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; vertical-align: middle; }
+.dot-blue { background: var(--blue); }
+.dot-amber { background: var(--amber); }
+.dot-red { background: var(--red); }
+.dot-purple { background: var(--purple); }
+.dot-green { background: var(--green); }
+
+.badge.rej { background: var(--red-soft); color: var(--red); }
+
+.lv-req {
+  display: grid;
+  grid-template-columns: 150px 170px 130px 1fr auto;
+  gap: 12px;
+  align-items: end;
+}
+.lv-req .field { margin-bottom: 0; }
+.lv-req .btn { padding: 12px 22px; }
+@media (max-width: 1020px) {
+  .lv-req { grid-template-columns: 1fr 1fr; }
+  .lv-req .lv-req-note { grid-column: 1 / -1; }
+  .lv-req .btn { grid-column: 1 / -1; }
+}
+
 /* ───────── 급여이력 ───────── */
 .pay-hero {
   background: var(--surface);

@@ -858,61 +858,207 @@ async function openPayrollModal(row) {
 }
 
 /* ───────── 연차/휴가 ───────── */
+const LV_ICONS = {
+  total: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
+  used: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.2 3.4-5 6.5-5s5.7 1.8 6.5 5"/><path d="m15.5 10 2 2 4-4"/></svg>',
+  remain: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>',
+  pending: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>'
+};
+const LV_TYPE_TONES = { "연차": ["dot-blue", ""], "반차": ["dot-amber", "gold"], "병가": ["dot-red", "over"], "경조": ["dot-purple", "plum"], "기타": ["dot-green", "ok"] };
+
 async function renderLeave() {
   const main = $("#main");
   main.innerHTML = pageHead("LEAVE", "연차/휴가 관리",
-    canViewAll() ? "전 직원의 연차 할당·사용·잔여 현황입니다." : "내 연차 현황입니다.",
+    "나의 연차 보유·사용 현황을 확인하고, 휴가를 신청할 수 있습니다.",
     isAdmin() ? `<button class="btn btn-primary btn-sm" id="lv-use">+ 사용 기록 추가</button>
                  <button class="btn btn-ghost btn-sm" id="lv-alloc">할당 일수 설정</button>` : "") +
-    `<div id="lv-body">불러오는 중...</div>`;
+    `<div id="lv-body"><div class="empty">불러오는 중...</div></div>`;
 
-  const mySnap = await db.collection(COL.leaves).doc(me.id).get();
+  const [mySnap, myReqSnap] = await Promise.all([
+    db.collection(COL.leaves).doc(me.id).get(),
+    db.collection(COL.leaveRequests).where("empId", "==", me.id).get()
+  ]);
   const mine = mySnap.exists ? mySnap.data() : { allocated: 0, records: [] };
-  const myUsed = (mine.records || []).reduce((s, r) => s + Number(r.days || 0), 0);
+  const records = mine.records || [];
+  const myReqs = myReqSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const used = records.reduce((s, r) => s + Number(r.days || 0), 0);
+  const allocated = Number(mine.allocated) || 0;
+  const remain = allocated - used;
+  const pending = myReqs.filter((r) => r.status === "대기").length;
+  const pct = allocated ? Math.min(100, Math.round((used / allocated) * 100)) : 0;
 
-  let allHtml = "";
+  // 유형별 사용 현황
+  const byType = LEAVE_TYPES.map((t) => ({
+    t,
+    days: records.filter((r) => r.type === t).reduce((s, r) => s + Number(r.days || 0), 0)
+  }));
+  const maxType = Math.max(1, ...byType.map((b) => b.days));
+
+  // 사용 내역 요약: 확정 기록(승인) + 미확정 신청(대기/반려)
+  const history = [
+    ...records.map((r) => ({ ...r, status: "승인" })),
+    ...myReqs.filter((r) => r.status !== "승인").map((r) => ({ date: r.date, type: r.type, days: r.days, note: r.note, status: r.status }))
+  ].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 8);
+  const statusBadge = (s) => s === "승인" ? '<span class="badge ok">승인</span>'
+    : s === "대기" ? '<span class="badge warn">대기</span>' : '<span class="badge rej">반려</span>';
+
+  const statCard = (ico, tone, label, value) => `
+    <div class="lv-stat">
+      <span class="lv-ico ${tone}">${ico}</span>
+      <div><div class="s-label">${label}</div><div class="s-value">${value}</div></div>
+    </div>`;
+
+  let html = `
+    <div class="card">
+      <div class="card-title"><div>나의 연차 현황<div class="ct-desc">총 연차 보유 및 사용 현황을 확인하세요.</div></div></div>
+      <div class="lv-stats">
+        ${statCard(LV_ICONS.total, "t-blue", "총 연차 일수", `${allocated}일`)}
+        ${statCard(LV_ICONS.used, "t-green", "사용한 연차", `${used}일`)}
+        ${statCard(LV_ICONS.remain, "t-purple", "남은 연차", `${remain}일`)}
+        ${statCard(LV_ICONS.pending, "t-amber", "대기 중 신청", `${pending}건`)}
+      </div>
+      <div class="usage-line" style="margin:16px 0 0"><span>연차 사용률</span>
+        <div class="bar ${remain < 0 ? "over" : ""}"><i style="width:${pct}%"></i></div>
+        <b>${pct}%</b><span>(${used}일 / ${allocated}일)</span>
+      </div>
+    </div>
+
+    <div class="widget-grid">
+      <div class="card">
+        <div class="card-title"><div>연차 유형별 사용 현황</div></div>
+        <div class="type-bars">
+          ${byType.map(({ t, days }) => `<div class="type-bar">
+            <span><i class="dot ${LV_TYPE_TONES[t][0]}"></i>${t}</span>
+            <div class="bar ${LV_TYPE_TONES[t][1]}"><i style="width:${Math.round((days / maxType) * 100)}%"></i></div>
+            <span class="tb-num">${days}일</span>
+          </div>`).join("")}
+        </div>
+        <div class="mini-note">할당 연차는 회사 정책에 따라 경영지원본부가 설정합니다.</div>
+      </div>
+      <div class="card">
+        <div class="card-title"><div>연차 사용 내역 요약</div></div>
+        ${history.length ? `<div class="table-wrap"><table class="data">
+          <thead><tr><th>사용일</th><th>유형</th><th class="num">일수</th><th>사유</th><th>상태</th></tr></thead>
+          <tbody>${history.map((r) => `<tr>
+            <td>${esc(r.date || "-")}</td><td>${esc(r.type)}</td>
+            <td class="num">${r.days}일</td><td>${esc(r.note || "-")}</td><td>${statusBadge(r.status)}</td>
+          </tr>`).join("")}</tbody></table></div>`
+          : `<div class="empty">아직 사용 내역이 없습니다.</div>`}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><div>휴가 신청<div class="ct-desc">신청하면 경영지원본부 승인 후 사용 내역에 반영됩니다.</div></div></div>
+      <form id="lv-req-form" class="lv-req">
+        <label class="field"><span class="field-label">휴가 유형</span>
+          <select id="lr-type">${LEAVE_TYPES.map((t) => `<option>${t}</option>`).join("")}</select></label>
+        <label class="field"><span class="field-label">사용일</span>
+          <input id="lr-date" type="date" required value="${new Date().toISOString().slice(0, 10)}" /></label>
+        <label class="field"><span class="field-label">일수 (0.5 단위)</span>
+          <input id="lr-days" type="number" step="0.5" min="0.5" required value="1" /></label>
+        <label class="field lv-req-note"><span class="field-label">사유</span>
+          <input id="lr-note" placeholder="사유를 입력하세요" /></label>
+        <button type="submit" class="btn btn-primary" id="lr-submit">신청하기</button>
+      </form>
+    </div>`;
+
+  /* 관리자: 승인 대기 + 전 직원 현황 */
   if (canViewAll()) {
-    const [empSnap, lvSnap] = await Promise.all([
+    const [empSnap, lvSnap, reqSnap] = await Promise.all([
       db.collection(COL.employees).where("status", "==", "재직").get(),
-      db.collection(COL.leaves).get()
+      db.collection(COL.leaves).get(),
+      db.collection(COL.leaveRequests).where("status", "==", "대기").get()
     ]);
     const lvMap = {};
     lvSnap.docs.forEach((d) => (lvMap[d.id] = d.data()));
     const emps = empSnap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) =>
       DEPTS.indexOf(a.dept) - DEPTS.indexOf(b.dept) || a.name.localeCompare(b.name, "ko"));
-    allHtml = `<div class="card"><div class="card-title">전 직원 연차 현황</div><div class="table-wrap">
-      <table class="data"><thead><tr>
-        <th>이름</th><th>부서</th><th class="num">할당</th><th class="num">사용</th><th class="num">잔여</th><th>사용률</th>
-      </tr></thead><tbody>
-      ${emps.map((e) => {
-        const lv = lvMap[e.id] || { allocated: 0, records: [] };
-        const used = (lv.records || []).reduce((s, r) => s + Number(r.days || 0), 0);
-        const remain = (Number(lv.allocated) || 0) - used;
-        const pct = lv.allocated ? Math.min(100, (used / lv.allocated) * 100) : 0;
-        return `<tr>
-          <td><b>${esc(e.name)}</b></td><td>${esc(e.dept)}</td>
-          <td class="num">${lv.allocated || 0}일</td><td class="num">${used}일</td>
-          <td class="num"><b>${remain}일</b></td>
-          <td><div class="bar ${remain < 0 ? "over" : ""}"><i style="width:${pct}%"></i></div></td>
-        </tr>`;
-      }).join("")}</tbody></table></div></div>`;
+    const reqs = reqSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+
+    html += `
+    <div class="card">
+      <div class="card-title"><div>승인 대기 신청 <span class="badge warn">${reqs.length}건</span></div></div>
+      ${reqs.length ? `<div class="table-wrap"><table class="data">
+        <thead><tr><th>직원</th><th>사용일</th><th>유형</th><th class="num">일수</th><th>사유</th>${isAdmin() ? "<th></th>" : ""}</tr></thead>
+        <tbody>${reqs.map((r) => `<tr>
+          <td><b>${esc(r.name)}</b></td><td>${esc(r.date)}</td><td>${esc(r.type)}</td>
+          <td class="num">${r.days}일</td><td>${esc(r.note || "-")}</td>
+          ${isAdmin() ? `<td style="white-space:nowrap">
+            <button class="btn btn-primary btn-sm" data-approve="${r.id}">승인</button>
+            <button class="btn btn-danger btn-sm" data-reject="${r.id}">반려</button></td>` : ""}
+        </tr>`).join("")}</tbody></table></div>`
+        : `<div class="empty">대기 중인 신청이 없습니다.</div>`}
+    </div>
+    <div class="card">
+      <div class="card-title"><div>전 직원 연차 현황</div></div>
+      <div class="table-wrap"><table class="data">
+        <thead><tr><th>이름</th><th>부서</th><th class="num">할당</th><th class="num">사용</th><th class="num">잔여</th><th>사용률</th></tr></thead>
+        <tbody>${emps.map((e) => {
+          const lv = lvMap[e.id] || { allocated: 0, records: [] };
+          const u = (lv.records || []).reduce((s, r) => s + Number(r.days || 0), 0);
+          const rm = (Number(lv.allocated) || 0) - u;
+          const p = lv.allocated ? Math.min(100, (u / lv.allocated) * 100) : 0;
+          return `<tr>
+            <td><b>${esc(e.name)}</b></td><td>${esc(e.dept)}</td>
+            <td class="num">${lv.allocated || 0}일</td><td class="num">${u}일</td>
+            <td class="num"><b>${rm}일</b></td>
+            <td><div class="bar ${rm < 0 ? "over" : ""}"><i style="width:${p}%"></i></div></td>
+          </tr>`;
+        }).join("")}</tbody></table></div>
+    </div>`;
+
+    $("#lv-body").innerHTML = html;
+
+    if (isAdmin()) {
+      $("#lv-body").querySelectorAll("[data-approve]").forEach((b) => {
+        b.onclick = async () => {
+          const r = reqs.find((x) => x.id === b.dataset.approve);
+          const ref = db.collection(COL.leaves).doc(r.empId);
+          const snap = await ref.get();
+          const cur = snap.exists ? snap.data() : { allocated: 0, records: [] };
+          cur.records = cur.records || [];
+          cur.records.push({ date: r.date, days: Number(r.days), type: r.type, note: r.note || "" });
+          await ref.set(cur);
+          await db.collection(COL.leaveRequests).doc(r.id).update({ status: "승인" });
+          await audit("휴가 승인", `${r.name} ${r.date} ${r.days}일 (${r.type})`);
+          toast(`${r.name}님의 휴가를 승인했습니다.`);
+          renderLeave();
+        };
+      });
+      $("#lv-body").querySelectorAll("[data-reject]").forEach((b) => {
+        b.onclick = async () => {
+          const r = reqs.find((x) => x.id === b.dataset.reject);
+          if (!confirm(`${r.name}님의 ${r.date} ${r.type} 신청을 반려할까요?`)) return;
+          await db.collection(COL.leaveRequests).doc(r.id).update({ status: "반려" });
+          await audit("휴가 반려", `${r.name} ${r.date} ${r.days}일 (${r.type})`);
+          renderLeave();
+        };
+      });
+    }
+  } else {
+    $("#lv-body").innerHTML = html;
   }
 
-  $("#lv-body").innerHTML = `
-    <div class="stat-row">
-      <div class="stat"><div class="s-label">할당 연차</div><div class="s-value">${mine.allocated || 0}일</div></div>
-      <div class="stat"><div class="s-label">사용</div><div class="s-value">${myUsed}일</div></div>
-      <div class="stat accent"><div class="s-label">잔여</div><div class="s-value">${(Number(mine.allocated) || 0) - myUsed}일</div></div>
-    </div>
-    <div class="card"><div class="card-title">내 사용 내역</div>
-      ${(mine.records || []).length ? `<div class="table-wrap"><table class="data">
-        <thead><tr><th>날짜</th><th>유형</th><th class="num">일수</th><th>메모</th></tr></thead>
-        <tbody>${mine.records.slice().sort((a, b) => (b.date || "").localeCompare(a.date || "")).map((r) =>
-          `<tr><td>${esc(r.date)}</td><td>${esc(r.type)}</td><td class="num">${r.days}</td><td>${esc(r.note || "")}</td></tr>`).join("")}
-        </tbody></table></div>`
-        : `<div class="empty">사용 내역이 없습니다.</div>`}
-    </div>
-    ${allHtml}`;
+  /* 휴가 신청 제출 */
+  $("#lv-req-form").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const data = {
+      empId: me.id,
+      name: me.name,
+      dept: me.dept,
+      date: $("#lr-date").value,
+      days: Number($("#lr-days").value),
+      type: $("#lr-type").value,
+      note: $("#lr-note").value.trim(),
+      status: "대기",
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    await db.collection(COL.leaveRequests).add(data);
+    await audit("휴가 신청", `${me.name} ${data.date} ${data.days}일 (${data.type})`);
+    toast("휴가를 신청했습니다. 승인되면 사용 내역에 반영됩니다.");
+    renderLeave();
+  };
 
   if (isAdmin()) {
     $("#lv-use").onclick = openLeaveUseModal;

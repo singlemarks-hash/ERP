@@ -16,6 +16,7 @@ const COL = {
   personalButtons: "personalButtons",
   payroll: "payroll", // payroll/{YYYY-MM}/rows/{id}
   leaves: "leaves",
+  leaveRequests: "leaveRequests",
   settings: "settings",
   auditLogs: "auditLogs"
 };
