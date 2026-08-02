@@ -727,6 +727,12 @@ table.data th.num { text-align: right; }
 
 #pm-month { padding: 8px 12px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 0.85rem; font-weight: 600; }
 
+/* 직원 이름 링크 (인사정보 URL) */
+.emp-link { color: var(--ink); text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }
+.emp-link svg { width: 12px; height: 12px; color: var(--ink-faint); }
+.emp-link:hover { color: var(--blue-deep); text-decoration: underline; text-underline-offset: 3px; }
+.emp-link:hover svg { color: var(--blue-deep); }
+
 /* 근속 표기 (위계 낮춤) */
 .tenure { font-style: normal; font-size: 0.78em; font-weight: 500; color: var(--ink-faint); }
 .tenure-days { display: block; font-size: 0.7rem; font-weight: 500; color: var(--ink-faint); margin-top: 1px; }

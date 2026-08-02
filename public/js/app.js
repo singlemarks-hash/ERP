@@ -2408,7 +2408,9 @@ async function renderEmployees() {
       <th>이름</th><th>부서</th><th>직급</th><th>직책</th><th>이메일</th><th>입사일</th><th>고용 구분</th><th>역할</th><th>비밀번호</th><th>상태</th><th></th>
     </tr></thead><tbody>
     ${emps.map((e) => `<tr>
-      <td><b>${esc(e.name)}</b></td><td>${esc(e.dept)}</td><td>${esc(e.grade || "-")}</td><td>${esc(e.position || "-")}</td>
+      <td>${e.hrUrl
+        ? `<a class="emp-link" href="${esc(e.hrUrl)}" target="_blank" rel="noopener" title="인사정보 열기"><b>${esc(e.name)}</b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6M10 14 21 3"/></svg></a>`
+        : `<b>${esc(e.name)}</b>`}</td><td>${esc(e.dept)}</td><td>${esc(e.grade || "-")}</td><td>${esc(e.position || "-")}</td>
       <td>${esc(e.email || "-")}</td>
       <td>${e.joinDate ? `${esc(e.joinDate)} <em class="tenure">${tenureYM(e.joinDate)} 근무</em><span class="tenure-days">${workDaysLabel(e.joinDate).replace(/[()]/g, "")}</span>` : "-"}</td>
       <td>${empTypeShort(e.empType)}</td>
@@ -2481,6 +2483,8 @@ function openEmployeeModal(emp) {
       </div>
       <div class="grid-2">
         <label class="field"><span class="field-label">이메일</span><input id="ef-email" type="email" value="${esc(emp?.email || "")}" /></label>
+      <label class="field"><span class="field-label">인사정보 URL (스프레드시트 등 — 목록에서 이름 클릭 시 이동)</span>
+        <input id="ef-hrurl" type="url" placeholder="https://docs.google.com/spreadsheets/..." value="${esc(emp?.hrUrl || "")}" /></label>
         <label class="field"><span class="field-label">연락처</span><input id="ef-phone" type="tel" placeholder="010-0000-0000" value="${esc(emp?.phone || "")}" /></label>
       </div>
       <div class="grid-2">
@@ -2518,6 +2522,7 @@ function openEmployeeModal(emp) {
       joinDate: $("#ef-join").value,
       birthDate: $("#ef-birth").value,
       email: $("#ef-email").value.trim(),
+      hrUrl: $("#ef-hrurl").value.trim(),
       phone: $("#ef-phone").value.trim(),
       empType: $("#ef-type").value,
       role: $("#ef-role").value,
