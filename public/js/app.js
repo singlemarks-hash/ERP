@@ -381,12 +381,34 @@ function pageHead(eyebrow, title, desc, actionsHtml) {
 }
 
 /* ───────── 홈 (대시보드) ───────── */
-const TILE_TONES = [
-  ["var(--seal-soft)", "var(--seal)"],
-  ["var(--gold-soft)", "var(--gold-ink)"],
-  ["var(--ok-soft)", "var(--ok)"],
-  ["var(--plum-soft)", "var(--plum)"]
+// 버튼 테두리 색상 팔레트 (10색) — 관리자가 지정한 색이 전 직원 홈에 동일하게 적용된다.
+const BTN_COLORS = [
+  { key: "blue", hex: "#3182f6", label: "블루" },
+  { key: "navy", hex: "#1b3a8a", label: "네이비" },
+  { key: "teal", hex: "#0aa5a8", label: "청록" },
+  { key: "green", hex: "#1fa45b", label: "그린" },
+  { key: "lime", hex: "#7cb305", label: "라임" },
+  { key: "amber", hex: "#d8930d", label: "앰버" },
+  { key: "orange", hex: "#f76707", label: "오렌지" },
+  { key: "red", hex: "#f04452", label: "레드" },
+  { key: "pink", hex: "#e64980", label: "핑크" },
+  { key: "purple", hex: "#7048e8", label: "퍼플" }
 ];
+const DEFAULT_BTN_COLOR = "#d9dee3";
+
+function colorPickerHtml(selected) {
+  return `<div class="color-picker" id="color-picker">
+    ${BTN_COLORS.map((c) => `
+      <label class="swatch" title="${c.label}">
+        <input type="radio" name="btn-color" value="${c.hex}" ${selected === c.hex ? "checked" : ""} />
+        <span style="background:${c.hex}"></span>
+      </label>`).join("")}
+  </div>`;
+}
+function pickedColor() {
+  const r = document.querySelector('input[name="btn-color"]:checked');
+  return r ? r.value : "";
+}
 
 function recentMonths(n) {
   const list = [];
@@ -462,16 +484,12 @@ async function renderHome() {
     .sort((a, b) => (a.order || 0) - (b.order || 0));
   const myBtns = myBtnSnap.exists ? (myBtnSnap.data().items || []) : [];
 
-  const tile = (b, i, editHtml) => {
-    const [bg, fg] = TILE_TONES[i % TILE_TONES.length];
-    return `
-    <a class="tile" href="${esc(b.url)}" target="_blank" rel="noopener">
+  const tile = (b, i, editHtml) => `
+    <a class="tile" href="${esc(b.url)}" target="_blank" rel="noopener" style="border-color:${esc(b.color || DEFAULT_BTN_COLOR)}">
       ${editHtml || ""}
-      <span class="tile-ico" style="background:${bg};color:${fg}">${esc((b.label || "?").charAt(0))}</span>
-      <span><span class="t-label">${esc(b.label)}</span>
-      <div class="t-desc">${esc(b.desc || "")}</div></span>
+      <span class="t-label">${esc(b.label)}</span>
+      <span class="t-desc">${esc(b.desc || "")}</span>
     </a>`;
-  };
 
   $("#shortcut-body").innerHTML = `
     ${mySystems.length
@@ -586,7 +604,7 @@ async function renderSystems() {
     ${systems.map((s) => {
       const n = s.allowAll ? activeCount : (s.grantIds || []).filter((id) => emps.some((e) => e.id === id)).length;
       return `<tr>
-        <td><b>${esc(s.label)}</b></td>
+        <td><i class="dot" style="background:${esc(s.color || DEFAULT_BTN_COLOR)}"></i><b>${esc(s.label)}</b></td>
         <td><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url)}</a></td>
         <td>${esc(s.desc || "-")}</td>
         <td>${s.allowAll ? '<span class="badge ok">전체 공개</span>' : `<span class="badge ${n ? "admin" : "off"}">${n}명</span>`}</td>
@@ -625,6 +643,8 @@ function openSystemModal(sys) {
       <label class="field"><span class="field-label">시스템 이름</span><input id="sf-label" required value="${esc(sys?.label || "")}" /></label>
       <label class="field"><span class="field-label">URL</span><input id="sf-url" type="url" required placeholder="https://..." value="${esc(sys?.url || "")}" /></label>
       <label class="field"><span class="field-label">설명 (선택)</span><input id="sf-desc" value="${esc(sys?.desc || "")}" /></label>
+      <div class="field"><span class="field-label">버튼 테두리 색상 — 모든 직원 홈에 동일하게 표시됩니다</span>
+        ${colorPickerHtml(sys?.color || BTN_COLORS[0].hex)}</div>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="sf-cancel">취소</button>
         <button type="submit" class="btn btn-primary">저장</button>
@@ -636,7 +656,8 @@ function openSystemModal(sys) {
     const data = {
       label: $("#sf-label").value.trim(),
       url: $("#sf-url").value.trim(),
-      desc: $("#sf-desc").value.trim()
+      desc: $("#sf-desc").value.trim(),
+      color: pickedColor() || BTN_COLORS[0].hex
     };
     if (sys) {
       await db.collection(COL.systems).doc(sys.id).update(data);
@@ -704,6 +725,8 @@ function openMyButtonModal(items, idx) {
       <label class="field"><span class="field-label">버튼 이름</span><input id="mb-label" required value="${esc(btn?.label || "")}" /></label>
       <label class="field"><span class="field-label">URL</span><input id="mb-url" type="url" required placeholder="https://..." value="${esc(btn?.url || "")}" /></label>
       <label class="field"><span class="field-label">설명 (선택)</span><input id="mb-desc" value="${esc(btn?.desc || "")}" /></label>
+      <div class="field"><span class="field-label">버튼 테두리 색상</span>
+        ${colorPickerHtml(btn?.color || BTN_COLORS[0].hex)}</div>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="mb-cancel">취소</button>
         <button type="submit" class="btn btn-primary">저장</button>
@@ -712,7 +735,7 @@ function openMyButtonModal(items, idx) {
   $("#mb-cancel").onclick = closeModal;
   $("#mybtn-form").onsubmit = async (ev) => {
     ev.preventDefault();
-    const data = { label: $("#mb-label").value.trim(), url: $("#mb-url").value.trim(), desc: $("#mb-desc").value.trim() };
+    const data = { label: $("#mb-label").value.trim(), url: $("#mb-url").value.trim(), desc: $("#mb-desc").value.trim(), color: pickedColor() || BTN_COLORS[0].hex };
     if (btn) items[idx] = data; else items.push(data);
     await db.collection(COL.personalButtons).doc(me.id).set({ items });
     closeModal();
