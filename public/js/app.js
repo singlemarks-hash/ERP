@@ -1413,14 +1413,17 @@ async function renderMonitor() {
   main.innerHTML = pageHead("ADMIN", "권한 모니터링",
     "직원별 권한 부여 현황과 시스템 활동 로그를 총괄 확인합니다.") + `<div id="mon-body">불러오는 중...</div>`;
 
-  const [empSnap, logSnap] = await Promise.all([
+  const [empSnap, logSnap, sysSnap] = await Promise.all([
     db.collection(COL.employees).get(),
-    db.collection(COL.auditLogs).orderBy("ts", "desc").limit(150).get()
+    db.collection(COL.auditLogs).orderBy("ts", "desc").limit(150).get(),
+    db.collection(COL.systems).get()
   ]);
   const emps = empSnap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) =>
     DEPTS.indexOf(a.dept) - DEPTS.indexOf(b.dept) || a.name.localeCompare(b.name, "ko"));
   const logs = logSnap.docs.map((d) => d.data());
   const actions = [...new Set(logs.map((l) => l.action))];
+  const systems = sysSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
 
   const admins = emps.filter((e) => e.role === "admin" && e.status === "재직").length;
   const noPw = emps.filter((e) => !e.passwordHash && e.status === "재직").length;
@@ -1430,6 +1433,12 @@ async function renderMonitor() {
       <div class="stat"><div class="s-label">재직 직원</div><div class="s-value">${emps.filter((e) => e.status === "재직").length}명</div></div>
       <div class="stat accent"><div class="s-label">총괄 관리자</div><div class="s-value">${admins}명</div></div>
       <div class="stat"><div class="s-label">비밀번호 미설정</div><div class="s-value">${noPw}명</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><div>직원별 버튼 권한 설정<div class="ct-desc">직원을 검색해 사용할 사내 시스템 버튼을 지정하세요. 지정된 버튼은 그 직원이 로그인하면 홈 바로가기에 자동으로 나타납니다.</div></div></div>
+      <label class="field"><input id="mn-search" placeholder="직원 이름 검색" autocomplete="off" /></label>
+      <div id="mn-results" class="mn-results"></div>
+      <div id="mn-grant"></div>
     </div>
     <div class="card"><div class="card-title">권한 부여 현황</div><div class="table-wrap">
       <table class="data"><thead><tr>
@@ -1462,6 +1471,62 @@ async function renderMonitor() {
   };
   renderLogs("");
   $("#log-filter").onchange = (ev) => renderLogs(ev.target.value);
+
+  /* ── 직원별 버튼 권한 설정 ── */
+  const active = emps.filter((e) => e.status === "재직");
+  const showResults = (q) => {
+    const list = q ? active.filter((e) => e.name.includes(q)) : [];
+    $("#mn-results").innerHTML = list.length
+      ? list.map((e) => `<button class="mn-emp" data-pick="${e.id}"><b>${esc(e.name)}</b><span>${esc(e.dept)}${e.position ? " · " + esc(e.position) : ""}</span></button>`).join("")
+      : (q ? `<div class="empty" style="padding:16px">"${esc(q)}" 이름의 재직 직원이 없습니다.</div>` : "");
+    $("#mn-results").querySelectorAll("[data-pick]").forEach((b) => {
+      b.onclick = () => showGrantEditor(active.find((e) => e.id === b.dataset.pick));
+    });
+  };
+  const showGrantEditor = (emp) => {
+    $("#mn-results").innerHTML = "";
+    $("#mn-search").value = emp.name;
+    if (!systems.length) {
+      $("#mn-grant").innerHTML = `<div class="empty">등록된 사내 시스템이 없습니다. [사내 시스템]에서 먼저 버튼을 등록하세요.</div>`;
+      return;
+    }
+    $("#mn-grant").innerHTML = `
+      <div class="mn-grant-head"><b>${esc(emp.name)}</b> <span class="badge dept">${esc(emp.dept)}</span> 님이 사용할 버튼</div>
+      <div class="grant-list">
+        ${systems.map((s) => `
+          <label class="grant-row">
+            <input type="checkbox" data-sid="${s.id}" ${s.allowAll ? "checked disabled" : (s.grantIds || []).includes(emp.id) ? "checked" : ""} />
+            <i class="dot" style="background:${esc(s.color || DEFAULT_BTN_COLOR)}"></i>
+            <span>${esc(s.label)}</span>
+            ${s.allowAll ? '<em>전체 공개</em>' : `<em>${esc(s.desc || "")}</em>`}
+          </label>`).join("")}
+      </div>
+      <div class="modal-actions" style="justify-content:flex-start">
+        <button class="btn btn-primary" id="mn-save">권한 저장</button>
+      </div>`;
+    $("#mn-save").onclick = async () => {
+      const changes = [];
+      $("#mn-grant").querySelectorAll("input[data-sid]:not(:disabled)").forEach((i) => {
+        const s = systems.find((x) => x.id === i.dataset.sid);
+        const had = (s.grantIds || []).includes(emp.id);
+        if (i.checked && !had) changes.push({ s, op: "arrayUnion", on: true });
+        if (!i.checked && had) changes.push({ s, op: "arrayRemove", on: false });
+      });
+      for (const c of changes) {
+        await db.collection(COL.systems).doc(c.s.id).update({
+          grantIds: firebase.firestore.FieldValue[c.op](emp.id)
+        });
+        c.s.grantIds = c.on ? [...(c.s.grantIds || []), emp.id] : (c.s.grantIds || []).filter((x) => x !== emp.id);
+      }
+      if (changes.length) {
+        await audit("시스템 권한 변경", `${emp.name} → ${changes.map((c) => `${c.s.label} ${c.on ? "부여" : "회수"}`).join(", ")}`);
+        toast(`${emp.name}님의 버튼 권한을 저장했습니다. 홈에 자동 반영됩니다.`);
+      } else {
+        toast("변경된 내용이 없습니다.");
+      }
+    };
+  };
+  $("#mn-search").oninput = (ev) => { $("#mn-grant").innerHTML = ""; showResults(ev.target.value.trim()); };
 }
 
 /* ───────── 시작 ───────── */

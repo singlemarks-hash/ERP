@@ -445,6 +445,24 @@ table.data th.num { text-align: right; }
 .grant-row input { width: 16px; height: 16px; accent-color: var(--blue); }
 .grant-row em { font-style: normal; font-size: 0.76rem; color: var(--ink-faint); }
 
+/* 권한 모니터링: 직원 검색/권한 편집 */
+.mn-results { display: grid; gap: 6px; margin-bottom: 8px; }
+.mn-emp {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  border: 1.5px solid var(--line);
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 11px 14px;
+  font-size: 0.9rem;
+  text-align: left;
+}
+.mn-emp:hover { border-color: var(--blue); background: var(--blue-soft); }
+.mn-emp span { font-size: 0.78rem; color: var(--ink-soft); }
+.mn-grant-head { font-size: 0.92rem; margin: 10px 0 10px; }
+#mn-grant .grant-row em { margin-left: auto; }
+
 /* ───────── 연차/휴가 ───────── */
 .lv-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
 .lv-stat {
