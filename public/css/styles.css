@@ -606,6 +606,17 @@ table.data th.num { text-align: right; }
   color: var(--ink);
 }
 .memo-area[readonly] { cursor: default; }
+.memo-holder { flex: 1; display: flex; flex-direction: column; }
+.memo-holder .memo-area { flex: 1; }
+.memo-render {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-y: auto;
+  max-height: 320px;
+}
+.memo-empty { color: var(--ink-faint); }
+.memo-link { color: var(--blue); text-decoration: underline; text-underline-offset: 2px; word-break: break-all; }
+.memo-link:hover { color: var(--blue-deep); }
 .memo-area.editing { background: #fff; border-color: var(--blue); resize: vertical; }
 .memo-area.editing:focus { outline: none; }
 

@@ -19,6 +19,12 @@ const $ = (sel) => document.querySelector(sel);
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+function linkify(text) {
+  // 이스케이프 후 URL만 링크로 변환
+  return esc(text).replace(/(https?:\/\/[^\s<]+)/g,
+    '<a href="$1" target="_blank" rel="noopener" class="memo-link">$1</a>');
+}
+
 function fmt(n) {
   const v = Number(n);
   return isNaN(v) ? "-" : v.toLocaleString("ko-KR");
@@ -435,6 +441,33 @@ function fmtPeriod(start, end) {
   return end && end !== start ? `${sh(start)} ~ ${sh(end)}` : sh(start);
 }
 
+/* 연차 갱신일이 도래했으면 자동 리셋하고 이전 주기를 history에 보존한다 */
+async function maybeResetLeave(empId, lv) {
+  if (!lv || !lv.grantDate) return lv;
+  const today = new Date().toISOString().slice(0, 10);
+  let changed = false;
+  while (nextGrantDate(lv.grantDate) <= today) {
+    const cycleEnd = nextGrantDate(lv.grantDate);
+    const used = (lv.records || []).reduce((s, r) => s + (Number(r.days) || 0), 0);
+    const allocated = Number(lv.allocated) || 0;
+    lv.history = [...(lv.history || []), {
+      start: lv.grantDate,
+      end: cycleEnd,
+      allocated,
+      used,
+      remaining: allocated - used,
+      records: lv.records || []
+    }];
+    lv.records = [];
+    lv.grantDate = cycleEnd;
+    changed = true;
+  }
+  if (changed) {
+    await db.collection(COL.leaves).doc(empId).set(lv);
+  }
+  return lv;
+}
+
 function nextGrantDate(d) {
   // 연차 발생일 + 1년 = 다음 갱신 예정일
   const [y, m, dd] = d.split("-");
@@ -493,7 +526,7 @@ async function renderHome() {
             <button class="btn btn-ghost btn-sm" id="memo-btn">수정</button>
           </span>
         </div>
-        <textarea id="memo-area" class="memo-area" placeholder="[수정]을 눌러 메모를 작성하세요." readonly></textarea>
+        <div id="memo-holder" class="memo-holder"></div>
       </div>
     </div>
     <div class="widget-grid">
@@ -679,34 +712,45 @@ async function renderHome() {
     renderTodos();
   };
 
-  /* ── 개인 메모장 (수정/저장) ── */
+  /* ── 개인 메모장 (보기: URL 자동 링크 / 수정: textarea) ── */
   const memoRef = db.collection(COL.memos).doc(me.id);
   const memoSnap = await memoRef.get();
-  const memoArea = $("#memo-area");
   const memoBtn = $("#memo-btn");
-  memoArea.value = memoSnap.exists ? (memoSnap.data().text || "") : "";
+  let memoText = memoSnap.exists ? (memoSnap.data().text || "") : "";
+  let memoEditing = false;
+
+  const renderMemo = () => {
+    const holder = $("#memo-holder");
+    if (memoEditing) {
+      holder.innerHTML = `<textarea id="memo-area" class="memo-area editing"></textarea>`;
+      const ta = $("#memo-area");
+      ta.value = memoText;
+      ta.focus();
+    } else {
+      holder.innerHTML = `<div class="memo-area memo-render">${memoText.trim() ? linkify(memoText) : '<span class="memo-empty">[수정]을 눌러 메모를 작성하세요. URL을 입력하면 자동으로 링크가 됩니다.</span>'}</div>`;
+    }
+  };
+  renderMemo();
+
   $("#memo-full").onclick = () => {
     openModal(`
       <h3>개인 메모장</h3>
-      <div class="memo-view">${memoArea.value.trim() ? esc(memoArea.value) : "작성된 메모가 없습니다."}</div>
+      <div class="memo-view">${memoText.trim() ? linkify(memoText) : "작성된 메모가 없습니다."}</div>
       <div class="modal-actions"><button class="btn btn-primary" id="mv-close">닫기</button></div>`);
     $("#mv-close").onclick = closeModal;
   };
-  let memoEditing = false;
   memoBtn.onclick = async () => {
     if (!memoEditing) {
       memoEditing = true;
-      memoArea.readOnly = false;
-      memoArea.classList.add("editing");
+      renderMemo();
       memoBtn.textContent = "저장";
       memoBtn.classList.remove("btn-ghost");
       memoBtn.classList.add("btn-primary");
-      memoArea.focus();
     } else {
-      await memoRef.set({ text: memoArea.value });
+      memoText = $("#memo-area").value;
+      await memoRef.set({ text: memoText });
       memoEditing = false;
-      memoArea.readOnly = true;
-      memoArea.classList.remove("editing");
+      renderMemo();
       memoBtn.textContent = "수정";
       memoBtn.classList.remove("btn-primary");
       memoBtn.classList.add("btn-ghost");
@@ -1636,7 +1680,8 @@ async function renderLeave() {
     db.collection(COL.leaves).doc(me.id).get(),
     db.collection(COL.leaveRequests).where("empId", "==", me.id).get()
   ]);
-  const mine = mySnap.exists ? mySnap.data() : { allocated: 0, records: [] };
+  let mine = mySnap.exists ? mySnap.data() : { allocated: 0, records: [] };
+  mine = await maybeResetLeave(me.id, mine);
   const records = mine.records || [];
   const myReqs = myReqSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
   const used = records.reduce((s, r) => s + Number(r.days || 0), 0);
@@ -1706,6 +1751,18 @@ async function renderLeave() {
       </div>
     </div>
 
+    ${(mine.history || []).length ? `
+    <div class="card">
+      <div class="card-title"><div>지난 연차 기록<div class="ct-desc">갱신일이 지나 리셋된 이전 주기의 기록입니다.</div></div></div>
+      <div class="table-wrap"><table class="data pay-table">
+        <thead><tr><th>주기</th><th class="num">할당</th><th class="num">사용</th><th class="num">잔여(소멸)</th></tr></thead>
+        <tbody>${mine.history.slice().reverse().map((h) => `<tr>
+          <td>${fmtPeriod(h.start, h.end)}</td>
+          <td class="num">${h.allocated}일</td>
+          <td class="num">${h.used}일</td>
+          <td class="num"><b class="${h.remaining > 0 ? "c-red" : ""}">${h.remaining}일</b></td>
+        </tr>`).join("")}</tbody></table></div>
+    </div>` : ""}
     <div class="card">
       <div class="card-title"><div>휴가 신청<div class="ct-desc">신청하면 경영지원본부 승인 후 사용 내역에 반영됩니다.</div></div></div>
       <form id="lv-req-form" class="lv-req">
@@ -1764,8 +1821,15 @@ async function renderLeaveAdmin() {
   lvSnap.docs.forEach((d) => (lvMap[d.id] = d.data()));
   const emps = empSnap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) =>
     DEPTS.indexOf(a.dept) - DEPTS.indexOf(b.dept) || a.name.localeCompare(b.name, "ko"));
+  // 갱신일이 도래한 직원의 연차를 자동 리셋 (이전 주기는 history 보존)
+  for (const e of emps) {
+    if (lvMap[e.id]) lvMap[e.id] = await maybeResetLeave(e.id, lvMap[e.id]);
+  }
   const reqs = reqSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
     .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const pastCycles = emps.flatMap((e) => ((lvMap[e.id] || {}).history || [])
+    .map((h) => ({ name: e.name, dept: e.dept, ...h })))
+    .sort((a, b) => (b.end || "").localeCompare(a.end || ""));
 
   $("#lva-body").innerHTML = `
     <div class="card">
@@ -1798,7 +1862,20 @@ async function renderLeaveAdmin() {
             <td><div class="bar ${rm < 0 ? "over" : ""}"><i style="width:${p}%"></i></div></td>
           </tr>`;
         }).join("")}</tbody></table></div>
-    </div>`;
+    </div>
+    ${pastCycles.length ? `
+    <div class="card">
+      <div class="card-title"><div>지난 연차 주기 기록<div class="ct-desc">갱신일이 지나 자동 리셋된 이전 주기의 잔여(소멸) 내역입니다.</div></div></div>
+      <div class="table-wrap"><table class="data pay-table">
+        <thead><tr><th>직원</th><th>부서</th><th>주기</th><th class="num">할당</th><th class="num">사용</th><th class="num">잔여(소멸)</th></tr></thead>
+        <tbody>${pastCycles.map((h) => `<tr>
+          <td><b>${esc(h.name)}</b></td><td>${esc(h.dept)}</td>
+          <td>${fmtPeriod(h.start, h.end)}</td>
+          <td class="num">${h.allocated}일</td>
+          <td class="num">${h.used}일</td>
+          <td class="num"><b class="${h.remaining > 0 ? "c-red" : ""}">${h.remaining}일</b></td>
+        </tr>`).join("")}</tbody></table></div>
+    </div>` : ""}`;
 
   if (isAdmin()) {
     $("#lv-use").onclick = openLeaveUseModal;
