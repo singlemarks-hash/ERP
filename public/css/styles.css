@@ -774,8 +774,10 @@ table.data th.num { text-align: right; }
 .pb-deduct-head { background: var(--red-soft); color: var(--red); }
 .pb-pay-head .btn, .pb-deduct-head .btn { background: rgba(255, 255, 255, 0.7); }
 
-.pi-row { display: grid; grid-template-columns: 1fr 130px 28px; gap: 8px; align-items: center; margin-bottom: 7px; }
+.pi-row { display: grid; grid-template-columns: minmax(0, 1fr) 108px 22px; gap: 8px; align-items: center; margin-bottom: 7px; }
 .pi-row input {
+  width: 100%;
+  min-width: 0;
   padding: 9px 11px;
   border: 1.5px solid var(--line);
   border-radius: 10px;
@@ -791,7 +793,24 @@ table.data th.num { text-align: right; }
   font-size: 1.05rem;
   border-radius: 8px;
   height: 28px;
+  width: 22px;
+  padding: 0;
 }
+
+/* 급여관리 메모 textarea */
+.pm-note {
+  width: 100%;
+  min-width: 0;
+  padding: 11px 13px;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  background: #f9fafb;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  resize: vertical;
+}
+.pm-note:focus { outline: none; border-color: var(--blue); background: #fff; }
+#pm-dept { padding: 8px 12px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 0.85rem; font-weight: 600; }
 .pi-row .pi-del:hover { color: var(--red); background: var(--red-soft); }
 
 .pb-total {

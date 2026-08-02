@@ -1079,6 +1079,7 @@ let pmEditId = null;     // 수정 중인 레코드 { ym, id }
 let pmEditYm = null;
 let pmYear = null;
 let pmMonth = 0;         // 0 = 전체 월
+let pmDept = "";         // "" = 전체 소속
 let pmEmps = [];
 
 function ymNow() {
@@ -1159,10 +1160,11 @@ async function renderPayroll() {
 function payItemRowHtml(kind, label, amount) {
   return `<div class="pi-row" data-kind="${kind}">
     <input class="pi-label" value="${esc(label)}" placeholder="항목명" />
-    <input class="pi-amount" type="number" value="${amount}" min="0" />
+    <input class="pi-amount" type="text" inputmode="numeric" value="${fmt(Number(amount) || 0)}" />
     <button type="button" class="pi-del" title="항목 제거">×</button>
   </div>`;
 }
+function parseAmount(v) { return Number(String(v).replace(/[^0-9]/g, "")) || 0; }
 
 /* ── 한글 캘린더 팝업 ── */
 const CAL_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>';
@@ -1314,7 +1316,7 @@ function renderPayForm(emp, cat, record) {
     <div class="pb-total pb-total-deduct"><span>총 공제</span><b id="pm-deduct-total"></b></div>
 
     <div class="pb-net"><span>이번 달 실수령</span><b id="pm-net"></b></div>
-    <label class="field" style="margin-top:14px"><span class="field-label">메모 (선택)</span><input id="pm-note" value="${esc(record?.note || "")}" placeholder="예: 상여금은 생행셋 2위" /></label>`;
+    <label class="field" style="margin-top:14px"><span class="field-label">메모</span><textarea id="pm-note" class="pm-note" rows="3" placeholder="예: 식대 포함, 연말정산 반영">${esc(record?.note || "")}</textarea></label>`;
 
   const syncDates = () => {
     $("#pm-ym-label").textContent = selYm ? `${selYm.slice(0, 4)}년 ${Number(selYm.slice(5, 7))}월` : "급여월 선택";
@@ -1334,14 +1336,20 @@ function renderPayForm(emp, cat, record) {
 
   const recalc = () => {
     const sumOf = (sel) => [...$("#pm-form-card").querySelectorAll(`${sel} .pi-amount`)]
-      .reduce((s, i) => s + (Number(i.value) || 0), 0);
+      .reduce((s, i) => s + parseAmount(i.value), 0);
     const p = sumOf("#pm-pay-items"), d = sumOf("#pm-deduct-items");
     $("#pm-pay-total").textContent = fmt(p) + "원";
     $("#pm-deduct-total").textContent = fmt(d) + "원";
     $("#pm-net").textContent = fmt(p - d) + "원";
   };
   const wireRow = (row) => {
-    row.querySelector(".pi-amount").oninput = recalc;
+    const amt = row.querySelector(".pi-amount");
+    amt.oninput = () => {
+      const n = parseAmount(amt.value);
+      amt.value = n ? fmt(n) : (amt.value.trim() === "" ? "" : "0");
+      recalc();
+    };
+    amt.onblur = () => { amt.value = fmt(parseAmount(amt.value)); };
     row.querySelector(".pi-del").onclick = () => { row.remove(); recalc(); };
   };
   $("#pm-form-card").querySelectorAll(".pi-row").forEach(wireRow);
@@ -1364,7 +1372,7 @@ function renderPayForm(emp, cat, record) {
     if (!selYm) { toast("급여월을 선택하세요."); return; }
     const ym = selYm;
     const collect = (sel) => [...$("#pm-form-card").querySelectorAll(`${sel} .pi-row`)]
-      .map((row) => ({ label: row.querySelector(".pi-label").value.trim(), amount: Number(row.querySelector(".pi-amount").value) || 0 }))
+      .map((row) => ({ label: row.querySelector(".pi-label").value.trim(), amount: parseAmount(row.querySelector(".pi-amount").value) }))
       .filter((p) => p.label);
     const data = {
       empId: emp.id,
@@ -1412,20 +1420,28 @@ async function renderPayHistoryAdmin(emp) {
           ${Array.from({ length: 12 }, (_, i) => i + 1).map((m) =>
             `<option value="${m}" ${m === pmMonth ? "selected" : ""}>${m}월</option>`).join("")}
         </select>
+        ${isAll ? `<select id="pm-dept">
+          <option value="" ${!pmDept ? "selected" : ""}>전체 소속</option>
+          ${DEPTS.map((d) => `<option value="${d}" ${d === pmDept ? "selected" : ""}>${d}</option>`).join("")}
+        </select>` : ""}
       </span>
     </div>
     <div id="pm-history"><div class="empty">불러오는 중...</div></div>`;
   $("#pm-year").onchange = (ev) => { pmYear = Number(ev.target.value); renderPayHistoryAdmin(emp); };
   $("#pm-month").onchange = (ev) => { pmMonth = Number(ev.target.value); renderPayHistoryAdmin(emp); };
+  const deptSel = $("#pm-dept");
+  if (deptSel) deptSel.onchange = (ev) => { pmDept = ev.target.value; renderPayHistoryAdmin(emp); };
 
+  const deptOf = (r) => (pmEmps.find((e) => e.id === r.empId) || {}).dept || "-";
   let records = await loadPayRecordsForYear(pmYear,
     emp ? ((r) => r.empId === emp.id || r.name === emp.name) : null);
   if (pmMonth) records = records.filter((r) => Number(r.ym.slice(5, 7)) === pmMonth);
+  if (isAll && pmDept) records = records.filter((r) => deptOf(r) === pmDept);
 
   const sumNet = records.reduce((s, r) => s + r.net, 0);
   const sumPay = records.reduce((s, r) => s + r.payTotal, 0);
   const sumDeduct = records.reduce((s, r) => s + r.deductTotal, 0);
-  const scope = `${pmYear}년${pmMonth ? " " + pmMonth + "월" : ""}`;
+  const scope = `${pmYear}년${pmMonth ? " " + pmMonth + "월" : ""}${isAll && pmDept ? " · " + pmDept : ""}`;
 
   $("#pm-history").innerHTML = records.length ? `
     <div class="pb-stats">
@@ -1434,9 +1450,9 @@ async function renderPayHistoryAdmin(emp) {
       <div><span>총 공제</span><b class="c-red">${fmt(sumDeduct)}원</b></div>
     </div>
     <div class="table-wrap"><table class="data pay-table">
-      <thead><tr>${isAll ? "<th>직원</th>" : ""}<th>월</th><th>지급일</th><th class="num">총 지급</th><th class="num">총 공제</th><th class="num">실수령</th><th>메모</th><th></th></tr></thead>
+      <thead><tr>${isAll ? "<th>소속</th><th>직원</th>" : ""}<th>월</th><th>지급일</th><th class="num">총 지급</th><th class="num">총 공제</th><th class="num">실수령</th><th>메모</th><th></th></tr></thead>
       <tbody>${records.map((r) => `<tr>
-        ${isAll ? `<td><b>${esc(r.name)}</b></td>` : ""}
+        ${isAll ? `<td>${esc(deptOf(r))}</td><td><b>${esc(r.name)}</b></td>` : ""}
         <td><b>${r.ym}</b></td>
         <td>${esc(r.payDate || "-")}</td>
         <td class="num"><span class="hov c-green" data-hv="${r.id}" data-ym="${r.ym}" data-kind="pay">${fmt(r.payTotal)}원</span></td>
