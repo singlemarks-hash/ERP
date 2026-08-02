@@ -815,18 +815,20 @@ table.data th.num { text-align: right; }
 /* 공지 범위 선택 */
 .nt-scope-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .nt-radio {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 8px;
   border: 1.5px solid var(--line);
   border-radius: 10px;
-  padding: 10px 6px;
-  font-size: 0.8rem;
+  padding: 11px 8px;
+  font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
+  text-align: center;
 }
-.nt-radio span { white-space: nowrap; }
+.nt-radio input { width: 15px; height: 15px; flex: none; margin: 0; }
+.nt-radio span { white-space: nowrap; flex: none; }
 .nt-radio:has(input:checked) { border-color: var(--green); background: var(--green-soft); color: var(--green); }
 .nt-radio input { accent-color: var(--green); }
 

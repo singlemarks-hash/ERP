@@ -2291,9 +2291,9 @@ async function openNoticeModal(notice) {
 
       <div class="field"><span class="field-label">게시 범위 — 어디에 뿌릴지 먼저 선택하세요</span>
         <div class="nt-scope-pick">
-          <label class="nt-radio"><input type="radio" name="nf-scope" value="all" ${scope === "all" ? "checked" : ""} /><span>1. 전체 공지</span></label>
-          <label class="nt-radio"><input type="radio" name="nf-scope" value="dept" ${scope === "dept" ? "checked" : ""} /><span>2. 부서별 공지</span></label>
-          <label class="nt-radio"><input type="radio" name="nf-scope" value="personal" ${scope === "personal" ? "checked" : ""} /><span>3. 개별 공지</span></label>
+          <label class="nt-radio"><input type="radio" name="nf-scope" value="all" ${scope === "all" ? "checked" : ""} /><span>전체 공지</span></label>
+          <label class="nt-radio"><input type="radio" name="nf-scope" value="dept" ${scope === "dept" ? "checked" : ""} /><span>부서별 공지</span></label>
+          <label class="nt-radio"><input type="radio" name="nf-scope" value="personal" ${scope === "personal" ? "checked" : ""} /><span>개별 공지</span></label>
         </div>
       </div>
 
