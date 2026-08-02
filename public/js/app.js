@@ -1255,6 +1255,12 @@ async function renderPayroll() {
             ${emp.position ? `<span class="badge">${esc(emp.position)}</span>` : ""}`
             : `<span class="badge admin">전체 직원 종합</span>`}
         </div>
+        ${emp ? `<div class="pm-copy">
+          <span class="pm-copy-item"><span id="pm-copytitle">${esc(emp.name)} ${new Date().getMonth() + 1}월 급여명세서_작은따옴표</span>
+            <button type="button" class="copy-btn" data-copy="pm-copytitle" title="복사">copy</button></span>
+          ${emp.email ? `<span class="pm-copy-item">email : <span id="pm-copymail">${esc(emp.email)}</span>
+            <button type="button" class="copy-btn" data-copy="pm-copymail" title="복사">copy</button></span>` : ""}
+        </div>` : ""}
       </div>
     </div>
     ${emp ? `
@@ -1270,6 +1276,17 @@ async function renderPayroll() {
     pmEditYm = null;
     renderPayroll();
   };
+  $("#pm-body").querySelectorAll(".copy-btn").forEach((b) => {
+    b.onclick = async () => {
+      const text = document.getElementById(b.dataset.copy).textContent.trim();
+      try {
+        await navigator.clipboard.writeText(text);
+        toast(`복사했습니다: ${text}`);
+      } catch (e) {
+        toast("복사에 실패했습니다. 브라우저 권한을 확인하세요.");
+      }
+    };
+  });
 
   if (emp) {
     // 수정 대기 상태면 해당 레코드를 불러와 폼에 채운다
@@ -1452,6 +1469,8 @@ function renderPayForm(emp, cat, record) {
   const syncDates = () => {
     $("#pm-ym-label").textContent = selYm ? `${selYm.slice(0, 4)}년 ${Number(selYm.slice(5, 7))}월` : "급여월 선택";
     $("#pm-d-label").textContent = selDate ? selDate.replace(/-/g, "/") : "미지정";
+    const ct = document.getElementById("pm-copytitle");
+    if (ct && selYm) ct.textContent = `${emp.name} ${Number(selYm.slice(5, 7))}월 급여명세서_작은따옴표`;
   };
   syncDates();
 
@@ -1736,7 +1755,6 @@ function printPayslip(emp, r) {
     <tr><td class="center">휴일근로수당</td><td>휴일근로시간수 x 통상시급 x 1.5</td><td></td><td></td></tr>
   </table>
 
-  ${r.note ? `<table><colgroup><col style="width:18%"/><col style="width:82%"/></colgroup><tr><td class="label">메모</td><td>${esc(r.note)}</td></tr></table>` : ""}
   <div class="footer">귀하의 노고에 감사드립니다.</div>
 </div>
 <script>window.onload = () => setTimeout(() => window.print(), 300);</` + `script>

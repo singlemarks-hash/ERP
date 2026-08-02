@@ -799,6 +799,19 @@ table.data th.num { text-align: right; }
 .pm-grid .card { margin-bottom: 0; }
 .pm-emp-bar { display: flex; align-items: end; gap: 14px; flex-wrap: wrap; }
 .pm-emp-info { display: flex; gap: 5px; flex-wrap: wrap; padding-bottom: 8px; }
+.pm-copy { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; margin-left: auto; padding-bottom: 8px; }
+.pm-copy-item { display: inline-flex; align-items: center; gap: 7px; font-size: 0.86rem; font-weight: 600; color: var(--ink-soft); }
+.pm-copy-item span { color: var(--ink); }
+.copy-btn {
+  border: none;
+  background: #f2f4f6;
+  border-radius: 7px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  color: var(--ink-soft);
+}
+.copy-btn:hover { background: var(--blue-soft); color: var(--blue-deep); }
 .pm-date-row { display: flex; gap: 6px; align-items: center; }
 .pm-date-row input { flex: 1; }
 #pm-year { padding: 8px 12px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 0.85rem; font-weight: 600; }
