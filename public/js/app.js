@@ -421,6 +421,7 @@ const BTN_COLORS = [
 ];
 const DEFAULT_BTN_COLOR = "#d9dee3";
 let homeEditMode = false;
+let homeShowAll = false; // 모바일: 바로가기 4개 초과 펼침 여부
 
 function colorPickerHtml(selected) {
   return `<div class="color-picker" id="color-picker">
@@ -620,7 +621,7 @@ async function renderHome() {
 
   main.querySelectorAll("[data-goto]").forEach((b) => { b.onclick = () => navigate(b.dataset.goto); });
 
-  /* ── 바로가기: 편집 모드 + 보관함 ── */
+  /* ── 바로가기: 편집 모드 + 정렬 + 보관함 ── */
   const [sysSnap, myBtnSnap] = await Promise.all([
     db.collection(COL.systems).get(),
     db.collection(COL.personalButtons).doc(me.id).get()
@@ -631,31 +632,101 @@ async function renderHome() {
   const pbData = myBtnSnap.exists ? myBtnSnap.data() : {};
   const myBtns = pbData.items || [];
   let hiddenSys = pbData.hiddenSystems || [];
+  let tileOrder = pbData.tileOrder || [];
+  // 개인 버튼 고유 id 보정 (정렬 키로 사용)
+  let idFixed = false;
+  myBtns.forEach((b) => {
+    if (!b.id) { b.id = "p" + Math.random().toString(36).slice(2, 10); idFixed = true; }
+  });
   const savePB = () => db.collection(COL.personalButtons).doc(me.id)
-    .set({ items: myBtns, hiddenSystems: hiddenSys }, { merge: true });
+    .set({ items: myBtns, hiddenSystems: hiddenSys, tileOrder }, { merge: true });
+  if (idFixed) savePB();
 
   const visibleSystems = mySystems.filter((sy) => !hiddenSys.includes(sy.id));
   const visibleMy = myBtns.map((b, i) => ({ b, i })).filter((x) => !x.b.hidden);
 
-  const tile = (b, i, editHtml) => `
+  // 통합 타일 목록 + 사용자 지정 순서 적용
+  let entries = [
+    ...visibleSystems.map((sy) => ({ key: "s:" + sy.id, data: sy, sysId: sy.id })),
+    ...visibleMy.map(({ b, i }) => ({ key: "m:" + b.id, data: b, myIdx: i }))
+  ];
+  entries.sort((a, b) => {
+    const ia = tileOrder.indexOf(a.key), ib = tileOrder.indexOf(b.key);
+    return (ia === -1 ? 9999 : ia) - (ib === -1 ? 9999 : ib);
+  });
+
+  const isMobile = window.matchMedia("(max-width: 860px)").matches;
+  const shown = (!isMobile || homeShowAll) ? entries : entries.slice(0, 4);
+  const hiddenCount = entries.length - shown.length;
+
+  const tile = (e, pos) => {
+    const b = e.data;
+    let editHtml = "";
+    if (homeEditMode) {
+      const move = `${pos > 0 ? `<button data-mv="${e.key}" data-dir="-1" title="앞으로">‹</button>` : ""}
+        ${pos < shown.length - 1 || hiddenCount ? `<button data-mv="${e.key}" data-dir="1" title="뒤로">›</button>` : ""}`;
+      editHtml = e.sysId
+        ? `<span class="t-edit">${move}<button data-syshide="${e.sysId}">보관</button></span>`
+        : `<span class="t-edit">${move}<button data-myedit="${e.myIdx}">수정</button><button data-myhide="${e.myIdx}">보관</button></span>`;
+    }
+    return `
     <a class="tile" href="${esc(b.url)}" target="_blank" rel="noopener" style="border-color:${esc(b.color || DEFAULT_BTN_COLOR)}">
-      ${editHtml || ""}
+      ${editHtml}
       <span class="t-label">${esc(b.label)}</span>
       <span class="t-desc">${esc(b.desc || "")}</span>
     </a>`;
+  };
 
-  $("#shortcut-body").innerHTML = (visibleSystems.length || visibleMy.length) ? `
-    <div class="tile-grid">
-      ${visibleSystems.map((b, i) => tile(b, i, homeEditMode
-        ? `<span class="t-edit"><button data-syshide="${b.id}" title="보관함으로 이동">보관</button></span>` : "")).join("")}
-      ${visibleMy.map(({ b, i }, k) => tile(b, k + 1, homeEditMode
-        ? `<span class="t-edit"><button data-myedit="${i}">수정</button><button data-myhide="${i}">보관</button></span>` : "")).join("")}
-    </div>`
+  $("#shortcut-body").innerHTML = entries.length ? `
+    <div class="tile-grid">${shown.map((e, pos) => tile(e, pos)).join("")}</div>
+    ${isMobile && entries.length > 4 ? `<button class="btn btn-ghost btn-sm more-btn" id="tile-more">
+      ${homeShowAll ? "접기 ⌃" : `더 보기 (${hiddenCount}개) ⌄`}</button>` : ""}`
     : (mySystems.length || myBtns.length)
       ? `<div class="empty">모든 버튼이 보관함에 있습니다. [편집] → [보관함]에서 다시 꺼낼 수 있어요.</div>`
       : `<div class="empty">표시할 버튼이 없습니다.${isAdmin() ? " [사내 시스템]에서 버튼을 등록하고 권한을 부여하세요." : " [편집] → [+ 새 등록]으로 나만의 버튼을 추가하거나, 필요한 시스템은 경영지원본부에 요청하세요."}</div>`;
 
+  const moreBtn = $("#tile-more");
+  if (moreBtn) moreBtn.onclick = () => { homeShowAll = !homeShowAll; renderHome(); };
+
   $("#home-edit").onclick = () => { homeEditMode = !homeEditMode; renderHome(); };
+
+  // 순서 변경 (‹ ›)
+  main.querySelectorAll("[data-mv]").forEach((b) => {
+    b.onclick = async (e) => {
+      e.preventDefault();
+      const keys = entries.map((x) => x.key);
+      const from = keys.indexOf(b.dataset.mv);
+      const to = from + Number(b.dataset.dir);
+      if (to < 0 || to >= keys.length) return;
+      [keys[from], keys[to]] = [keys[to], keys[from]];
+      tileOrder = keys;
+      await savePB();
+      renderHome();
+    };
+  });
+
+  // 길게 누르면 편집 모드 (모바일 위젯 방식)
+  if (!homeEditMode) {
+    let lpTimer = null, lpFired = false;
+    main.querySelectorAll(".tile").forEach((t) => {
+      t.addEventListener("pointerdown", () => {
+        lpFired = false;
+        lpTimer = setTimeout(() => {
+          lpFired = true;
+          homeEditMode = true;
+          toast("편집 모드 — 순서 변경·보관이 가능합니다.");
+          renderHome();
+        }, 600);
+      });
+      ["pointerup", "pointerleave", "pointercancel", "pointermove"].forEach((ev) =>
+        t.addEventListener(ev, (e2) => {
+          if (ev === "pointermove" && lpTimer) return; // 미세 이동 허용
+          clearTimeout(lpTimer);
+        }));
+      t.addEventListener("click", (e2) => { if (lpFired) { e2.preventDefault(); lpFired = false; } });
+      t.addEventListener("contextmenu", (e2) => { if (lpFired) e2.preventDefault(); });
+    });
+  }
 
   main.querySelectorAll("[data-syshide]").forEach((b) => {
     b.onclick = async (e) => {
@@ -745,7 +816,7 @@ async function renderHome() {
     .slice(0, 5);
 
   $("#home-pay").innerHTML = payLines.length ? `
-    <div class="table-wrap"><table class="data">
+    <div class="table-wrap home-pay-scroll"><table class="data pay-table">
       <thead><tr><th>월</th><th>지급일</th><th class="num">총 지급</th><th class="num">총 공제</th><th class="num">실수령</th></tr></thead>
       <tbody>${payLines.map((l) => `<tr>
         <td><b>${l.ym}</b></td>
@@ -1219,7 +1290,7 @@ async function renderPayHistory() {
       </div>
       <div class="table-wrap"><table class="data pay-table">
         <thead><tr><th>월</th><th>지급일</th><th class="num">총 지급</th><th class="num">총 공제</th><th class="num">실수령</th><th>메모</th><th></th></tr></thead>
-        <tbody>${records.map((r) => `<tr class="${phOpenIds.has(r.id) ? "ph-row-open" : ""}">
+        <tbody>${records.map((r) => `<tr class="ph-click ${phOpenIds.has(r.id) ? "ph-row-open" : ""}" data-rowtoggle="${r.id}">
           <td><b>${r.ym}</b></td>
           <td>${esc(r.payDate || "-")}</td>
           <td class="num"><span class="hov c-green" data-hv="${r.id}" data-ym="${r.ym}" data-kind="pay">${fmt(r.payTotal)}원</span></td>
@@ -1231,11 +1302,17 @@ async function renderPayHistory() {
       </table></div>`
       : `<div class="empty">${year}년 급여 내역이 없습니다.</div>`;
 
+    const togglePh = (id) => {
+      if (phOpenIds.has(id)) phOpenIds.delete(id); else phOpenIds.add(id);
+      renderYear(year);
+    };
     $("#ph-table").querySelectorAll("[data-ph-toggle]").forEach((b) => {
-      b.onclick = () => {
-        const id = b.dataset.phToggle;
-        if (phOpenIds.has(id)) phOpenIds.delete(id); else phOpenIds.add(id);
-        renderYear(year);
+      b.onclick = (ev) => { ev.stopPropagation(); togglePh(b.dataset.phToggle); };
+    });
+    $("#ph-table").querySelectorAll("[data-rowtoggle]").forEach((tr) => {
+      tr.onclick = (ev) => {
+        if (ev.target.closest("button") || ev.target.closest(".hov") || ev.target.closest("a")) return;
+        togglePh(tr.dataset.rowtoggle);
       };
     });
     attachPayHover($("#ph-table"), records);
