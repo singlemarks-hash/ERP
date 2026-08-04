@@ -196,6 +196,31 @@ a { color: var(--blue); }
 }
 .logout-btn { margin-top: 14px; }
 
+/* 모바일 사이드바 배경 딤 + 닫기 버튼 (데스크톱에서는 없음) */
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(25, 31, 40, 0.45);
+  z-index: 65;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.sidebar-backdrop.show { opacity: 1; pointer-events: auto; }
+.sidebar-close {
+  display: none;
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+}
+
 /* 모바일 상단 고정 헤더 (데스크톱에서는 숨김) */
 .m-header {
   display: none;
@@ -1209,11 +1234,38 @@ tr.ph-row-open td { background: var(--blue-soft); }
     box-shadow: 0 0 40px rgba(25, 31, 40, 0.15);
   }
   .sidebar.open { transform: translateX(0); }
-  .main { padding: 70px 14px 52px; }
+  .sidebar-close { display: grid; place-items: center; }
+  .main { padding: 70px 16px 48px; width: 100%; }
   .grid-2 { grid-template-columns: 1fr; }
-  .home-greet { flex-direction: column; align-items: flex-start; }
-  .home-greet h2 { font-size: 1.12rem; }
+  .home-greet { flex-direction: column; align-items: flex-start; gap: 10px; margin-bottom: 18px; }
+  .home-greet .g-title { font-size: 1.22rem; }
   .page-title { font-size: 1.25rem; }
+
+  /* 카드 폭·여백 통일 */
+  .card { padding: 18px 16px; margin-bottom: 14px; border-radius: 16px; }
+  .widget-grid { gap: 14px; margin-bottom: 14px; }
+
+  /* 입력창이 프레임을 넘지 않도록 */
+  input, select, textarea { min-width: 0; max-width: 100%; }
+
+  /* 휴가 신청 폼: 2열 정렬 */
+  .lv-req { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .lv-req .field input, .lv-req .field select { padding: 11px 10px; font-size: 0.88rem; }
+  .lv-req .btn { grid-column: 1 / -1; width: 100%; }
+
+  /* 나의 연차 현황: 2×2 컴팩트 */
+  .lv-stats { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .lv-stat { padding: 12px 10px; gap: 9px; }
+  .lv-ico { width: 34px; height: 34px; }
+  .lv-ico svg { width: 16px; height: 16px; }
+  .lv-stat .s-label { font-size: 0.68rem; white-space: nowrap; }
+  .lv-stat .s-value { font-size: 1.05rem; }
+  .usage-line { flex-wrap: wrap; }
+
+  /* 부서별 막대(연차관리)·타입 막대 폭 조정 */
+  .type-bar { grid-template-columns: 56px 1fr 44px; gap: 8px; font-size: 0.78rem; }
+  .type-bar.dept-bar { grid-template-columns: 72px 1fr; }
+  .type-bar.dept-bar .tb-num { grid-column: 2; }
 
   /* 줄바꿈 방지: 텍스트 축소 + nowrap */
   .btn { white-space: nowrap; }

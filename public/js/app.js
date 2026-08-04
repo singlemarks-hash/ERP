@@ -269,7 +269,17 @@ function enterApp() {
     me = null;
     location.reload();
   };
-  $("#sidebar-toggle").onclick = () => $("#sidebar").classList.toggle("open");
+  $("#sidebar-toggle").onclick = () => {
+    const open = $("#sidebar").classList.toggle("open");
+    $("#sidebar-backdrop").classList.toggle("show", open);
+  };
+  $("#sidebar-backdrop").onclick = closeSidebar;
+  $("#sidebar-close").onclick = closeSidebar;
+}
+
+function closeSidebar() {
+  $("#sidebar").classList.remove("open");
+  $("#sidebar-backdrop").classList.remove("show");
 }
 
 /* 라인 아이콘 (stroke 기반 인라인 SVG) */
@@ -332,7 +342,7 @@ function renderSidebar() {
   const nav = $("#nav");
   nav.innerHTML = html;
   nav.querySelectorAll(".nav-item").forEach((b) => {
-    b.onclick = () => { navigate(b.dataset.view); $("#sidebar").classList.remove("open"); };
+    b.onclick = () => { navigate(b.dataset.view); closeSidebar(); };
   });
   updateLeaveAlarm();
 }
@@ -577,7 +587,7 @@ async function renderHome() {
           : `<button class="btn btn-ghost btn-sm" id="home-edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M17 3a2.8 2.8 0 0 1 4 4L8 20l-5 1 1-5L17 3Z"/></svg> 편집</button>`}
         </span>
       </div>
-      <div id="shortcut-body"></div>
+      <div id="shortcut-body"><div class="empty">불러오는 중...</div></div>
     </div>
     <div id="home-notices"></div>
     <div class="widget-grid">
@@ -589,7 +599,7 @@ async function renderHome() {
           <input id="todo-input" placeholder="할 일을 입력하고 Enter" maxlength="200" autocomplete="off" />
           <button type="submit" class="btn btn-primary btn-sm" id="todo-add-btn" disabled>추가</button>
         </form>
-        <div id="todo-list"></div>
+        <div id="todo-list"><div class="empty" style="padding:20px">불러오는 중...</div></div>
       </div>
       <div class="card">
         <div class="card-title">
@@ -599,7 +609,7 @@ async function renderHome() {
             <button class="btn btn-ghost btn-sm" id="memo-btn">수정</button>
           </span>
         </div>
-        <div id="memo-holder" class="memo-holder"></div>
+        <div id="memo-holder" class="memo-holder"><div class="empty" style="padding:20px">불러오는 중...</div></div>
       </div>
     </div>
     <div class="widget-grid">
@@ -621,11 +631,20 @@ async function renderHome() {
 
   main.querySelectorAll("[data-goto]").forEach((b) => { b.onclick = () => navigate(b.dataset.goto); });
 
+  /* ── 모든 위젯 데이터 병렬 로드 (섹션별 순차 대기 제거) ── */
+  const pSys = db.collection(COL.systems).get();
+  const pPB = db.collection(COL.personalButtons).doc(me.id).get();
+  const pPay = Promise.all(recentMonths(6).map((ym) =>
+    db.collection(COL.payroll).doc(ym).collection("rows").get().then((s) => ({
+      ym, rows: s.docs.map((d) => d.data())
+    }))));
+  const pLv = db.collection(COL.leaves).doc(me.id).get();
+  const pTodo = db.collection(COL.todos).doc(me.id).get();
+  const pMemo = db.collection(COL.memos).doc(me.id).get();
+  renderHomeNotices();
+
   /* ── 바로가기: 편집 모드 + 정렬 + 보관함 ── */
-  const [sysSnap, myBtnSnap] = await Promise.all([
-    db.collection(COL.systems).get(),
-    db.collection(COL.personalButtons).doc(me.id).get()
-  ]);
+  const [sysSnap, myBtnSnap] = await Promise.all([pSys, pPB]);
   const mySystems = sysSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
     .filter((s) => canManageOps() || s.allowAll || (s.grantIds || []).includes(me.id))
     .sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -804,11 +823,7 @@ async function renderHome() {
   };
 
   /* ── 급여 위젯: 최근 6개월 ── */
-  const months = recentMonths(6);
-  const monthRows = await Promise.all(months.map((ym) =>
-    db.collection(COL.payroll).doc(ym).collection("rows").get().then((s) => ({
-      ym, rows: s.docs.map((d) => d.data())
-    }))));
+  const monthRows = await pPay;
   const payLines = monthRows.flatMap(({ ym, rows }) =>
     rows.filter((r) => r.empId === me.id || r.name === me.name)
       .map((r) => ({ ym, rec: normalizePayRow(r) })))
@@ -830,7 +845,7 @@ async function renderHome() {
     : `<div class="empty">최근 6개월 급여 내역이 없습니다.${isAdmin() ? " [급여관리]에서 입력을 시작하세요." : ""}</div>`;
 
   /* ── 연차 위젯 ── */
-  const lvSnap = await db.collection(COL.leaves).doc(me.id).get();
+  const lvSnap = await pLv;
   const lv = lvSnap.exists ? lvSnap.data() : { allocated: 0, records: [] };
   const recs = lv.records || [];
   const used = recs.reduce((s, r) => s + (Number(r.days) || 0), 0);
@@ -860,7 +875,7 @@ async function renderHome() {
 
   /* ── 업무 할 일 (투두) ── */
   const todoRef = db.collection(COL.todos).doc(me.id);
-  const todoSnap = await todoRef.get();
+  const todoSnap = await pTodo;
   let todoItems = todoSnap.exists ? (todoSnap.data().items || []) : [];
   const saveTodos = () => todoRef.set({ items: todoItems });
 
@@ -934,7 +949,7 @@ async function renderHome() {
 
   /* ── 개인 메모장 (보기: URL 자동 링크 / 수정: textarea) ── */
   const memoRef = db.collection(COL.memos).doc(me.id);
-  const memoSnap = await memoRef.get();
+  const memoSnap = await pMemo;
   const memoBtn = $("#memo-btn");
   let memoText = memoSnap.exists ? (memoSnap.data().text || "") : "";
   let memoEditing = false;
@@ -977,8 +992,6 @@ async function renderHome() {
       toast("메모를 저장했습니다.");
     }
   };
-
-  renderHomeNotices();
 }
 
 /* ───────── 사내 시스템 (관리자: 버튼 등록 + 계정별 권한 부여) ───────── */
