@@ -1249,8 +1249,11 @@ tr.ph-row-open td { background: var(--blue-soft); }
   input, select, textarea { min-width: 0; max-width: 100%; }
 
   /* 휴가 신청 폼: 2열 정렬 */
-  .lv-req { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .lv-req { grid-template-columns: 1fr 1fr; gap: 10px; align-items: end; }
+  .lv-req .field { min-width: 0; }
+  .lv-req .field-label { white-space: nowrap; }
   .lv-req .field input, .lv-req .field select { padding: 11px 10px; font-size: 0.88rem; }
+  .lv-req .cal-input { padding: 11px 10px; font-size: 0.88rem; }
   .lv-req .btn { grid-column: 1 / -1; width: 100%; }
 
   /* 나의 연차 현황: 2×2 컴팩트 */

@@ -2019,10 +2019,10 @@ async function renderLeave() {
       <form id="lv-req-form" class="lv-req">
         <label class="field"><span class="field-label">휴가 유형</span>
           <select id="lr-type">${LEAVE_TYPES.map((t) => `<option>${t}</option>`).join("")}</select></label>
-        <label class="field"><span class="field-label">시작일</span>
-          <input id="lr-start" type="date" required value="${new Date().toISOString().slice(0, 10)}" /></label>
-        <label class="field"><span class="field-label">종료일</span>
-          <input id="lr-end" type="date" required value="${new Date().toISOString().slice(0, 10)}" /></label>
+        <div class="field"><span class="field-label">시작일</span>
+          <button type="button" class="cal-input" id="lr-start-btn"><span id="lr-start-label"></span>${CAL_ICON}</button></div>
+        <div class="field"><span class="field-label">종료일</span>
+          <button type="button" class="cal-input" id="lr-end-btn"><span id="lr-end-label"></span>${CAL_ICON}</button></div>
         <label class="field"><span class="field-label">일수 (0.5 단위)</span>
           <input id="lr-days" type="number" step="0.5" min="0.5" required value="1" /></label>
         <button type="submit" class="btn btn-primary" id="lr-submit">신청하기</button>
@@ -2067,9 +2067,34 @@ async function renderLeave() {
     </div>` : ""}
 `;
 
+  // 시작·종료일: 한글 달력 피커 (iOS 네이티브 date 입력의 폭 깨짐·영문 표기 회피)
+  const todayStr = new Date().toISOString().slice(0, 10);
+  let lrStart = todayStr, lrEnd = todayStr;
+  const lrSync = () => {
+    $("#lr-start-label").textContent = lrStart;
+    $("#lr-end-label").textContent = lrEnd;
+  };
+  const lrAutoDays = () => {
+    if (!lrStart || !lrEnd || lrEnd < lrStart) return;
+    $("#lr-days").value = (new Date(lrEnd) - new Date(lrStart)) / 86400000 + 1;
+  };
+  lrSync();
+  $("#lr-start-btn").onclick = () => openDatePicker($("#lr-start-btn"), lrStart, (v) => {
+    if (!v) return;
+    lrStart = v;
+    if (lrEnd < lrStart) lrEnd = lrStart;
+    lrSync(); lrAutoDays();
+  });
+  $("#lr-end-btn").onclick = () => openDatePicker($("#lr-end-btn"), lrEnd, (v) => {
+    if (!v) return;
+    lrEnd = v;
+    if (lrEnd < lrStart) { toast("종료일이 시작일보다 빠릅니다."); lrEnd = lrStart; }
+    lrSync(); lrAutoDays();
+  });
+
   $("#lv-req-form").onsubmit = async (ev) => {
     ev.preventDefault();
-    const start = $("#lr-start").value, end = $("#lr-end").value;
+    const start = lrStart, end = lrEnd;
     if (end < start) { toast("종료일이 시작일보다 빠릅니다."); return; }
     const data = {
       empId: me.id,
@@ -2087,8 +2112,6 @@ async function renderLeave() {
     updateLeaveAlarm();
     renderLeave();
   };
-  // 시작일 변경 시 종료일 자동 보정
-  $("#lr-start").onchange = () => { if ($("#lr-end").value < $("#lr-start").value) $("#lr-end").value = $("#lr-start").value; };
 }
 
 /* ───────── 연차관리 (관리자 메뉴) ───────── */
