@@ -8,6 +8,25 @@ const PAY_CATS = ["4대보험", "3.3%"];
 const LEAVE_TYPES = ["연차", "반차", "병가", "경조", "기타"];
 const SESSION_KEY = "quote_erp_session_v1";
 
+/* 휴가 결재자 지정 규칙
+   - 일반 권한 + 오프라인사업부: 안은비 / 권민호 중 선택 (단, 본인이 권민호면 안은비만)
+   - 일반 권한 + 그 외 부서: 안은비
+   - 임원 이상(일반 외) 권한: 장서영 자동 지정 */
+const APPROVER_OFFLINE = ["안은비", "권민호"];
+const APPROVER_DEFAULT = "안은비";
+const APPROVER_EXEC = "장서영";
+function approverOptions() {
+  if (me.role !== "member") return [APPROVER_EXEC];
+  if (me.dept === "오프라인사업부") {
+    const opts = APPROVER_OFFLINE.filter((n) => n !== me.name);
+    return opts.length ? opts : [APPROVER_DEFAULT];
+  }
+  return [APPROVER_DEFAULT];
+}
+
+/* 일정 종류별 색상 (휴가=빨강, 행사=그린, 기타=오렌지, 휴무=자주) */
+const SC_KINDS = { "휴가": "red", "행사": "green", "기타": "orange", "휴무": "purple" };
+
 let db = null;
 let me = null; // { id, ...employee fields }
 let currentView = "home";
@@ -291,7 +310,8 @@ const ICONS = {
   employees: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.2 3.4-5 6.5-5s5.7 1.8 6.5 5"/><circle cx="17.5" cy="9.5" r="2.5"/><path d="M16.5 15.2c2.5.3 4.3 1.8 5 4.3"/></svg>',
   monitor: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5c0 4.6 3.2 8.4 7.5 10 4.3-1.6 7.5-5.4 7.5-10V6L12 3Z"/><path d="m9 12 2 2 4-4"/></svg>',
   ledger: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>',
-  grid: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg>'
+  grid: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg>',
+  calendar: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><circle cx="8.5" cy="14.5" r="1"/><circle cx="12" cy="14.5" r="1"/><circle cx="15.5" cy="14.5" r="1"/></svg>'
 };
 
 function renderSidebar() {
@@ -319,6 +339,7 @@ function renderSidebar() {
 
   const items = [
     { id: "home", ico: "home", label: "홈" },
+    { id: "schedule", ico: "calendar", label: "일정" },
     { id: "payhistory", ico: "payroll", label: "급여" },
     { id: "leave", ico: "leave", label: "휴가" },
     { id: "settings", ico: "settings", label: "설정" }
@@ -394,6 +415,7 @@ function navigate(view) {
   document.querySelectorAll(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   const render = {
     home: renderHome,
+    schedule: renderSchedule,
     payhistory: renderPayHistory,
     paymanage: renderPayroll,
     leave: renderLeave,
@@ -2036,6 +2058,8 @@ async function renderLeave() {
       <form id="lv-req-form" class="lv-req">
         <label class="field"><span class="field-label">휴가 유형</span>
           <select id="lr-type">${LEAVE_TYPES.map((t) => `<option>${t}</option>`).join("")}</select></label>
+        <label class="field"><span class="field-label">결재자</span>
+          <select id="lr-approver">${approverOptions().map((n) => `<option>${esc(n)}</option>`).join("")}</select></label>
         <div class="field"><span class="field-label">시작일</span>
           <button type="button" class="cal-input" id="lr-start-btn"><span id="lr-start-label"></span>${CAL_ICON}</button></div>
         <div class="field"><span class="field-label">종료일</span>
@@ -2121,6 +2145,7 @@ async function renderLeave() {
       endDate: end,
       days: Number($("#lr-days").value),
       type: $("#lr-type").value,
+      approver: $("#lr-approver").value,
       status: "대기",
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     };
@@ -2129,6 +2154,261 @@ async function renderLeave() {
     updateLeaveAlarm();
     renderLeave();
   };
+}
+
+/* ───────── 일정 (전사 캘린더: 휴무/행사/기타 + 승인된 휴가 자동 표시) ───────── */
+let scYm = null;   // 표시 중인 달 "YYYY-MM"
+let scSel = null;  // 선택한 날짜 "YYYY-MM-DD"
+
+async function renderSchedule() {
+  const main = $("#main");
+  const todayStr = new Date().toISOString().slice(0, 10);
+  if (!scYm) scYm = todayStr.slice(0, 7);
+  if (!scSel) scSel = todayStr;
+
+  main.innerHTML = pageHead("SCHEDULE", "일정",
+    "전사 공유 캘린더입니다. 휴무·행사를 등록하면 모두에게 표시되고, 승인된 휴가는 자동으로 표시됩니다.",
+    `<button class="btn btn-primary btn-sm" id="sc-add">+ 일정 등록</button>`) +
+    `<div id="sc-body"><div class="empty">불러오는 중...</div></div>`;
+
+  const [scSnap, lvSnap, empSnap] = await Promise.all([
+    db.collection(COL.schedules).get(),
+    db.collection(COL.leaves).get(),
+    db.collection(COL.employees).where("status", "==", "재직").get()
+  ]);
+  const empName = {};
+  empSnap.docs.forEach((d) => { empName[d.id] = d.data().name; });
+
+  const events = {}; // "YYYY-MM-DD" -> [{kind,label,docId,canDel}]
+  const push = (date, ev) => { (events[date] = events[date] || []).push(ev); };
+
+  // 승인된 휴가 (leaves.records) → 빨간색 "휴가"
+  lvSnap.docs.forEach((d) => {
+    const nm = empName[d.id];
+    if (!nm) return;
+    (d.data().records || []).forEach((r) => {
+      if (!r.date) return;
+      const cur = new Date(r.date);
+      const stop = new Date(r.endDate || r.date);
+      let guard = 0;
+      while (cur <= stop && guard++ < 62) {
+        push(cur.toISOString().slice(0, 10), { kind: "휴가", label: nm });
+        cur.setDate(cur.getDate() + 1);
+      }
+    });
+  });
+
+  // 등록 일정 (휴무=자주, 행사=그린, 기타=오렌지)
+  const scDocs = scSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  scDocs.forEach((s) => {
+    (s.dates || []).forEach((dt) => {
+      push(dt, {
+        kind: s.type,
+        label: s.type === "휴무" ? (s.name || s.authorName || "?") : (s.title || "-"),
+        docId: s.id,
+        canDel: isAdmin() || s.authorId === me.id
+      });
+    });
+  });
+
+  const kindOrder = ["행사", "휴가", "휴무", "기타"];
+  const sortEvents = (list) => list.slice().sort((a, b) => kindOrder.indexOf(a.kind) - kindOrder.indexOf(b.kind));
+  const dot = (kind) => `<i class="sc-dot ${SC_KINDS[kind] || "orange"}"></i>`;
+
+  // ── 오늘 요약 ──
+  const tDate = new Date(todayStr);
+  const todayLabel = `${tDate.getMonth() + 1}월 ${tDate.getDate()}일 (${"일월화수목금토"[tDate.getDay()]})`;
+  const todayEvents = sortEvents(events[todayStr] || []);
+  const grouped = {};
+  todayEvents.forEach((e) => { (grouped[e.kind] = grouped[e.kind] || []).push(e.label); });
+  const summaryHtml = kindOrder.filter((k) => grouped[k]).map((k) =>
+    `<div class="sc-sum-line">${dot(k)}<b>${k}</b><span>${grouped[k].map(esc).join(", ")}</span></div>`).join("");
+
+  // ── 달력 ──
+  const [yy, mm] = scYm.split("-").map(Number);
+  const first = new Date(yy, mm - 1, 1);
+  const startDow = first.getDay();
+  const daysIn = new Date(yy, mm, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < startDow; i++) cells.push(null);
+  for (let d = 1; d <= daysIn; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const cellHtml = (d, idx) => {
+    if (!d) return `<div class="sc-cell blank"></div>`;
+    const dateStr = `${yy}-${String(mm).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const list = sortEvents(events[dateStr] || []);
+    const dow = idx % 7;
+    const chips = list.slice(0, 3).map((e) =>
+      `<span class="sc-chip">${dot(e.kind)}<b>${esc(e.label)}</b></span>`).join("");
+    const more = list.length > 3 ? `<span class="sc-more">+${list.length - 3}</span>` : "";
+    return `<button type="button" class="sc-cell ${dateStr === todayStr ? "today" : ""} ${dateStr === scSel ? "sel" : ""}" data-scd="${dateStr}">
+      <span class="d ${dow === 0 ? "sun" : dow === 6 ? "sat" : ""}">${d}</span>
+      <span class="sc-chips">${chips}${more}</span>
+    </button>`;
+  };
+
+  // ── 선택한 날 상세 ──
+  const selDate = new Date(scSel);
+  const selLabel = `${selDate.getMonth() + 1}월 ${selDate.getDate()}일 (${"일월화수목금토"[selDate.getDay()]})`;
+  const selEvents = sortEvents(events[scSel] || []);
+  const dayHtml = selEvents.length ? selEvents.map((e) => `
+    <div class="sc-day-row">
+      ${dot(e.kind)}<b class="sc-day-kind">${e.kind}</b>
+      <span class="sc-day-label">${esc(e.label)}</span>
+      ${e.canDel ? `<button class="icon-btn" data-scdel="${e.docId}" title="삭제"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/><path d="M10 11v6M14 11v6"/></svg></button>` : ""}
+    </div>`).join("")
+    : `<div class="empty" style="padding:14px">등록된 일정이 없습니다.</div>`;
+
+  $("#sc-body").innerHTML = `
+    <div class="card sc-today-card">
+      <div class="sc-sum-title">오늘 · ${todayLabel}</div>
+      ${summaryHtml || `<div class="sc-sum-line"><span class="sc-sum-none">오늘 등록된 일정이 없습니다.</span></div>`}
+    </div>
+    <div class="card">
+      <div class="sc-cal-head">
+        <button type="button" class="cal-nav" id="sc-prev">&lsaquo;</button>
+        <b class="sc-cal-title">${yy}년 ${mm}월</b>
+        <button type="button" class="cal-nav" id="sc-next">&rsaquo;</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="sc-now">오늘</button>
+      </div>
+      <div class="sc-dow">${["일", "월", "화", "수", "목", "금", "토"].map((d, i) =>
+        `<span class="${i === 0 ? "sun" : i === 6 ? "sat" : ""}">${d}</span>`).join("")}</div>
+      <div class="sc-grid">${cells.map((d, i) => cellHtml(d, i)).join("")}</div>
+      <div class="sc-legend">
+        ${kindOrder.map((k) => `<span class="sc-legend-item">${dot(k)}${k}</span>`).join("")}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><div>${selLabel} 일정</div></div>
+      <div id="sc-day-list">${dayHtml}</div>
+    </div>`;
+
+  $("#sc-add").onclick = () => openScheduleModal();
+  const shiftMonth = (n) => {
+    let y = yy, m = mm + n;
+    if (m < 1) { m = 12; y--; }
+    if (m > 12) { m = 1; y++; }
+    scYm = `${y}-${String(m).padStart(2, "0")}`;
+    renderSchedule();
+  };
+  $("#sc-prev").onclick = () => shiftMonth(-1);
+  $("#sc-next").onclick = () => shiftMonth(1);
+  $("#sc-now").onclick = () => { scYm = todayStr.slice(0, 7); scSel = todayStr; renderSchedule(); };
+  $("#sc-body").querySelectorAll("[data-scd]").forEach((b) => {
+    b.onclick = () => { scSel = b.dataset.scd; renderSchedule(); };
+  });
+  $("#sc-body").querySelectorAll("[data-scdel]").forEach((b) => {
+    b.onclick = async () => {
+      const s = scDocs.find((x) => x.id === b.dataset.scdel);
+      if (!s) return;
+      const label = s.type === "휴무" ? `${s.name || s.authorName} 휴무` : `${s.type} "${s.title}"`;
+      if (!confirm(`${scSel}의 ${label} 일정을 정말로 삭제할까요?`)) return;
+      const rest = (s.dates || []).filter((d) => d !== scSel);
+      if (rest.length) await db.collection(COL.schedules).doc(s.id).update({ dates: rest });
+      else await db.collection(COL.schedules).doc(s.id).delete();
+      toast("일정을 삭제했습니다.");
+      renderSchedule();
+    };
+  });
+}
+
+/* 일정 등록 모달: 종류 선택 → 날짜 다중 선택 → 등록 */
+function openScheduleModal() {
+  let type = "휴무";
+  let [my, mmn] = (scYm || new Date().toISOString().slice(0, 7)).split("-").map(Number);
+  const selDates = new Set();
+
+  const bodyHtml = () => {
+    const first = new Date(my, mmn - 1, 1);
+    const startDow = first.getDay();
+    const daysIn = new Date(my, mmn, 0).getDate();
+    const cells = [];
+    for (let i = 0; i < startDow; i++) cells.push(null);
+    for (let d = 1; d <= daysIn; d++) cells.push(d);
+    return `
+      <div class="sc-type-pick">
+        ${["휴무", "행사", "기타"].map((t) => `
+          <button type="button" class="sc-type ${type === t ? "on" : ""}" data-sct="${t}">
+            <i class="sc-dot ${SC_KINDS[t]}"></i>${t}</button>`).join("")}
+      </div>
+      <div id="sc-title-wrap" class="${type === "휴무" ? "hidden" : ""}">
+        <label class="field"><span class="field-label">${type === "행사" ? "행사명" : "내용"}</span>
+          <input id="sc-title" placeholder="${type === "행사" ? "예: 인플루언서 모임 행사" : "예: 사무실 공사"}" maxlength="60" /></label>
+      </div>
+      <p class="modal-desc" style="margin-bottom:8px">${type === "휴무"
+        ? "본인 휴무인 날짜를 모두 선택하세요. 등록하면 전 직원에게 표시됩니다."
+        : "해당 일정의 날짜를 모두 선택하세요."}</p>
+      <div class="sc-cal-head sm">
+        <button type="button" class="cal-nav" data-scnav="-1">&lsaquo;</button>
+        <b class="sc-cal-title">${my}년 ${mmn}월</b>
+        <button type="button" class="cal-nav" data-scnav="1">&rsaquo;</button>
+      </div>
+      <div class="sc-dow sm">${["일", "월", "화", "수", "목", "금", "토"].map((d) => `<span>${d}</span>`).join("")}</div>
+      <div class="scm-grid">
+        ${cells.map((d) => {
+          if (!d) return `<span class="scm-d blank"></span>`;
+          const ds = `${my}-${String(mmn).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+          return `<button type="button" class="scm-d ${selDates.has(ds) ? "on " + SC_KINDS[type] : ""}" data-scmd="${ds}">${d}</button>`;
+        }).join("")}
+      </div>
+      <div class="sc-sel-note">선택한 날짜 <b id="sc-selcount">${selDates.size}</b>일${selDates.size ? ` — ${[...selDates].sort().map((d) => d.slice(5).replace("-", "/")).join(", ")}` : ""}</div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="sc-cancel">취소</button>
+        <button type="button" class="btn btn-primary" id="sc-save">등록</button>
+      </div>`;
+  };
+
+  const wire = () => {
+    $("#modal").querySelectorAll("[data-sct]").forEach((b) => {
+      b.onclick = () => { type = b.dataset.sct; rerender(); };
+    });
+    $("#modal").querySelectorAll("[data-scnav]").forEach((b) => {
+      b.onclick = () => {
+        mmn += Number(b.dataset.scnav);
+        if (mmn < 1) { mmn = 12; my--; }
+        if (mmn > 12) { mmn = 1; my++; }
+        rerender();
+      };
+    });
+    $("#modal").querySelectorAll("[data-scmd]").forEach((b) => {
+      b.onclick = () => {
+        const ds = b.dataset.scmd;
+        if (selDates.has(ds)) selDates.delete(ds); else selDates.add(ds);
+        rerender();
+      };
+    });
+    $("#sc-cancel").onclick = closeModal;
+    $("#sc-save").onclick = async () => {
+      if (!selDates.size) { toast("날짜를 1일 이상 선택하세요."); return; }
+      const title = type === "휴무" ? "" : ($("#sc-title").value || "").trim();
+      if (type !== "휴무" && !title) { toast(`${type === "행사" ? "행사명을" : "내용을"} 입력하세요.`); return; }
+      await db.collection(COL.schedules).add({
+        type,
+        dates: [...selDates].sort(),
+        ...(type === "휴무" ? { empId: me.id, name: me.name } : { title }),
+        authorId: me.id,
+        authorName: me.name,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      closeModal();
+      toast("일정을 등록했습니다.");
+      renderSchedule();
+    };
+  };
+
+  let titleDraft = "";
+  const rerender = () => {
+    const t = $("#sc-title");
+    if (t) titleDraft = t.value;
+    $("#sc-modal-body").innerHTML = bodyHtml();
+    const t2 = $("#sc-title");
+    if (t2) t2.value = titleDraft;
+    wire();
+  };
+
+  openModal(`<h3>일정 등록</h3><div id="sc-modal-body">${bodyHtml()}</div>`);
+  wire();
 }
 
 /* ───────── 연차관리 (관리자 메뉴) ───────── */
@@ -2164,9 +2444,10 @@ async function renderLeaveAdmin() {
     <div class="card">
       <div class="card-title"><div>승인 대기 신청 <span class="badge warn">${reqs.length}건</span></div></div>
       ${reqs.length ? `<div class="table-wrap"><table class="data pay-table">
-        <thead><tr><th>직원</th><th>신청일시</th><th>기간</th><th>유형</th><th class="num">일수</th>${isAdmin() ? "<th></th>" : ""}</tr></thead>
+        <thead><tr><th>직원</th><th>신청일시</th><th>기간</th><th>유형</th><th>결재자</th><th class="num">일수</th>${isAdmin() ? "<th></th>" : ""}</tr></thead>
         <tbody>${reqs.map((r) => `<tr>
           <td><b>${esc(r.name)}</b></td><td>${fmtTs(r.createdAt)}</td><td>${fmtPeriod(r.date, r.endDate)}</td><td>${esc(r.type)}</td>
+          <td>${esc(r.approver || "-")}</td>
           <td class="num">${r.days}일</td>
           ${isAdmin() ? `<td style="white-space:nowrap">
             <button class="btn btn-primary btn-sm" data-approve="${r.id}">승인</button>

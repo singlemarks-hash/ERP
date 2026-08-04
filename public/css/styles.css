@@ -1223,6 +1223,107 @@ tr.ph-row-open td { background: var(--blue-soft); }
 .ph-click { cursor: pointer; }
 .more-btn { width: 100%; margin-top: 10px; }
 
+/* ───────── 일정 (전사 캘린더) ───────── */
+.sc-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.sc-dot.red { background: var(--red); }
+.sc-dot.green { background: var(--green); }
+.sc-dot.orange { background: #f76707; }
+.sc-dot.purple { background: #9c36b5; }
+
+.sc-today-card { background: linear-gradient(135deg, #eef4ff 0%, #f7faff 100%); border: 1.5px solid var(--blue-soft); }
+.sc-sum-title { font-size: 1rem; font-weight: 800; margin-bottom: 10px; letter-spacing: -0.02em; }
+.sc-sum-line { display: flex; align-items: baseline; gap: 8px; font-size: 0.9rem; margin-top: 6px; }
+.sc-sum-line .sc-dot { align-self: center; }
+.sc-sum-line b { flex-shrink: 0; }
+.sc-sum-line span { color: var(--ink-soft); }
+.sc-sum-none { color: var(--ink-faint); font-size: 0.88rem; }
+
+.sc-cal-head { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 14px; }
+.sc-cal-head .sc-cal-title { font-size: 1.05rem; font-weight: 800; letter-spacing: -0.02em; min-width: 110px; text-align: center; }
+.sc-cal-head.sm { margin-bottom: 8px; }
+.sc-cal-head.sm .sc-cal-title { font-size: 0.92rem; min-width: 90px; }
+.sc-cal-head #sc-now { position: absolute; right: 24px; }
+.sc-cal-head { position: relative; }
+
+.sc-dow { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: 0.72rem; font-weight: 700; color: var(--ink-faint); margin-bottom: 6px; }
+.sc-dow .sun { color: var(--red); }
+.sc-dow .sat { color: var(--blue); }
+
+.sc-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.sc-cell {
+  min-height: 78px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 5px 6px;
+  background: #fff;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow: hidden;
+  min-width: 0;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.sc-cell:hover { border-color: var(--blue); }
+.sc-cell.blank { visibility: hidden; }
+.sc-cell.today { border-color: var(--blue); border-width: 1.5px; }
+.sc-cell.sel { background: var(--blue-soft); }
+.sc-cell .d { font-size: 0.72rem; font-weight: 700; }
+.sc-cell .d.sun { color: var(--red); }
+.sc-cell .d.sat { color: var(--blue); }
+.sc-chips { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sc-chip { display: flex; align-items: center; gap: 4px; font-size: 0.66rem; min-width: 0; }
+.sc-chip .sc-dot { width: 7px; height: 7px; }
+.sc-chip b { font-weight: 600; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.sc-more { font-size: 0.64rem; color: var(--ink-faint); }
+
+.sc-legend { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; margin-top: 12px; }
+.sc-legend-item { display: inline-flex; align-items: center; gap: 5px; font-size: 0.75rem; color: var(--ink-soft); }
+
+.sc-day-row { display: flex; align-items: center; gap: 9px; padding: 10px 2px; border-bottom: 1px solid var(--line); font-size: 0.9rem; }
+.sc-day-row:last-child { border-bottom: none; }
+.sc-day-kind { flex-shrink: 0; }
+.sc-day-label { color: var(--ink-soft); flex: 1; min-width: 0; }
+.sc-day-row .icon-btn { margin-left: auto; }
+
+/* 일정 등록 모달 */
+.sc-type-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+.sc-type {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 11px 8px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: #f9fafb;
+  font-size: 0.88rem;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--ink-soft);
+}
+.sc-type.on { border-color: var(--blue); background: var(--blue-soft); color: var(--blue-deep); }
+.scm-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+.scm-d {
+  aspect-ratio: 1;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+.scm-d:hover { background: #f2f4f6; }
+.scm-d.blank { visibility: hidden; }
+.scm-d.on { color: #fff; font-weight: 800; }
+.scm-d.on.red { background: var(--red); }
+.scm-d.on.green { background: var(--green); }
+.scm-d.on.orange { background: #f76707; }
+.scm-d.on.purple { background: #9c36b5; }
+.sc-sel-note { font-size: 0.78rem; color: var(--ink-soft); margin-top: 10px; line-height: 1.6; }
+
 /* 반응형 */
 @media (max-width: 1020px) {
   .widget-grid { grid-template-columns: minmax(0, 1fr); }
@@ -1274,6 +1375,16 @@ tr.ph-row-open td { background: var(--blue-soft); }
   .type-bar { grid-template-columns: 56px 1fr 44px; gap: 8px; font-size: 0.78rem; }
   .type-bar.dept-bar { grid-template-columns: 72px 1fr; }
   .type-bar.dept-bar .tb-num { grid-column: 2; }
+
+  /* 일정 캘린더: 셀 축소, 텍스트 대신 색 점만 표시 */
+  .sc-grid { gap: 3px; }
+  .sc-cell { min-height: 52px; padding: 4px 4px; border-radius: 8px; }
+  .sc-chips { flex-direction: row; flex-wrap: wrap; gap: 3px; }
+  .sc-chip b { display: none; }
+  .sc-chip .sc-dot { width: 8px; height: 8px; }
+  .sc-cal-head #sc-now { right: 0; }
+  .sc-sum-line { font-size: 0.84rem; }
+  .sc-legend { gap: 10px; }
 
   /* 줄바꿈 방지: 텍스트 축소 + nowrap */
   .btn { white-space: nowrap; }

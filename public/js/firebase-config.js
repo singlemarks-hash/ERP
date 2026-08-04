@@ -20,5 +20,6 @@ const COL = {
   leaves: "leaves",
   leaveRequests: "leaveRequests",
   settings: "settings",
-  notices: "notices"   // 공지사항 (전체/부서/개별 게시)
+  notices: "notices",   // 공지사항 (전체/부서/개별 게시)
+  schedules: "schedules" // 전사 일정 (휴무/행사/기타)
 };
