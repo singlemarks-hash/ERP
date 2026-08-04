@@ -2483,21 +2483,36 @@ async function renderLeaveAdmin() {
         : `<div class="empty">대기 중인 신청이 없습니다.</div>`}
     </div>
     <div class="card">
-      <div class="card-title"><div>전 직원 연차 현황</div></div>
+      <div class="card-title"><div>전 직원 연차 현황<div class="ct-desc">직원을 클릭하면 등록된 연차 사용 이력이 펼쳐집니다.</div></div></div>
       <div class="table-wrap"><table class="data">
         <thead><tr><th>이름</th><th>부서</th><th>연차 발생일</th><th class="num">할당</th><th class="num">사용</th><th class="num">잔여</th><th>사용률</th></tr></thead>
         <tbody>${emps.map((e) => {
           const lv = lvMap[e.id] || { allocated: 0, records: [] };
-          const u = (lv.records || []).reduce((s, r) => s + Number(r.days || 0), 0);
+          const recs = (lv.records || []).slice().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+          const u = recs.reduce((s, r) => s + Number(r.days || 0), 0);
           const rm = (Number(lv.allocated) || 0) - u;
           const p = lv.allocated ? Math.min(100, (u / lv.allocated) * 100) : 0;
-          return `<tr>
+          const detail = recs.length ? `
+            <table class="data lva-rec-table">
+              <thead><tr><th>기간</th><th>유형</th><th class="num">일수</th>${isAdmin() ? "<th></th>" : ""}</tr></thead>
+              <tbody>${recs.map((r) => `<tr>
+                <td>${fmtPeriod(r.date, r.endDate)}</td>
+                <td>${esc(r.type || "-")}</td>
+                <td class="num">${r.days}일</td>
+                ${isAdmin() ? `<td class="num"><button class="icon-btn" title="기록 삭제 (연차 복구)"
+                  data-lvarec="${e.id}|${esc(r.date)}|${esc(r.endDate || "")}|${esc(r.type || "")}|${r.days || 0}">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/><path d="M10 11v6M14 11v6"/></svg></button></td>` : ""}
+              </tr>`).join("")}</tbody>
+            </table>`
+            : `<div class="empty" style="padding:12px">등록된 연차 사용 기록이 없습니다.</div>`;
+          return `<tr class="ph-click" data-lvatoggle="${e.id}">
             <td><b>${esc(e.name)}</b></td><td>${esc(e.dept)}</td>
             <td>${esc(lv.grantDate || "-")}</td>
             <td class="num">${lv.allocated || 0}일</td><td class="num">${u}일</td>
             <td class="num"><b>${rm}일</b></td>
             <td><div class="bar ${rm < 0 ? "over" : ""}"><i style="width:${p}%"></i></div></td>
-          </tr>`;
+          </tr>
+          <tr class="ph-detail-tr hidden" data-lvadetail="${e.id}"><td colspan="7"><div class="ph-detail ph-anim">${detail}</div></td></tr>`;
         }).join("")}</tbody></table></div>
     </div>
     ${pastCycles.length ? `
@@ -2513,6 +2528,37 @@ async function renderLeaveAdmin() {
           <td class="num"><b class="${h.remaining > 0 ? "c-red" : ""}">${h.remaining}일</b></td>
         </tr>`).join("")}</tbody></table></div>
     </div>` : ""}`;
+
+  // 직원 행 클릭 → 연차 사용 이력 토글
+  $("#lva-body").querySelectorAll("[data-lvatoggle]").forEach((row) => {
+    row.onclick = (ev) => {
+      if (ev.target.closest("button")) return;
+      const detail = $("#lva-body").querySelector(`[data-lvadetail="${row.dataset.lvatoggle}"]`);
+      if (detail) detail.classList.toggle("hidden");
+    };
+  });
+  // 총괄 관리자: 이력에서 개별 기록 삭제 (잔여 연차 복구)
+  $("#lva-body").querySelectorAll("[data-lvarec]").forEach((b) => {
+    b.onclick = async () => {
+      if (!isAdmin() || b.disabled) return;
+      b.disabled = true;
+      const [empId, date, endDate, type, days] = b.dataset.lvarec.split("|");
+      const emp = emps.find((e) => e.id === empId);
+      if (!confirm(`${emp ? emp.name : "?"}님의 ${fmtPeriod(date, endDate || date)} ${type} ${days}일 기록을 삭제할까요?\n삭제하면 잔여 연차가 복구됩니다.`)) { b.disabled = false; return; }
+      const ref = db.collection(COL.leaves).doc(empId);
+      const snap = await ref.get();
+      if (!snap.exists) { toast("연차 기록을 찾을 수 없습니다."); return; }
+      const cur = snap.data();
+      const recs = cur.records || [];
+      const idx = recs.findIndex((r) =>
+        r.date === date && (r.endDate || "") === endDate && (r.type || "") === type && String(r.days || 0) === days);
+      if (idx === -1) { toast("해당 기록을 찾을 수 없습니다. 새로고침 후 다시 시도하세요."); return; }
+      recs.splice(idx, 1);
+      await ref.set({ ...cur, records: recs });
+      toast("기록을 삭제했습니다. 잔여 연차가 복구되었습니다.");
+      renderLeaveAdmin();
+    };
+  });
 
   if (isAdmin()) {
     $("#lv-use").onclick = openLeaveUseModal;

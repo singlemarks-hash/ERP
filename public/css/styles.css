@@ -1328,6 +1328,11 @@ tr.ph-row-open td { background: var(--blue-soft); }
 .scm-d.on.purple { background: #9c36b5; }
 .sc-sel-note { font-size: 0.78rem; color: var(--ink-soft); margin-top: 10px; line-height: 1.6; }
 
+/* 연차관리: 직원별 사용 이력 (행 클릭 토글) */
+.lva-rec-table { background: #fff; border-radius: 10px; }
+.lva-rec-table th { font-size: 0.72rem; }
+.lva-rec-table td { font-size: 0.84rem; }
+
 /* 반응형 */
 @media (max-width: 1020px) {
   .widget-grid { grid-template-columns: minmax(0, 1fr); }
