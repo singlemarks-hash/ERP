@@ -684,7 +684,7 @@ table.data td.url-cell a { display: block; overflow: hidden; text-overflow: elli
 .pb-eyebrow { display: block; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.12em; color: var(--ink-faint); margin-bottom: 2px; }
 
 /* ───────── 급여관리 (급여장부) ───────── */
-.pm-grid { display: grid; grid-template-columns: 350px 1fr; gap: 18px; align-items: start; }
+.pm-grid { display: grid; grid-template-columns: minmax(0, 350px) minmax(0, 1fr); gap: 18px; align-items: start; }
 
 /* 캘린더 입력 버튼 */
 .cal-input {
@@ -924,7 +924,7 @@ table.data td.url-cell a { display: block; overflow: hidden; text-overflow: elli
 .row-menu .rm-item.danger { color: var(--red); }
 .row-menu .rm-item.danger:hover { background: var(--red-soft); }
 .row-menu .rm-item svg { width: 16px; height: 16px; flex-shrink: 0; }
-.pm-grid .card { margin-bottom: 0; }
+.pm-grid .card { margin-bottom: 0; min-width: 0; }
 .pm-emp-bar { display: flex; align-items: end; gap: 14px; flex-wrap: wrap; }
 .pm-emp-info { display: flex; gap: 5px; flex-wrap: wrap; padding-bottom: 8px; }
 .pm-copy { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; margin-left: auto; padding-bottom: 8px; }
