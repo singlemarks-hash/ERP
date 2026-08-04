@@ -558,12 +558,16 @@ table.data td.url-cell a { display: block; overflow: hidden; text-overflow: elli
 
 .lv-req {
   display: grid;
-  grid-template-columns: 140px 1fr 1fr 130px auto;
-  gap: 12px;
+  grid-template-columns: 120px 110px 1fr 1fr 100px auto;
+  gap: 10px;
   align-items: end;
 }
-.lv-req .field { margin-bottom: 0; }
-.lv-req .btn { padding: 12px 22px; }
+.lv-req .field { margin-bottom: 0; min-width: 0; }
+.lv-req .btn { padding: 12px 22px; white-space: nowrap; }
+@media (max-width: 1280px) {
+  .lv-req { grid-template-columns: 1fr 1fr 1fr; }
+  .lv-req .btn { grid-column: 1 / -1; }
+}
 @media (max-width: 1020px) {
   .lv-req { grid-template-columns: 1fr 1fr; }
   .lv-req .btn { grid-column: 1 / -1; }
