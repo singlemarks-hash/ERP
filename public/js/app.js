@@ -2137,6 +2137,9 @@ async function renderLeave() {
     ev.preventDefault();
     const start = lrStart, end = lrEnd;
     if (end < start) { toast("종료일이 시작일보다 빠릅니다."); return; }
+    const sb = $("#lr-submit");
+    if (sb.disabled) return;
+    sb.disabled = true;
     const data = {
       empId: me.id,
       name: me.name,
@@ -2516,13 +2519,25 @@ async function renderLeaveAdmin() {
     $("#lv-alloc").onclick = openLeaveAllocModal;
     $("#lva-body").querySelectorAll("[data-approve]").forEach((b) => {
       b.onclick = async () => {
+        if (b.disabled) return;
+        b.disabled = true; // 더블클릭으로 기록이 두 번 저장되는 것 방지
         const r = reqs.find((x) => x.id === b.dataset.approve);
+        // 이미 다른 관리자가 처리한 신청이면 중단
+        const reqSnap = await db.collection(COL.leaveRequests).doc(r.id).get();
+        if (!reqSnap.exists || reqSnap.data().status !== "대기") {
+          toast("이미 처리된 신청입니다.");
+          renderLeaveAdmin();
+          return;
+        }
         const ref = db.collection(COL.leaves).doc(r.empId);
         const snap = await ref.get();
         const cur = snap.exists ? snap.data() : { allocated: 0, records: [] };
         cur.records = cur.records || [];
-        cur.records.push({ date: r.date, endDate: r.endDate || r.date, days: Number(r.days), type: r.type });
-        await ref.set(cur);
+        // 같은 신청(reqId)이 이미 기록돼 있으면 다시 추가하지 않음
+        if (!cur.records.some((x) => x.reqId === r.id)) {
+          cur.records.push({ date: r.date, endDate: r.endDate || r.date, days: Number(r.days), type: r.type, reqId: r.id });
+          await ref.set(cur);
+        }
         await db.collection(COL.leaveRequests).doc(r.id).update({ status: "승인" });
         toast(`${r.name}님의 휴가를 승인했습니다.`);
         updateLeaveAlarm();
@@ -2552,7 +2567,9 @@ async function openLeaveUseModal() {
     <h3>연차 사용 기록 추가</h3>
     <form id="lvu-form">
       <label class="field"><span class="field-label">직원</span>
-        <select id="lu-emp" required>${emps.map((e) => `<option value="${e.id}">${esc(e.name)} (${esc(e.dept)})</option>`).join("")}</select></label>
+        <select id="lu-emp" required>
+          <option value="" disabled selected>직원 선택</option>
+          ${emps.map((e) => `<option value="${e.id}">${esc(e.name)} (${esc(e.dept)})</option>`).join("")}</select></label>
       <div class="grid-2">
         <div class="field"><span class="field-label">시작일</span>${calField("lu-date", new Date().toISOString().slice(0, 10))}</div>
         <div class="field"><span class="field-label">종료일</span>${calField("lu-end", new Date().toISOString().slice(0, 10))}</div>
@@ -2570,6 +2587,9 @@ async function openLeaveUseModal() {
   bindCalField("lu-end");
   $("#lvu-form").onsubmit = async (ev) => {
     ev.preventDefault();
+    const sb = ev.target.querySelector('[type="submit"]');
+    if (sb.disabled) return;
+    sb.disabled = true;
     const empId = $("#lu-emp").value;
     const emp = emps.find((e) => e.id === empId);
     const rec = {
@@ -2599,7 +2619,9 @@ async function openLeaveAllocModal() {
     <p class="modal-desc">직원별 연간 할당 연차 일수를 설정합니다.</p>
     <form id="lva-form">
       <label class="field"><span class="field-label">직원</span>
-        <select id="la-emp" required>${emps.map((e) =>
+        <select id="la-emp" required>
+          <option value="" disabled selected>직원 선택</option>
+          ${emps.map((e) =>
           `<option value="${e.id}">${esc(e.name)} (${esc(e.dept)}) — 현재 ${lvMap[e.id]?.allocated || 0}일</option>`).join("")}</select></label>
       <label class="field"><span class="field-label">할당 일수</span><input id="la-days" type="number" step="0.5" min="0" required /></label>
       <div class="field"><span class="field-label">연차 발생일 (매년 이 날짜에 갱신)</span>${calField("la-grant", "")}</div>
