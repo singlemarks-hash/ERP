@@ -2182,17 +2182,18 @@ async function renderSchedule() {
   const events = {}; // "YYYY-MM-DD" -> [{kind,label,docId,canDel}]
   const push = (date, ev) => { (events[date] = events[date] || []).push(ev); };
 
-  // 승인된 휴가 (leaves.records) → 빨간색 "휴가"
+  // 승인된 휴가 (leaves.records) → 빨간색 "휴가" (총괄 관리자는 취소 가능)
   lvSnap.docs.forEach((d) => {
     const nm = empName[d.id];
     if (!nm) return;
     (d.data().records || []).forEach((r) => {
       if (!r.date) return;
+      const lvKey = `${d.id}|${r.date}|${r.endDate || ""}|${r.type || ""}|${r.days || 0}`;
       const cur = new Date(r.date);
       const stop = new Date(r.endDate || r.date);
       let guard = 0;
       while (cur <= stop && guard++ < 62) {
-        push(cur.toISOString().slice(0, 10), { kind: "휴가", label: nm });
+        push(cur.toISOString().slice(0, 10), { kind: "휴가", label: nm, lvKey, canDel: isAdmin() });
         cur.setDate(cur.getDate() + 1);
       }
     });
@@ -2252,11 +2253,13 @@ async function renderSchedule() {
   const selDate = new Date(scSel);
   const selLabel = `${selDate.getMonth() + 1}월 ${selDate.getDate()}일 (${"일월화수목금토"[selDate.getDay()]})`;
   const selEvents = sortEvents(events[scSel] || []);
+  const TRASH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/><path d="M10 11v6M14 11v6"/></svg>';
   const dayHtml = selEvents.length ? selEvents.map((e) => `
     <div class="sc-day-row">
       ${dot(e.kind)}<b class="sc-day-kind">${e.kind}</b>
       <span class="sc-day-label">${esc(e.label)}</span>
-      ${e.canDel ? `<button class="icon-btn" data-scdel="${e.docId}" title="삭제"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/><path d="M10 11v6M14 11v6"/></svg></button>` : ""}
+      ${e.canDel && e.docId ? `<button class="icon-btn" data-scdel="${e.docId}" title="삭제">${TRASH_ICON}</button>` : ""}
+      ${e.canDel && e.lvKey ? `<button class="icon-btn" data-lvdel="${esc(e.lvKey)}" title="휴가 취소">${TRASH_ICON}</button>` : ""}
     </div>`).join("")
     : `<div class="empty" style="padding:14px">등록된 일정이 없습니다.</div>`;
 
@@ -2308,6 +2311,27 @@ async function renderSchedule() {
       if (rest.length) await db.collection(COL.schedules).doc(s.id).update({ dates: rest });
       else await db.collection(COL.schedules).doc(s.id).delete();
       toast("일정을 삭제했습니다.");
+      renderSchedule();
+    };
+  });
+  // 총괄 관리자: 승인된 휴가 취소 (기록 삭제 → 잔여 연차 자동 복구)
+  $("#sc-body").querySelectorAll("[data-lvdel]").forEach((b) => {
+    b.onclick = async () => {
+      if (!isAdmin()) return;
+      const [empId, date, endDate, type, days] = b.dataset.lvdel.split("|");
+      const nm = empName[empId] || "?";
+      if (!confirm(`${nm}님의 ${fmtPeriod(date, endDate || date)} ${type} ${days}일 휴가를 취소할까요?\n취소하면 사용 내역에서 삭제되고 잔여 연차가 복구됩니다.`)) return;
+      const ref = db.collection(COL.leaves).doc(empId);
+      const snap = await ref.get();
+      if (!snap.exists) { toast("연차 기록을 찾을 수 없습니다."); return; }
+      const cur = snap.data();
+      const recs = cur.records || [];
+      const idx = recs.findIndex((r) =>
+        r.date === date && (r.endDate || "") === endDate && (r.type || "") === type && String(r.days || 0) === days);
+      if (idx === -1) { toast("해당 휴가 기록을 찾을 수 없습니다. 새로고침 후 다시 시도하세요."); return; }
+      recs.splice(idx, 1);
+      await ref.set({ ...cur, records: recs });
+      toast(`${nm}님의 휴가를 취소했습니다. 잔여 연차가 복구되었습니다.`);
       renderSchedule();
     };
   });
