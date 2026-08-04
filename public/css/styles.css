@@ -1271,8 +1271,10 @@ tr.ph-row-open td { background: var(--blue-soft); }
 }
 .sc-cell:hover { border-color: var(--blue); }
 .sc-cell.blank { visibility: hidden; }
+.sc-cell.past { background: #f2f4f6; opacity: 0.62; }
+.sc-cell.past:hover { opacity: 0.85; }
 .sc-cell.today { border-color: var(--blue); border-width: 1.5px; }
-.sc-cell.sel { background: var(--blue-soft); }
+.sc-cell.sel { background: var(--blue-soft); opacity: 1; }
 .sc-cell .d { font-size: 0.72rem; font-weight: 700; }
 .sc-cell .d.sun { color: var(--red); }
 .sc-cell .d.sat { color: var(--blue); }
@@ -1332,6 +1334,10 @@ tr.ph-row-open td { background: var(--blue-soft); }
 .lva-rec-table { background: #fff; border-radius: 10px; }
 .lva-rec-table th { font-size: 0.72rem; }
 .lva-rec-table td { font-size: 0.84rem; }
+
+/* 반차 선택 시 잠기는 입력 */
+.field input.locked { background: #f2f4f6; color: var(--ink-soft); cursor: not-allowed; }
+.cal-input:disabled { background: #f2f4f6; color: var(--ink-faint); cursor: not-allowed; }
 
 /* 반응형 */
 @media (max-width: 1020px) {

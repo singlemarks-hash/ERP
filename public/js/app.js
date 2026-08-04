@@ -1453,8 +1453,8 @@ async function renderPayroll() {
     $("#pm-body").innerHTML = `<div class="empty">재직 직원이 없습니다. [직원 관리]에서 먼저 직원을 등록하세요.</div>`;
     return;
   }
-  if (pmEmpId && !emps.some((e) => e.id === pmEmpId)) pmEmpId = emps[0].id;
-  if (pmEmpId === null) pmEmpId = emps[0].id; // 최초 진입: 첫 직원
+  if (pmEmpId && !emps.some((e) => e.id === pmEmpId)) pmEmpId = "";
+  if (pmEmpId === null) pmEmpId = ""; // 최초 진입: 전체 직원 종합 조회
   const emp = pmEmpId ? emps.find((e) => e.id === pmEmpId) : null;
 
   $("#pm-body").innerHTML = `
@@ -2131,18 +2131,33 @@ async function renderLeave() {
     $("#lr-end-label").textContent = lrEnd;
   };
   const lrAutoDays = () => {
+    // 반차는 항상 0.5일 (종료일=시작일 고정)
+    if ($("#lr-type").value === "반차") { $("#lr-days").value = 0.5; return; }
     if (!lrStart || !lrEnd || lrEnd < lrStart) return;
-    $("#lr-days").value = (new Date(lrEnd) - new Date(lrStart)) / 86400000 + 1;
+    $("#lr-days").value = Math.round((new Date(lrEnd + "T00:00:00Z") - new Date(lrStart + "T00:00:00Z")) / 86400000) + 1;
   };
+  // 유형 변경 시: 반차면 0.5일 고정 + 종료일 잠금
+  const lrSyncType = () => {
+    const half = $("#lr-type").value === "반차";
+    const endBtn = $("#lr-end-btn");
+    const daysInput = $("#lr-days");
+    endBtn.disabled = half;
+    daysInput.readOnly = half;
+    daysInput.classList.toggle("locked", half);
+    if (half) { lrEnd = lrStart; lrSync(); }
+    lrAutoDays();
+  };
+  $("#lr-type").onchange = lrSyncType;
   lrSync();
+  lrSyncType();
   $("#lr-start-btn").onclick = () => openDatePicker($("#lr-start-btn"), lrStart, (v) => {
     if (!v) return;
     lrStart = v;
-    if (lrEnd < lrStart) lrEnd = lrStart;
+    if (lrEnd < lrStart || $("#lr-type").value === "반차") lrEnd = lrStart;
     lrSync(); lrAutoDays();
   });
   $("#lr-end-btn").onclick = () => openDatePicker($("#lr-end-btn"), lrEnd, (v) => {
-    if (!v) return;
+    if (!v || $("#lr-type").value === "반차") return;
     lrEnd = v;
     if (lrEnd < lrStart) { toast("종료일이 시작일보다 빠릅니다."); lrEnd = lrStart; }
     lrSync(); lrAutoDays();
@@ -2150,7 +2165,9 @@ async function renderLeave() {
 
   $("#lv-req-form").onsubmit = async (ev) => {
     ev.preventDefault();
-    const start = lrStart, end = lrEnd;
+    const lrType = $("#lr-type").value;
+    const isHalf = lrType === "반차";
+    const start = lrStart, end = isHalf ? lrStart : lrEnd;
     if (end < start) { toast("종료일이 시작일보다 빠릅니다."); return; }
     const sb = $("#lr-submit");
     if (sb.disabled) return;
@@ -2161,8 +2178,8 @@ async function renderLeave() {
       dept: me.dept,
       date: start,
       endDate: end,
-      days: Number($("#lr-days").value),
-      type: $("#lr-type").value,
+      days: isHalf ? 0.5 : Number($("#lr-days").value),
+      type: lrType,
       approver: $("#lr-approver").value,
       status: "대기",
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -2260,7 +2277,7 @@ async function renderSchedule() {
     const chips = list.slice(0, 3).map((e) =>
       `<span class="sc-chip">${dot(e.kind)}<b>${esc(e.label)}</b></span>`).join("");
     const more = list.length > 3 ? `<span class="sc-more">+${list.length - 3}</span>` : "";
-    return `<button type="button" class="sc-cell ${dateStr === todayStr ? "today" : ""} ${dateStr === scSel ? "sel" : ""}" data-scd="${dateStr}">
+    return `<button type="button" class="sc-cell ${dateStr < todayStr ? "past" : ""} ${dateStr === todayStr ? "today" : ""} ${dateStr === scSel ? "sel" : ""}" data-scd="${dateStr}">
       <span class="d ${dow === 0 ? "sun" : dow === 6 ? "sat" : ""}">${d}</span>
       <span class="sc-chips">${chips}${more}</span>
     </button>`;
