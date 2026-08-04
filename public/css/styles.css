@@ -1230,7 +1230,7 @@ tr.ph-row-open td { background: var(--blue-soft); }
 .sc-dot.orange { background: #f76707; }
 .sc-dot.purple { background: #9c36b5; }
 
-.sc-today-card { background: linear-gradient(135deg, #eef4ff 0%, #f7faff 100%); border: 1.5px solid var(--blue-soft); }
+.sc-today-card { background: #fff; border: 1.5px solid var(--blue); }
 .sc-sum-title { font-size: 1rem; font-weight: 800; margin-bottom: 10px; letter-spacing: -0.02em; }
 .sc-sum-line { display: flex; align-items: baseline; gap: 8px; font-size: 0.9rem; margin-top: 6px; }
 .sc-sum-line .sc-dot { align-self: center; }
