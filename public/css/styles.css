@@ -309,6 +309,8 @@ table.data tbody tr:last-child td { border-bottom: none; }
 table.data tr:hover td { background: #f9fafb; }
 table.data td.num { text-align: right; font-variant-numeric: tabular-nums; }
 table.data th.num { text-align: right; }
+table.data td.url-cell { max-width: 220px; }
+table.data td.url-cell a { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .table-wrap { overflow-x: auto; }
 
 .badge {
@@ -404,8 +406,9 @@ table.data th.num { text-align: right; }
 .tile-sub { font-size: 0.8rem; font-weight: 600; color: var(--ink-faint); margin: 22px 0 10px; }
 
 /* 홈 위젯 2단 — 같은 줄의 카드 높이를 맞춘다 */
-.widget-grid { display: grid; grid-template-columns: 1.25fr 1fr; gap: 18px; align-items: stretch; margin-bottom: 18px; }
-.widget-grid .card { margin-bottom: 0; display: flex; flex-direction: column; }
+.widget-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px; align-items: stretch; margin-bottom: 18px; }
+.widget-grid .card { margin-bottom: 0; min-width: 0; display: flex; flex-direction: column; }
+.widget-grid .card > .table-wrap { min-width: 0; }
 .widget-grid .card > .table-wrap, .widget-grid .card > #home-pay, .widget-grid .card > #home-leave { flex: 1; }
 .mini-note {
   background: #f9fafb;
@@ -1184,7 +1187,9 @@ tr.ph-row-open td { background: var(--blue-soft); }
   margin-bottom: 16px;
 }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
-.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+.grid-2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 12px; }
+.grid-2 > .field { min-width: 0; }
+.cal-ph { color: var(--ink-faint); }
 
 /* 토스트 */
 .toast {
@@ -1220,7 +1225,7 @@ tr.ph-row-open td { background: var(--blue-soft); }
 
 /* 반응형 */
 @media (max-width: 1020px) {
-  .widget-grid { grid-template-columns: 1fr; }
+  .widget-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 860px) {
   .app-shell { flex-direction: column; }
@@ -1279,6 +1284,7 @@ tr.ph-row-open td { background: var(--blue-soft); }
   table.data { font-size: 0.78rem; }
   table.data th, table.data td { padding: 9px 8px; white-space: nowrap; }
   table.data td.memo { white-space: normal; }
+  table.data td.url-cell { max-width: 90px; }
   .pb-stats { gap: 0; overflow-x: auto; }
   .pb-stats > div { padding: 10px 10px; }
   .pb-stats b { font-size: 0.9rem; white-space: nowrap; }

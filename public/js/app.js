@@ -1021,7 +1021,7 @@ async function renderSystems() {
       const n = s.allowAll ? activeCount : (s.grantIds || []).filter((id) => emps.some((e) => e.id === id)).length;
       return `<tr>
         <td><i class="dot" style="background:${esc(s.color || DEFAULT_BTN_COLOR)}"></i><b>${esc(s.label)}</b></td>
-        <td><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url)}</a></td>
+        <td class="url-cell"><a href="${esc(s.url)}" target="_blank" rel="noopener" title="${esc(s.url)}">${esc(s.url)}</a></td>
         <td>${esc(s.desc || "-")}</td>
         <td>${s.allowAll ? '<span class="badge ok">전체 공개</span>' : `<span class="badge ${n ? "admin" : "off"}">${n}명</span>`}</td>
         <td style="white-space:nowrap">
@@ -1559,6 +1559,23 @@ function openMonthPicker(anchor, ym, onPick) {
   render();
 }
 
+/* 공용 날짜 필드: 네이티브 date 입력 대신 한글 달력 버튼 (iOS 폭 깨짐·영문 표기 회피) */
+const calField = (id, value) => `<button type="button" class="cal-input" id="${id}" data-val="${esc(value || "")}">
+  <span id="${id}-label">${value ? esc(value) : '<span class="cal-ph">날짜 선택</span>'}</span>${CAL_ICON}</button>`;
+function bindCalField(id, onChange) {
+  const btn = $("#" + id);
+  btn.onclick = () => openDatePicker(btn, btn.dataset.val || "", (v) => {
+    btn.dataset.val = v || "";
+    $(`#${id}-label`).innerHTML = v ? esc(v) : '<span class="cal-ph">날짜 선택</span>';
+    if (onChange) onChange(v || "");
+  });
+}
+const calVal = (id) => $("#" + id).dataset.val || "";
+const calSet = (id, v) => {
+  $("#" + id).dataset.val = v || "";
+  $(`#${id}-label`).innerHTML = v ? esc(v) : '<span class="cal-ph">날짜 선택</span>';
+};
+
 // 지급일 선택: 연/월 셀렉트 + 일 그리드
 function openDatePicker(anchor, dateStr, onPick) {
   const { pop, place } = calPopBase(anchor);
@@ -1568,7 +1585,7 @@ function openDatePicker(anchor, dateStr, onPick) {
   const sel = dateStr || "";
   const render = () => {
     const years = [];
-    for (let y = year - 3; y <= year + 3; y++) years.push(y);
+    for (let y = year - 70; y <= year + 5; y++) years.push(y);
     const first = new Date(year, month - 1, 1);
     const startDow = first.getDay();
     const daysIn = new Date(year, month, 0).getDate();
@@ -2232,8 +2249,8 @@ async function openLeaveUseModal() {
       <label class="field"><span class="field-label">직원</span>
         <select id="lu-emp" required>${emps.map((e) => `<option value="${e.id}">${esc(e.name)} (${esc(e.dept)})</option>`).join("")}</select></label>
       <div class="grid-2">
-        <label class="field"><span class="field-label">시작일</span><input id="lu-date" type="date" required value="${new Date().toISOString().slice(0, 10)}" /></label>
-        <label class="field"><span class="field-label">종료일</span><input id="lu-end" type="date" required value="${new Date().toISOString().slice(0, 10)}" /></label>
+        <div class="field"><span class="field-label">시작일</span>${calField("lu-date", new Date().toISOString().slice(0, 10))}</div>
+        <div class="field"><span class="field-label">종료일</span>${calField("lu-end", new Date().toISOString().slice(0, 10))}</div>
         <label class="field"><span class="field-label">일수 (0.5 단위)</span><input id="lu-days" type="number" step="0.5" min="0.5" required value="1" /></label>
         <label class="field"><span class="field-label">유형</span>
           <select id="lu-type">${LEAVE_TYPES.map((t) => `<option>${t}</option>`).join("")}</select></label>
@@ -2244,13 +2261,15 @@ async function openLeaveUseModal() {
       </div>
     </form>`);
   $("#lu-cancel").onclick = closeModal;
+  bindCalField("lu-date", (v) => { if (v && calVal("lu-end") < v) calSet("lu-end", v); });
+  bindCalField("lu-end");
   $("#lvu-form").onsubmit = async (ev) => {
     ev.preventDefault();
     const empId = $("#lu-emp").value;
     const emp = emps.find((e) => e.id === empId);
     const rec = {
-      date: $("#lu-date").value,
-      endDate: $("#lu-end").value || $("#lu-date").value,
+      date: calVal("lu-date"),
+      endDate: calVal("lu-end") || calVal("lu-date"),
       days: Number($("#lu-days").value),
       type: $("#lu-type").value
     };
@@ -2278,14 +2297,15 @@ async function openLeaveAllocModal() {
         <select id="la-emp" required>${emps.map((e) =>
           `<option value="${e.id}">${esc(e.name)} (${esc(e.dept)}) — 현재 ${lvMap[e.id]?.allocated || 0}일</option>`).join("")}</select></label>
       <label class="field"><span class="field-label">할당 일수</span><input id="la-days" type="number" step="0.5" min="0" required /></label>
-      <label class="field"><span class="field-label">연차 발생일 (매년 이 날짜에 갱신)</span><input id="la-grant" type="date" /></label>
+      <div class="field"><span class="field-label">연차 발생일 (매년 이 날짜에 갱신)</span>${calField("la-grant", "")}</div>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="la-cancel">취소</button>
         <button type="submit" class="btn btn-primary">저장</button>
       </div>
     </form>`);
   $("#la-cancel").onclick = closeModal;
-  const fillGrant = () => { $("#la-grant").value = lvMap[$("#la-emp").value]?.grantDate || ""; };
+  bindCalField("la-grant");
+  const fillGrant = () => { calSet("la-grant", lvMap[$("#la-emp").value]?.grantDate || ""); };
   $("#la-emp").onchange = fillGrant;
   fillGrant();
   $("#lva-form").onsubmit = async (ev) => {
@@ -2293,7 +2313,7 @@ async function openLeaveAllocModal() {
     const empId = $("#la-emp").value;
     const emp = emps.find((e) => e.id === empId);
     const days = Number($("#la-days").value);
-    const grantDate = $("#la-grant").value;
+    const grantDate = calVal("la-grant");
     const ref = db.collection(COL.leaves).doc(empId);
     const snap = await ref.get();
     const cur = snap.exists ? snap.data() : { records: [] };
@@ -2591,8 +2611,8 @@ function openEmployeeModal(emp) {
         <label class="field"><span class="field-label">직급 (L0~L5)</span>
           <select id="ef-grade"><option value="">미지정</option>${GRADES.map((g) => `<option value="${g.split(" ")[0]}" ${emp?.grade === g.split(" ")[0] ? "selected" : ""}>${g}</option>`).join("")}</select></label>
         <label class="field"><span class="field-label">직책 (예: 본부장, 부장)</span><input id="ef-pos" value="${esc(emp?.position || "")}" /></label>
-        <label class="field"><span class="field-label">입사일</span><input id="ef-join" type="date" value="${esc(emp?.joinDate || "")}" /></label>
-        <label class="field"><span class="field-label">생년월일 (명세서용)</span><input id="ef-birth" type="date" value="${esc(emp?.birthDate || "")}" /></label>
+        <div class="field"><span class="field-label">입사일</span>${calField("ef-join", emp?.joinDate || "")}</div>
+        <div class="field"><span class="field-label">생년월일 (명세서용)</span>${calField("ef-birth", emp?.birthDate || "")}</div>
       </div>
       <div class="grid-2">
         <label class="field"><span class="field-label">이메일</span><input id="ef-email" type="email" value="${esc(emp?.email || "")}" /></label>
@@ -2622,6 +2642,8 @@ function openEmployeeModal(emp) {
       </div>
     </form>`);
   $("#ef-cancel").onclick = closeModal;
+  bindCalField("ef-join");
+  bindCalField("ef-birth");
   $("#ef-dept").onchange = () => { $("#ef-role").value = roleForDept($("#ef-dept").value); };
   if (!emp) $("#ef-role").value = roleForDept($("#ef-dept").value);
 
@@ -2632,8 +2654,8 @@ function openEmployeeModal(emp) {
       dept: $("#ef-dept").value,
       grade: $("#ef-grade").value,
       position: $("#ef-pos").value.trim(),
-      joinDate: $("#ef-join").value,
-      birthDate: $("#ef-birth").value,
+      joinDate: calVal("ef-join"),
+      birthDate: calVal("ef-birth"),
       email: $("#ef-email").value.trim(),
       hrUrl: $("#ef-hrurl").value.trim(),
       phone: $("#ef-phone").value.trim(),
