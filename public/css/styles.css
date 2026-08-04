@@ -357,7 +357,10 @@ table.data td.url-cell a { display: block; overflow: hidden; text-overflow: elli
 }
 
 /* 바로가기 타일 */
-.tile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+/* 데스크톱: 한 줄 = 6개 고정 (더 보기로 나머지 펼침) */
+.tile-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 1180px) { .tile-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 860px) { .tile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .tile {
   position: relative;
   display: flex;

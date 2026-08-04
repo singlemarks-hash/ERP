@@ -714,8 +714,10 @@ async function renderHome() {
     return (ia === -1 ? 9999 : ia) - (ib === -1 ? 9999 : ib);
   });
 
+  // 첫 줄까지만 표시, 나머지는 [더 보기]로 펼침 (tile-grid 열 수와 동일하게 유지)
   const isMobile = window.matchMedia("(max-width: 860px)").matches;
-  const shown = (!isMobile || homeShowAll) ? entries : entries.slice(0, 4);
+  const rowLimit = isMobile ? 4 : window.matchMedia("(max-width: 1180px)").matches ? 4 : 6;
+  const shown = homeShowAll ? entries : entries.slice(0, rowLimit);
   const hiddenCount = entries.length - shown.length;
 
   const tile = (e, pos) => {
@@ -738,7 +740,7 @@ async function renderHome() {
 
   $("#shortcut-body").innerHTML = entries.length ? `
     <div class="tile-grid">${shown.map((e, pos) => tile(e, pos)).join("")}</div>
-    ${isMobile && entries.length > 4 ? `<button class="btn btn-ghost btn-sm more-btn" id="tile-more">
+    ${entries.length > rowLimit ? `<button class="btn btn-ghost btn-sm more-btn" id="tile-more">
       ${homeShowAll ? "접기 ⌃" : `더 보기 (${hiddenCount}개) ⌄`}</button>` : ""}`
     : (mySystems.length || myBtns.length)
       ? `<div class="empty">모든 버튼이 보관함에 있습니다. [편집] → [보관함]에서 다시 꺼낼 수 있어요.</div>`
