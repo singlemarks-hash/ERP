@@ -35,6 +35,23 @@ let payrollYM = null; // "YYYY-MM"
 /* ───────── 유틸 ───────── */
 const $ = (sel) => document.querySelector(sel);
 
+/* 한국 시간(KST, UTC+9) 기준 날짜 유틸
+   toISOString()은 UTC 기준이라 기기 시간대와 무관하게 새벽 시간대에 전날로 표시되는 문제가 있어,
+   UTC 타임스탬프에 +9시간을 더한 뒤 getUTC 계열로 읽어 KST 벽시계 값을 얻는다. */
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+function kstNow() { return new Date(Date.now() + KST_OFFSET_MS); }
+function todayKST() { return kstNow().toISOString().slice(0, 10); }
+function ymNowKST() { return kstNow().toISOString().slice(0, 7); }
+/* "YYYY-MM-DD" 문자열의 월/일/요일 (시간대 무관) */
+function dateParts(ds) {
+  const d = new Date(ds + "T00:00:00Z");
+  return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate(), dow: d.getUTCDay() };
+}
+function dateLabelKo(ds) {
+  const p = dateParts(ds);
+  return `${p.m}월 ${p.d}일 (${"일월화수목금토"[p.dow]})`;
+}
+
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
@@ -261,7 +278,7 @@ function openBootstrapModal() {
       dept: "경영지원본부",
       position: $("#bs-pos").value.trim(),
       email: $("#bs-email").value.trim(),
-      joinDate: new Date().toISOString().slice(0, 10),
+      joinDate: todayKST(),
       empType: EMP_TYPES[0],
       status: "재직",
       role: "admin",
@@ -478,7 +495,7 @@ function fmtPeriod(start, end) {
 /* 연차 갱신일이 도래했으면 자동 리셋하고 이전 주기를 history에 보존한다 */
 async function maybeResetLeave(empId, lv) {
   if (!lv || !lv.grantDate) return lv;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayKST();
   let changed = false;
   while (nextGrantDate(lv.grantDate) <= today) {
     const cycleEnd = nextGrantDate(lv.grantDate);
@@ -576,18 +593,19 @@ async function renderHomeNotices() {
 
 function recentMonths(n) {
   const list = [];
-  const d = new Date();
+  const now = kstNow();
+  let y = now.getUTCFullYear(), m = now.getUTCMonth() + 1;
   for (let i = 0; i < n; i++) {
-    list.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
-    d.setMonth(d.getMonth() - 1);
+    list.push(`${y}-${String(m).padStart(2, "0")}`);
+    if (--m < 1) { m = 12; y--; }
   }
   return list;
 }
 
 async function renderHome() {
   const main = $("#main");
-  const today = new Date();
-  const dateStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일 (${"일월화수목금토"[today.getDay()]})`;
+  const tp = dateParts(todayKST());
+  const dateStr = `${tp.y}년 ${tp.m}월 ${tp.d}일 (${"일월화수목금토"[tp.dow]})`;
 
   main.innerHTML = `
     <div class="home-greet">
@@ -1193,16 +1211,16 @@ function empTypeShort(t) {
 }
 function tenureYM(joinDate) {
   if (!joinDate) return "";
-  const st = new Date(joinDate), now = new Date();
-  let months = (now.getFullYear() - st.getFullYear()) * 12 + (now.getMonth() - st.getMonth());
-  if (now.getDate() < st.getDate()) months--;
+  const st = dateParts(joinDate), now = dateParts(todayKST());
+  let months = (now.y - st.y) * 12 + (now.m - st.m);
+  if (now.d < st.d) months--;
   if (months < 0) return "";
   const y = Math.floor(months / 12), m = months % 12;
   return y ? (m ? `${y}년 ${m}개월` : `${y}년`) : `${m}개월`;
 }
 function workDaysLabel(joinDate) {
   if (!joinDate) return "";
-  const days = Math.floor((Date.now() - new Date(joinDate).getTime()) / 86400000) + 1;
+  const days = Math.round((new Date(todayKST() + "T00:00:00Z") - new Date(joinDate + "T00:00:00Z")) / 86400000) + 1;
   return days > 0 ? ` (총 ${fmt(days)}일 근무)` : "";
 }
 
@@ -1307,7 +1325,7 @@ async function renderPayHistory() {
   main.innerHTML = pageHead("MY PAY", "급여", "내 급여 지급 내역입니다.") +
     `<div id="ph-body"><div class="empty">불러오는 중...</div></div>`;
 
-  const thisYear = new Date().getFullYear();
+  const thisYear = kstNow().getUTCFullYear();
   const years = [thisYear, thisYear - 1, thisYear - 2];
 
   const renderYear = async (year) => {
@@ -1418,14 +1436,11 @@ let pmMonth = 0;         // 0 = 전체 월
 let pmDept = "";         // "" = 전체 소속
 let pmEmps = [];
 
-function ymNow() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
+function ymNow() { return ymNowKST(); }
 
 async function renderPayroll() {
   if (!canManageOps()) return navigate("payhistory");
-  if (!pmYear) pmYear = new Date().getFullYear();
+  if (!pmYear) pmYear = kstNow().getUTCFullYear();
   const main = $("#main");
   main.innerHTML = pageHead("ADMIN", "급여관리",
     "직원을 선택해 월별 급여를 기록하거나, 전체 직원 기록을 종합 조회합니다. 정기 급여일은 매월 10일 · 15일입니다.") +
@@ -1460,7 +1475,7 @@ async function renderPayroll() {
             : `<span class="badge admin">전체 직원 종합</span>`}
         </div>
         ${emp ? `<div class="pm-copy">
-          <span class="pm-copy-item"><span id="pm-copytitle">${esc(emp.name)} ${new Date().getMonth() + 1}월 급여명세서_작은따옴표</span>
+          <span class="pm-copy-item"><span id="pm-copytitle">${esc(emp.name)} ${kstNow().getUTCMonth() + 1}월 급여명세서_작은따옴표</span>
             <button type="button" class="copy-btn" data-copy="pm-copytitle" title="복사">copy</button></span>
           ${emp.email ? `<span class="pm-copy-item">email : <span id="pm-copymail">${esc(emp.email)}</span>
             <button type="button" class="copy-btn" data-copy="pm-copymail" title="복사">copy</button></span>` : ""}
@@ -1601,7 +1616,7 @@ const calSet = (id, v) => {
 // 지급일 선택: 연/월 셀렉트 + 일 그리드
 function openDatePicker(anchor, dateStr, onPick) {
   const { pop, place } = calPopBase(anchor);
-  const base = dateStr || new Date().toISOString().slice(0, 10);
+  const base = dateStr || todayKST();
   let year = Number(base.slice(0, 4));
   let month = Number(base.slice(5, 7));
   const sel = dateStr || "";
@@ -1643,7 +1658,7 @@ function openDatePicker(anchor, dateStr, onPick) {
       b.onclick = () => { onPick(b.dataset.d); pop.remove(); };
     });
     pop.querySelector('[data-act="clear"]').onclick = () => { onPick(""); pop.remove(); };
-    pop.querySelector('[data-act="today"]').onclick = () => { onPick(new Date().toISOString().slice(0, 10)); pop.remove(); };
+    pop.querySelector('[data-act="today"]').onclick = () => { onPick(todayKST()); pop.remove(); };
     place();
   };
   render();
@@ -1783,7 +1798,7 @@ async function renderPayHistoryAdmin(emp) {
       <div><span class="pb-eyebrow">기록 조회</span>기록 목록${isAll ? " — 전체 직원" : ""}</div>
       <span style="display:flex;gap:8px">
         <select id="pm-year">${[0, 1, 2].map((i) => {
-          const y = new Date().getFullYear() - i;
+          const y = kstNow().getUTCFullYear() - i;
           return `<option value="${y}" ${y === pmYear ? "selected" : ""}>${y}년</option>`;
         }).join("")}</select>
         <select id="pm-month">
@@ -2109,7 +2124,7 @@ async function renderLeave() {
 `;
 
   // 시작·종료일: 한글 달력 피커 (iOS 네이티브 date 입력의 폭 깨짐·영문 표기 회피)
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = todayKST();
   let lrStart = todayStr, lrEnd = todayStr;
   const lrSync = () => {
     $("#lr-start-label").textContent = lrStart;
@@ -2165,7 +2180,7 @@ let scSel = null;  // 선택한 날짜 "YYYY-MM-DD"
 
 async function renderSchedule() {
   const main = $("#main");
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = todayKST();
   if (!scYm) scYm = todayStr.slice(0, 7);
   if (!scSel) scSel = todayStr;
 
@@ -2192,12 +2207,12 @@ async function renderSchedule() {
     (d.data().records || []).forEach((r) => {
       if (!r.date) return;
       const lvKey = `${d.id}|${r.date}|${r.endDate || ""}|${r.type || ""}|${r.days || 0}`;
-      const cur = new Date(r.date);
-      const stop = new Date(r.endDate || r.date);
+      const cur = new Date(r.date + "T00:00:00Z");
+      const stop = new Date((r.endDate || r.date) + "T00:00:00Z");
       let guard = 0;
       while (cur <= stop && guard++ < 62) {
         push(cur.toISOString().slice(0, 10), { kind: "휴가", label: nm, lvKey, canDel: isAdmin() });
-        cur.setDate(cur.getDate() + 1);
+        cur.setUTCDate(cur.getUTCDate() + 1);
       }
     });
   });
@@ -2220,8 +2235,7 @@ async function renderSchedule() {
   const dot = (kind) => `<i class="sc-dot ${SC_KINDS[kind] || "orange"}"></i>`;
 
   // ── 오늘 요약 ──
-  const tDate = new Date(todayStr);
-  const todayLabel = `${tDate.getMonth() + 1}월 ${tDate.getDate()}일 (${"일월화수목금토"[tDate.getDay()]})`;
+  const todayLabel = dateLabelKo(todayStr);
   const todayEvents = sortEvents(events[todayStr] || []);
   const grouped = {};
   todayEvents.forEach((e) => { (grouped[e.kind] = grouped[e.kind] || []).push(e.label); });
@@ -2253,8 +2267,7 @@ async function renderSchedule() {
   };
 
   // ── 선택한 날 상세 ──
-  const selDate = new Date(scSel);
-  const selLabel = `${selDate.getMonth() + 1}월 ${selDate.getDate()}일 (${"일월화수목금토"[selDate.getDay()]})`;
+  const selLabel = dateLabelKo(scSel);
   const selEvents = sortEvents(events[scSel] || []);
   const TRASH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/><path d="M10 11v6M14 11v6"/></svg>';
   const dayHtml = selEvents.length ? selEvents.map((e) => `
@@ -2343,7 +2356,7 @@ async function renderSchedule() {
 /* 일정 등록 모달: 종류 선택 → 날짜 다중 선택 → 등록 */
 function openScheduleModal() {
   let type = "휴무";
-  let [my, mmn] = (scYm || new Date().toISOString().slice(0, 7)).split("-").map(Number);
+  let [my, mmn] = (scYm || ymNowKST()).split("-").map(Number);
   const selDates = new Set();
 
   const bodyHtml = () => {
@@ -2617,8 +2630,8 @@ async function openLeaveUseModal() {
           <option value="" disabled selected>직원 선택</option>
           ${emps.map((e) => `<option value="${e.id}">${esc(e.name)} (${esc(e.dept)})</option>`).join("")}</select></label>
       <div class="grid-2">
-        <div class="field"><span class="field-label">시작일</span>${calField("lu-date", new Date().toISOString().slice(0, 10))}</div>
-        <div class="field"><span class="field-label">종료일</span>${calField("lu-end", new Date().toISOString().slice(0, 10))}</div>
+        <div class="field"><span class="field-label">시작일</span>${calField("lu-date", todayKST())}</div>
+        <div class="field"><span class="field-label">종료일</span>${calField("lu-end", todayKST())}</div>
         <label class="field"><span class="field-label">일수 (0.5 단위)</span><input id="lu-days" type="number" step="0.5" min="0.5" required value="1" /></label>
         <label class="field"><span class="field-label">유형</span>
           <select id="lu-type">${LEAVE_TYPES.map((t) => `<option>${t}</option>`).join("")}</select></label>
