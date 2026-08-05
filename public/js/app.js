@@ -3198,7 +3198,7 @@ async function renderAttHistory() {
             <td class="att-mono ${a?.inAt ? "c-green" : ""}">${a?.inAt || "-"}</td>
             <td class="att-mono ${a?.outAt ? "c-red" : ""}">${a?.outAt || "-"}</td>
             <td class="num">${s ? fmtH(shiftHours(s)) : "-"}</td>
-            <td class="num"><b>${wh != null ? fmtH(wh) : "-"}</b>${wh != null && breakApplied(a, s) ? REST_BADGE : ""}</td>
+            <td class="num">${wh != null && breakApplied(a, s) ? REST_BADGE : ""}<b>${wh != null ? fmtH(wh) : "-"}</b></td>
             <td>${noteChips(attNotes(a, s)) || "-"}</td>
           </tr>`;
         }).join("")}</tbody>
@@ -3274,7 +3274,7 @@ async function renderAttendAdmin() {
             <td class="att-mono">${s ? `${s.start}-${shiftEndLabel(s)}` : "-"}</td>
             <td class="att-mono c-green">${a.inAt}</td>
             <td class="att-mono ${a.outAt ? "c-red" : ""}">${a.outAt || "-"}</td>
-            <td class="num"><b>${wh != null ? fmtH(wh) : "-"}</b>${wh != null && breakApplied(a, s) ? REST_BADGE : ""}</td>
+            <td class="num">${wh != null && breakApplied(a, s) ? REST_BADGE : ""}<b>${wh != null ? fmtH(wh) : "-"}</b></td>
             <td>${noteChips(attNotes(a, s)) || "-"}</td>
             <td class="adm-memo-td"><input class="adm-memo" data-memo="${p.id}|${d}" value="${esc(a.memo || "")}" placeholder="메모 입력 후 Enter" maxlength="100" /></td>
             <td class="adm-acts">
