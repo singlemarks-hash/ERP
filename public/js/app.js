@@ -2766,7 +2766,7 @@ function openShiftDayModal(ds, emps) {
       <div class="grid-2">
         <label class="field"><span class="field-label">직원</span>
           <select id="sf-emp">${emps.map((e) =>
-            `<option value="${e.id}" ${s.empId === e.id ? "selected" : ""}>${esc(e.name)} (${esc(e.dept)})</option>`).join("")}</select></label>
+            `<option value="${e.id}" ${(editing ? s.empId === e.id : e.id === me.id) ? "selected" : ""}>${esc(e.name)} (${esc(e.dept)})</option>`).join("")}</select></label>
         <label class="field"><span class="field-label">근무 영역</span>
           <select id="sf-area">${WORK_AREAS.map((a) => `<option ${s.area === a ? "selected" : ""}>${a}</option>`).join("")}</select></label>
       </div>
