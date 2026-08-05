@@ -2479,6 +2479,10 @@ function openScheduleModal() {
 
 /* ───────── 근태관리 (출퇴근 기록 · 근무 캘린더 · 근무 이력) ───────── */
 const WORK_AREAS = ["카페", "홀&바", "주방"];
+/* 단기알바: 직원 명단(employees)에 등록하지 않고 근무 일정에만 표시하는 외부 인원 */
+const TEMP_EMP_VALUE = "__temp__";
+const tempEmpId = (name) => "temp:" + String(name || "").trim();
+const TEMP_BADGE = '<span class="temp-badge">단기</span>';
 let attTab = "record";   // record | calendar | history
 let atCalYm = null;
 let atHistYm = null;
@@ -2654,7 +2658,7 @@ async function renderAttRecord() {
 
   // 오늘 현황 행 (파트별 그룹 — 기록 날짜 선택과 무관하게 항상 오늘 기준)
   const rowHtml = (r) => `<tr class="${r.badge ? "att-carry" : ""}">
-    <td><b>${esc(r.name)}</b>${r.badge ? ` <span class="badge warn">${esc(r.badge)}</span>` : ""}</td>
+    <td><b>${esc(r.name)}</b>${r.temp ? TEMP_BADGE : ""}${r.badge ? ` <span class="badge warn">${esc(r.badge)}</span>` : ""}</td>
     <td class="att-mono">${esc(r.plan)}</td>
     <td class="att-mono ${r.inAt ? "c-green" : "c-red"}">${r.inAt ? esc(r.inAt) : "-"}</td>
     <td class="att-mono c-red">${r.outAt ? esc(r.outAt) : "-"}</td>
@@ -2673,7 +2677,7 @@ async function renderAttRecord() {
     if (!g.length) return;
     statusBody += groupRow(area) + g.map((s) => {
       const a = atts.find((x) => x.empId === s.empId && x.date === today);
-      return rowHtml({ name: s.name, badge: null, plan: `${s.start}-${shiftEndLabel(s)}`, inAt: a?.inAt, outAt: a?.outAt });
+      return rowHtml({ name: s.name, temp: s.isTemp, badge: null, plan: `${s.start}-${shiftEndLabel(s)}`, inAt: a?.inAt, outAt: a?.outAt });
     }).join("");
   });
   const etcRows = atts.filter((a) => a.date === today && !todayShifts.some((s) => s.empId === a.empId))
@@ -2898,7 +2902,7 @@ async function renderAttCalendar() {
       const g = list.filter((s) => s.area === area).sort((a, b) => minOf(a.start) - minOf(b.start));
       if (!g.length) return "";
       return `<span class="wa-label">${area}</span>` + g.map((s) =>
-        `<span class="shift-ent ${shiftColor(s.empId)}"><b>${esc(s.name)}</b><i class="full">${shiftCompact(s)}</i><i class="st-only">${esc(s.start)}</i></span>`).join("");
+        `<span class="shift-ent ${shiftColor(s.empId)}"><b>${esc(s.name)}${s.isTemp ? TEMP_BADGE : ""}</b><i class="full">${shiftCompact(s)}</i><i class="st-only">${esc(s.start)}</i></span>`).join("");
     }).join("");
     return `<button type="button" class="sc-cell at-cell ${ds < today ? "past" : ""} ${ds === today ? "today" : ""}" data-atd="${ds}">
       <span class="d ${dow === 0 ? "sun" : dow === 6 ? "sat" : ""}">${d}</span>
@@ -2923,7 +2927,7 @@ async function renderAttCalendar() {
         </div>
       </div>
       <div class="at-legend">
-        ${monthEmps.map(([id, nm]) => `<span class="at-legend-item ${shiftColor(id)}">${esc(nm)}</span>`).join("")}
+        ${monthEmps.map(([id, nm]) => `<span class="at-legend-item ${shiftColor(id)}">${esc(nm)}${String(id).startsWith("temp:") ? TEMP_BADGE : ""}</span>`).join("")}
         <span class="at-legend-note">${REST_ICON} 휴게 1시간 차감 · 날짜를 누르면 상세${canEditShifts() ? "·등록" : ""} 화면이 열립니다</span>
       </div>
     </div>
@@ -2981,9 +2985,14 @@ function openShiftDayModal(ds, emps) {
       <div class="grid-2">
         <label class="field"><span class="field-label">직원</span>
           <select id="sf-emp">${emps.map((e) =>
-            `<option value="${e.id}" ${(editing ? s.empId === e.id : e.id === me.id) ? "selected" : ""}>${esc(e.name)} (${esc(e.dept)})</option>`).join("")}</select></label>
+            `<option value="${e.id}" ${(editing ? s.empId === e.id : e.id === me.id) ? "selected" : ""}>${esc(e.name)} (${esc(e.dept)})</option>`).join("")}
+            <option value="${TEMP_EMP_VALUE}" ${s.isTemp ? "selected" : ""}>+ 단기알바 (외부 인원)</option></select></label>
         <label class="field"><span class="field-label">근무 영역</span>
           <select id="sf-area">${WORK_AREAS.map((a) => `<option ${s.area === a ? "selected" : ""}>${a}</option>`).join("")}</select></label>
+      </div>
+      <div class="field ${s.isTemp ? "" : "hidden"}" id="sf-temp-wrap">
+        <span class="field-label">단기알바 이름 <em class="sf-hint">(근무 일정에만 표시 · 직원 명단에는 추가되지 않습니다)</em></span>
+        <input id="sf-tempname" value="${s.isTemp ? esc(s.name) : ""}" placeholder="예: 홍길동" maxlength="20" />
       </div>
       <div class="grid-2">
         <div class="field"><span class="field-label">시작</span>
@@ -3022,7 +3031,7 @@ function openShiftDayModal(ds, emps) {
       <div class="shift-list">
         ${list.length ? list.map((s) => `
           <div class="shift-row ${shiftColor(s.empId)}">
-            <div class="sr-main"><b>${esc(s.name)}</b> <span class="sr-area">(${esc(s.area)})</span>
+            <div class="sr-main"><b>${esc(s.name)}</b>${s.isTemp ? TEMP_BADGE : ""} <span class="sr-area">(${esc(s.area)})</span>
               <div class="sr-time">${shiftRangeHtml(s)}</div></div>
             ${canEdit ? `<button class="sr-act" data-shedit="${s.id}">수정</button>
               <button class="sr-act danger" data-shdel="${s.id}">삭제</button>` : ""}
@@ -3039,6 +3048,13 @@ function openShiftDayModal(ds, emps) {
       ["sf-sh", "sf-sm", "sf-eh", "sf-em"].forEach((id) => { $("#" + id).onchange = updatePreview; });
       $("#sf-break").onchange = updatePreview;
       updatePreview();
+      // 단기알바 선택 시 이름 입력칸 표시
+      const empSel = $("#sf-emp");
+      const syncTemp = () => {
+        $("#sf-temp-wrap").classList.toggle("hidden", empSel.value !== TEMP_EMP_VALUE);
+        if (empSel.value === TEMP_EMP_VALUE) $("#sf-tempname").focus();
+      };
+      empSel.onchange = syncTemp;
     }
 
     $("#modal").querySelectorAll("[data-shedit]").forEach((b) => {
@@ -3057,13 +3073,23 @@ function openShiftDayModal(ds, emps) {
     if (save) save.onclick = async () => {
       if (save.disabled) return;
       save.disabled = true;
-      const emp = emps.find((e) => e.id === $("#sf-emp").value);
-      if (!emp) { toast("직원을 선택하세요."); save.disabled = false; return; }
+      const selVal = $("#sf-emp").value;
+      const isTemp = selVal === TEMP_EMP_VALUE;
+      let who;
+      if (isTemp) {
+        const nm = ($("#sf-tempname").value || "").trim();
+        if (!nm) { toast("단기알바 이름을 입력하세요."); save.disabled = false; return; }
+        who = { id: tempEmpId(nm), name: nm };
+      } else {
+        const emp = emps.find((e) => e.id === selVal);
+        if (!emp) { toast("직원을 선택하세요."); save.disabled = false; return; }
+        who = { id: emp.id, name: emp.name };
+      }
       const start = `${$("#sf-sh").value}:${$("#sf-sm").value}`;
       const end = `${$("#sf-eh").value}:${$("#sf-em").value}`;
       if (start === end) { toast("시작과 종료 시간이 같습니다."); save.disabled = false; return; }
       const data = {
-        empId: emp.id, name: emp.name, area: $("#sf-area").value,
+        empId: who.id, name: who.name, isTemp, area: $("#sf-area").value,
         start, end, breakIncluded: $("#sf-break").checked,
         updatedBy: me.id
       };
