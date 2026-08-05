@@ -1395,6 +1395,9 @@ tr.ph-row-open td { background: var(--blue-soft); }
 .wn-input:focus { outline: none; border-color: var(--blue); background: #fff; }
 
 /* 출퇴근 기록 */
+.rec-date-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.rec-date-row .field-label { margin: 0; white-space: nowrap; }
+.rec-date-row .cal-input { width: auto; min-width: 160px; }
 .att-io-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .att-io { border-radius: 14px; padding: 16px; }
 .att-io.in { background: #f0faf4; border: 1.5px solid #c4ecd3; }
@@ -1450,6 +1453,7 @@ tr.att-carry td { background: #fff9db; }
 .shift-ent { display: block; border-radius: 5px; padding: 3px 5px; font-size: 0.64rem; margin: 1px 0; min-width: 0; }
 .shift-ent b { display: block; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .shift-ent i { font-style: normal; font-size: 0.62rem; opacity: 0.9; white-space: nowrap; display: block; overflow: hidden; text-overflow: ellipsis; }
+.shift-ent i.st-only { display: none; }
 .shc0 { background: #cff4fc; color: #0b7285; }
 .shc1 { background: #ffe3e8; color: #c2255c; }
 .shc2 { background: #ffec99; color: #9a6700; }
@@ -1596,8 +1600,14 @@ tr.att-carry td { background: #fff9db; }
   .subtab { flex: 1; padding: 9px 6px; font-size: 0.82rem; }
   .att-io-grid { grid-template-columns: 1fr; }
   .pb-stats.s4 { grid-template-columns: 1fr 1fr; }
-  /* 근무 캘린더: 파트 구분·시간 요약을 유지한 채 가로 스크롤 (열 폭 확보) */
-  .at-cal-inner { min-width: 900px; }
+  /* 근무 캘린더: 가로 스크롤 없이 세로로 자연스럽게 늘어나되, 파트 라벨은 유지하고
+     시간은 시작 시각만 작게 표시 (전체 "09:00-17:00 (7h)"는 생략) */
+  .at-cal-scroll { overflow-x: visible; }
+  .sc-grid.at .sc-cell { min-height: 0; height: auto; padding: 4px 3px; }
+  .wa-label { font-size: 0.52rem; padding: 1px 3px; margin: 2px 0 1px; }
+  .shift-ent { padding: 1px 3px; font-size: 0.56rem; border-radius: 4px; }
+  .shift-ent i.full { display: none; }
+  .shift-ent i.st-only { display: block; font-size: 0.54rem; }
   .at-legend-note { margin-left: 0; width: 100%; }
   .sc-cal-head #at-now, .sc-cal-head #ah-now, .sc-cal-head #adm-now { position: absolute; right: 0; }
   .adm-memo-td { min-width: 130px; }

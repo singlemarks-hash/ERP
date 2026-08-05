@@ -2481,6 +2481,7 @@ let attTab = "record";   // record | calendar | history
 let atCalYm = null;
 let atHistYm = null;
 let admAttYm = null;
+let attRecDate = null;   // 근태기록 탭에서 출퇴근을 기록/수정할 날짜 (기본: 오늘)
 
 function canEditShifts() { return isAdmin() || isSpecial(); }
 function minOf(t) { const [h, m] = String(t || "0:0").split(":").map(Number); return h * 60 + (m || 0); }
@@ -2498,9 +2499,9 @@ function kAmPmLabel(t) {
   let h12 = h % 12; if (h12 === 0) h12 = 12;
   return m ? `${ap} ${h12}시 ${m}분` : `${ap} ${h12}시`;
 }
-/* 근무 표기: "09:00 ~ 16:00시 (6h)" (+휴게 표시) */
+/* 근무 표기: "09:00 ~ 16:00 (6h)" (+휴게 표시) */
 function shiftRangeHtml(s) {
-  return `${esc(s.start)} ~ ${esc(shiftEndLabel(s))}시 (${fmtH(shiftHours(s))}h)${s.breakIncluded ? " " + REST_ICON : ""}`;
+  return `${esc(s.start)} ~ ${esc(shiftEndLabel(s))} (${fmtH(shiftHours(s))}h)${s.breakIncluded ? " " + REST_ICON : ""}`;
 }
 /* 캘린더 셀용 축약 표기: "10:00-17:00 (7h)" / 익일 근무는 "익일" 표시 */
 function shiftCompact(s) {
@@ -2594,20 +2595,27 @@ async function renderAttRecord() {
   const body = $("#att-body");
   const today = todayKST();
   const yesterday = prevDateStr(today);
-  const [shiftSnap, attSnap, wnSnap] = await Promise.all([
+  if (!attRecDate) attRecDate = today;
+  const recDate = attRecDate;
+  const isTodayMode = recDate === today;
+
+  const [shiftSnap, attSnap, wnSnap, recSnap] = await Promise.all([
     db.collection(COL.shifts).where("date", "in", [yesterday, today]).get(),
     db.collection(COL.attendance).where("date", "in", [yesterday, today]).get(),
-    db.collection(COL.workNotices).get()
+    db.collection(COL.workNotices).get(),
+    db.collection(COL.attendance).doc(`${me.id}_${recDate}`).get()
   ]);
   const shifts = shiftSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((s) => s.date === today || s.date === yesterday);
   const atts = attSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((a) => a.date === today || a.date === yesterday);
-  const myToday = atts.find((a) => a.empId === me.id && a.date === today);
-  const myOpen = atts.find((a) => a.empId === me.id && a.inAt && !a.outAt);
+  // 실시간 미퇴근 이월(어제 출근 후 미퇴근)은 오늘 기록 모드에서만 우선 처리 대상
+  const myOpen = isTodayMode ? atts.find((a) => a.empId === me.id && a.inAt && !a.outAt) : null;
+  // recDate에 대한 내 기록 (없으면 새로 만들 빈 문서로 취급)
+  const myRec = { id: `${me.id}_${recDate}`, ...(recSnap.exists ? recSnap.data() : {}) };
   const notices = wnSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
     .filter((n) => n.dept === me.dept && !(n.ackIds || []).includes(me.id))
     .sort((a, b) => tsSec(b.createdAt) - tsSec(a.createdAt)).slice(0, 10);
 
-  // 오늘 현황 행
+  // 오늘 현황 행 (오늘/어제 실황 — 기록 날짜 선택과 무관하게 항상 오늘 기준)
   const rows = [];
   atts.filter((a) => a.date === yesterday && a.inAt && !a.outAt).forEach((a) => {
     const s = shifts.find((x) => x.date === yesterday && x.empId === a.empId);
@@ -2621,14 +2629,13 @@ async function renderAttRecord() {
     rows.push({ name: a.name, badge: null, plan: "-", inAt: a.inAt, outAt: a.outAt });
   });
 
-  const inDone = !!myToday?.inAt;
-  const outDone = !!myToday?.outAt;
-  const outTarget = myOpen || myToday;
-  // 출근 버튼: 미퇴근 기록이 있으면 잠금 (퇴근 먼저), 없으면 활성 (완료 후엔 덮어쓰기 확인)
-  const inLocked = !!myOpen;
-  const inLabel = myOpen
-    ? (myOpen.date === yesterday ? "퇴근 처리부터 하세요" : `출근 완료 ${myToday.inAt}`)
-    : inDone ? `출근 완료 ${myToday.inAt}` : "출근하기";
+  const inDone = !!myRec.inAt;
+  const outDone = !!myRec.outAt;
+  const usingCarry = isTodayMode && !!myOpen;   // 퇴근 버튼이 '어제 이월 건'을 마감하는 상태
+  const outTarget = usingCarry ? myOpen : myRec;
+  // 출근 버튼: (오늘 모드에서) 미퇴근 이월 기록이 있으면 잠금, 그 외엔 항상 활성 (완료 후엔 덮어쓰기 확인)
+  const inLocked = usingCarry;
+  const inLabel = inLocked ? "퇴근 처리부터 하세요" : inDone ? `출근 완료 ${myRec.inAt}` : "출근하기";
 
   body.innerHTML = `
     ${notices.map((n) => `
@@ -2639,21 +2646,27 @@ async function renderAttRecord() {
         <div class="wn-foot"><button class="btn btn-primary btn-sm" data-wnack="${n.id}">확인함</button></div>
       </div>`).join("")}
     <div class="card">
-      <div class="card-title"><div>출퇴근 기록<div class="ct-desc">${esc(me.name)}님의 오늘(${dateLabelKo(today)}) 출퇴근을 기록합니다. 시간을 조정한 후 버튼을 누르세요.</div></div></div>
+      <div class="card-title"><div>출퇴근 기록<div class="ct-desc">${esc(me.name)}님의 출퇴근을 기록합니다. 날짜를 확인하고 시간을 조정한 후 버튼을 누르세요.</div></div></div>
+      <div class="rec-date-row">
+        <span class="field-label">기록 날짜</span>
+        <button type="button" class="cal-input" id="rec-date-btn"><span id="rec-date-btn-label">${dateLabelKo(recDate)}</span>${CAL_ICON}</button>
+        ${!isTodayMode ? `<button type="button" class="btn btn-ghost btn-sm" id="rec-date-today">오늘로</button>` : ""}
+      </div>
+      ${!isTodayMode ? `<div class="mini-note">과거 날짜를 수정 중입니다. 날짜를 놓쳐 미입력된 경우 여기서 직접 기록하세요.</div>` : ""}
       <div class="att-io-grid">
         <div class="att-io in">
           <div class="io-title">출근 시간</div>
-          ${timeSelHtml("ai", myToday?.inAt)}
+          ${timeSelHtml("ai", myRec.inAt)}
           <button class="btn io-btn in" id="att-in" ${inLocked ? "disabled" : ""}>${inLabel}</button>
         </div>
         <div class="att-io out">
           <div class="io-title">퇴근 시간</div>
-          ${timeSelHtml("ao", myToday?.outAt)}
+          ${timeSelHtml("ao", myRec.outAt)}
           <button class="btn io-btn out" id="att-out" ${!outTarget?.inAt ? "disabled" : ""}>
-            ${outDone ? `퇴근 완료 ${myToday.outAt}` : outTarget?.inAt ? "퇴근하기" : "출근 먼저 하세요"}</button>
+            ${outDone ? `퇴근 완료 ${myRec.outAt}` : outTarget?.inAt ? "퇴근하기" : "출근 먼저 하세요"}</button>
         </div>
       </div>
-      ${myOpen && myOpen.date === yesterday ? `<div class="mini-note">어제(${esc(yesterday)}) 퇴근 기록이 없습니다. 지금 퇴근을 누르면 어제 근무의 퇴근으로 기록됩니다.</div>` : ""}
+      ${usingCarry ? `<div class="mini-note">어제(${esc(yesterday)}) 퇴근 기록이 없습니다. 지금 퇴근을 누르면 어제 근무의 퇴근으로 기록됩니다.</div>` : ""}
     </div>
     <div class="card">
       <div class="card-title"><div>오늘 근무 현황<div class="ct-desc">오늘 근무 예정자와 출퇴근 기록입니다.</div></div></div>
@@ -2675,13 +2688,21 @@ async function renderAttRecord() {
       renderAttend();
     };
   });
+  $("#rec-date-btn").onclick = () => openDatePicker($("#rec-date-btn"), recDate, (v) => {
+    if (!v) return;
+    attRecDate = v;
+    renderAttend();
+  });
+  const todayBtn = $("#rec-date-today");
+  if (todayBtn) todayBtn.onclick = () => { attRecDate = today; renderAttend(); };
+
   $("#att-in").onclick = async () => {
     if (inLocked) return;
     const t = timeSelVal("ai");
-    if (inDone && !confirm(`이미 ${myToday.inAt} 출근 기록이 있습니다. ${t}(으)로 덮어쓸까요?`)) return;
-    await db.collection(COL.attendance).doc(`${me.id}_${today}`)
-      .set({ empId: me.id, name: me.name, dept: me.dept, date: today, inAt: t }, { merge: true });
-    toast(`출근 ${t} 기록 완료`);
+    if (inDone && !confirm(`이미 ${myRec.inAt} 출근 기록이 있습니다. ${t}(으)로 덮어쓸까요?`)) return;
+    await db.collection(COL.attendance).doc(myRec.id)
+      .set({ empId: me.id, name: me.name, dept: me.dept, date: recDate, inAt: t }, { merge: true });
+    toast(`${recDate} 출근 ${t} 기록 완료`);
     renderAttend();
   };
   $("#att-out").onclick = async () => {
@@ -2689,7 +2710,7 @@ async function renderAttRecord() {
     const t = timeSelVal("ao");
     if (outTarget.outAt && !confirm(`이미 ${outTarget.outAt} 퇴근 기록이 있습니다. ${t}(으)로 덮어쓸까요?`)) return;
     await db.collection(COL.attendance).doc(outTarget.id)
-      .set({ outAt: t, outDate: today }, { merge: true });
+      .set({ outAt: t, outDate: usingCarry ? today : recDate }, { merge: true });
     toast(`퇴근 ${t} 기록 완료`);
     renderAttend();
   };
@@ -2726,7 +2747,7 @@ async function renderAttCalendar() {
       const g = list.filter((s) => s.area === area).sort((a, b) => minOf(a.start) - minOf(b.start));
       if (!g.length) return "";
       return `<span class="wa-label">${area}</span>` + g.map((s) =>
-        `<span class="shift-ent ${shiftColor(s.empId)}"><b>${esc(s.name)}</b><i>${shiftCompact(s)}</i></span>`).join("");
+        `<span class="shift-ent ${shiftColor(s.empId)}"><b>${esc(s.name)}</b><i class="full">${shiftCompact(s)}</i><i class="st-only">${esc(s.start)}</i></span>`).join("");
     }).join("");
     return `<button type="button" class="sc-cell at-cell ${ds < today ? "past" : ""} ${ds === today ? "today" : ""}" data-atd="${ds}">
       <span class="d ${dow === 0 ? "sun" : dow === 6 ? "sat" : ""}">${d}</span>
