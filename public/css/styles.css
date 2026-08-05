@@ -1496,6 +1496,19 @@ tr.att-carry td { background: #fff9db; }
 }
 .sr-act.danger { color: var(--red); }
 
+/* 관리자 근태: 직원 필터 */
+.adm-filter { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.adm-filter select {
+  min-width: 200px;
+  padding: 10px 12px;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  background: #f9fafb;
+  font-size: 0.88rem;
+}
+.adm-filter select:focus { outline: none; border-color: var(--blue); background: #fff; }
+.adm-filter-note { font-size: 0.76rem; color: var(--ink-faint); }
+
 /* 관리자 근태 상세 */
 .adm-detail { background: #fff; border-radius: 10px; }
 .adm-detail th { font-size: 0.7rem; }

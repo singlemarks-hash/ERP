@@ -2992,6 +2992,7 @@ async function renderAttHistory() {
 
 /* ── 근태관리 (관리자: 전 직원 이력 + 메모) ── */
 let admOpenIds = new Set();
+let admAttEmp = ""; // "" = 전체 직원
 async function renderAttendAdmin() {
   if (!canEditShifts()) return navigate("home");
   const main = $("#main");
@@ -3015,18 +3016,22 @@ async function renderAttendAdmin() {
     if (x.empId && !people.has(x.empId)) people.set(x.empId, { id: x.empId, name: x.name, dept: x.dept || "-" });
   });
 
-  const rowsHtml = [...people.values()].map((p) => {
+  // 직원 필터 (전체 포함) — 출퇴근을 입력한 기록만 표시
+  const enteredAtts = atts.filter((a) => a.inAt);
+  const filtered = [...people.values()].filter((p) => (!admAttEmp || p.id === admAttEmp));
+
+  const rowsHtml = filtered.map((p) => {
     const pShifts = shifts.filter((s) => s.empId === p.id);
-    const pAtts = atts.filter((a) => a.empId === p.id);
-    if (!pShifts.length && !pAtts.length) return "";
+    const pAtts = enteredAtts.filter((a) => a.empId === p.id);
+    if (!pAtts.length) return ""; // 출퇴근 입력 기록이 있는 직원만 노출
     const shiftBy = {}; pShifts.forEach((s) => { shiftBy[s.date] = s; });
     const attBy = {}; pAtts.forEach((a) => { attBy[a.date] = a; });
-    const dates = [...new Set([...pShifts.map((s) => s.date), ...pAtts.map((a) => a.date)])].sort();
+    const dates = pAtts.map((a) => a.date).sort();
     const schedH = pShifts.reduce((s, x) => s + shiftHours(x), 0);
     const workedH = dates.reduce((sum, d) => sum + (workedHours(attBy[d], shiftBy[d]) || 0), 0);
     const noteCnt = { late: 0, earlyin: 0, earlyout: 0, over: 0 };
     dates.forEach((d) => attNotes(attBy[d], shiftBy[d]).forEach((n) => noteCnt[n.k]++));
-    const open = admOpenIds.has(p.id);
+    const open = admAttEmp === p.id || admOpenIds.has(p.id);
     const detail = `
       <table class="data att-table adm-detail">
         <thead><tr><th>날짜</th><th>예정</th><th>출근</th><th>퇴근</th><th class="num">실근무(h)</th><th>비고</th><th>메모</th></tr></thead>
@@ -3036,11 +3041,11 @@ async function renderAttendAdmin() {
           return `<tr>
             <td class="att-mono"><b>${d.slice(5)}</b></td>
             <td class="att-mono">${s ? `${s.start}-${shiftEndLabel(s)}` : "-"}</td>
-            <td class="att-mono ${a?.inAt ? "c-green" : ""}">${a?.inAt || "-"}</td>
-            <td class="att-mono">${a?.outAt || "-"}</td>
+            <td class="att-mono c-green">${a.inAt}</td>
+            <td class="att-mono">${a.outAt || "-"}</td>
             <td class="num"><b>${wh != null ? fmtH(wh) : "-"}</b></td>
             <td>${noteChips(attNotes(a, s)) || "-"}</td>
-            <td class="adm-memo-td"><input class="adm-memo" data-memo="${p.id}|${d}" value="${esc(a?.memo || "")}" placeholder="메모 입력 후 Enter" maxlength="100" /></td>
+            <td class="adm-memo-td"><input class="adm-memo" data-memo="${p.id}|${d}" value="${esc(a.memo || "")}" placeholder="메모 입력 후 Enter" maxlength="100" /></td>
           </tr>`;
         }).join("")}</tbody>
       </table>`;
@@ -3048,12 +3053,17 @@ async function renderAttendAdmin() {
         <td><b>${esc(p.name)}</b></td><td>${esc(p.dept)}</td>
         <td class="num">${new Set(pShifts.map((s) => s.date)).size}일</td>
         <td class="num">${fmtH(schedH)}h</td>
-        <td class="num">${pAtts.filter((a) => a.inAt).length}일</td>
+        <td class="num">${pAtts.length}일</td>
         <td class="num"><b class="c-green">${fmtH(workedH)}h</b></td>
         <td>${noteCnt.late ? `<span class="att-note late">지각 ${noteCnt.late}</span>` : ""}${noteCnt.earlyout ? `<span class="att-note earlyout">조기퇴근 ${noteCnt.earlyout}</span>` : ""}${!noteCnt.late && !noteCnt.earlyout ? "-" : ""}</td>
       </tr>
       <tr class="ph-detail-tr ${open ? "" : "hidden"}" data-admdetail="${p.id}"><td colspan="7"><div class="ph-detail ph-anim">${detail}</div></td></tr>`;
   }).join("");
+
+  // 필터 드롭다운 목록: 이번 달 출퇴근 입력이 있는 직원 + 재직 직원
+  const empOptions = [...people.values()]
+    .sort((a, b) => a.name.localeCompare(b.name, "ko"))
+    .map((p) => `<option value="${p.id}" ${admAttEmp === p.id ? "selected" : ""}>${esc(p.name)} (${esc(p.dept)})</option>`).join("");
 
   $("#adm-body").innerHTML = `
     <div class="card">
@@ -3063,13 +3073,22 @@ async function renderAttendAdmin() {
         <button type="button" class="cal-nav" id="adm-next">&rsaquo;</button>
         <button type="button" class="btn btn-ghost btn-sm" id="adm-now">이번 달</button>
       </div>
+      <div class="adm-filter">
+        <select id="adm-emp">
+          <option value="" ${!admAttEmp ? "selected" : ""}>전체 직원</option>
+          ${empOptions}
+        </select>
+        <span class="adm-filter-note">출퇴근을 입력한 기록만 표시됩니다.</span>
+      </div>
       ${rowsHtml.trim() ? `<div class="table-wrap"><table class="data att-table">
         <thead><tr><th>이름</th><th>소속</th><th class="num">예정일</th><th class="num">예정시간</th><th class="num">근무일</th><th class="num">실근무</th><th>특이사항</th></tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table></div>
       <div class="mini-note">직원을 클릭하면 일별 이력이 펼쳐집니다. 메모는 입력 후 Enter로 저장됩니다.</div>`
-      : `<div class="empty">${mm}월 근무·출퇴근 기록이 없습니다.</div>`}
+      : `<div class="empty">${mm}월${admAttEmp ? " 해당 직원의" : ""} 출퇴근 입력 기록이 없습니다.</div>`}
     </div>`;
+
+  $("#adm-emp").onchange = (ev) => { admAttEmp = ev.target.value; renderAttendAdmin(); };
 
   const shiftMonth = (n) => {
     let y = yy, m = mm + n;
