@@ -358,7 +358,7 @@ function renderSidebar() {
   const items = [
     { id: "home", ico: "home", label: "홈" },
     { id: "schedule", ico: "calendar", label: "일정" },
-    { id: "attend", ico: "clock", label: "근태관리" },
+    { id: "attend", ico: "clock", label: "근태기록" },
     { id: "payhistory", ico: "payroll", label: "급여" },
     { id: "leave", ico: "leave", label: "휴가" },
     { id: "settings", ico: "settings", label: "설정" }
@@ -2542,7 +2542,7 @@ const noteChips = (notes) => notes.map((n) => `<span class="att-note ${n.k}">${n
 
 async function renderAttend() {
   const main = $("#main");
-  main.innerHTML = pageHead("ATTEND", "근태관리", "출퇴근을 기록하고 근무 일정·이력을 확인합니다.") + `
+  main.innerHTML = pageHead("ATTEND", "근태기록", "출퇴근을 기록하고 근무 일정·이력을 확인합니다.") + `
     <div class="subtabs">
       ${[["record", "근태기록"], ["calendar", "근무 캘린더"], ["history", "근무 이력"]].map(([k, l]) =>
         `<button class="subtab ${attTab === k ? "on" : ""}" data-atab="${k}">${l}</button>`).join("")}
