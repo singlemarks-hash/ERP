@@ -2679,7 +2679,7 @@ async function renderAttRecord() {
 
   // 오늘 현황 행 (파트별 그룹 — 기록 날짜 선택과 무관하게 항상 오늘 기준)
   const rowHtml = (r) => `<tr class="${r.badge ? "att-carry" : ""}">
-    <td><b>${esc(r.name)}</b>${r.temp ? TEMP_BADGE : ""}${r.badge ? ` <span class="badge warn">${esc(r.badge)}</span>` : ""}</td>
+    <td>${r.temp ? TEMP_BADGE : ""}<b>${esc(r.name)}</b>${r.badge ? ` <span class="badge warn">${esc(r.badge)}</span>` : ""}</td>
     <td class="att-mono">${esc(r.plan)}</td>
     <td class="att-mono ${r.inAt ? "c-green" : "c-red"}">${r.inAt ? esc(r.inAt) : "-"}</td>
     <td class="att-mono c-red">${r.outAt ? esc(r.outAt) : "-"}</td>
@@ -2916,7 +2916,7 @@ async function renderAttCalendar() {
       const g = list.filter((s) => s.area === area).sort((a, b) => minOf(a.start) - minOf(b.start));
       if (!g.length) return "";
       return `<span class="wa-label">${area}</span>` + g.map((s) =>
-        `<span class="shift-ent ${shiftColor(s.empId)}"><b>${esc(s.name)}${s.isTemp ? TEMP_BADGE : ""}</b><i class="full">${shiftCompact(s)}</i><i class="st-only">${esc(s.start)}</i></span>`).join("");
+        `<span class="shift-ent ${shiftColor(s.empId)}"><b>${s.isTemp ? TEMP_BADGE : ""}${esc(s.name)}</b><i class="full">${shiftCompact(s)}</i><i class="st-only">${esc(s.start)}</i></span>`).join("");
     }).join("");
     return `<button type="button" class="sc-cell at-cell ${ds < today ? "past" : ""} ${ds === today ? "today" : ""}" data-atd="${ds}">
       <span class="d ${dow === 0 ? "sun" : dow === 6 ? "sat" : ""}">${d}</span>
@@ -2941,7 +2941,7 @@ async function renderAttCalendar() {
         </div>
       </div>
       <div class="at-legend">
-        ${monthEmps.map(([id, nm]) => `<span class="at-legend-item ${shiftColor(id)}">${esc(nm)}${String(id).startsWith("temp:") ? TEMP_BADGE : ""}</span>`).join("")}
+        ${monthEmps.map(([id, nm]) => `<span class="at-legend-item ${shiftColor(id)}">${String(id).startsWith("temp:") ? TEMP_BADGE : ""}${esc(nm)}</span>`).join("")}
         <span class="at-legend-note">${REST_ICON} 휴게 1시간 차감 · 날짜를 누르면 상세${canEditShifts() ? "·등록" : ""} 화면이 열립니다</span>
       </div>
     </div>
@@ -3045,7 +3045,7 @@ function openShiftDayModal(ds, emps) {
       <div class="shift-list">
         ${list.length ? list.map((s) => `
           <div class="shift-row ${shiftColor(s.empId)}">
-            <div class="sr-main"><b>${esc(s.name)}</b>${s.isTemp ? TEMP_BADGE : ""} <span class="sr-area">(${esc(s.area)})</span>
+            <div class="sr-main"><b>${s.isTemp ? TEMP_BADGE : ""}${esc(s.name)}</b> <span class="sr-area">(${esc(s.area)})</span>
               <div class="sr-time">${shiftRangeHtml(s)}</div></div>
             ${canEdit ? `<button class="sr-act" data-shedit="${s.id}">수정</button>
               <button class="sr-act danger" data-shdel="${s.id}">삭제</button>` : ""}

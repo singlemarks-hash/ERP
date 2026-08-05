@@ -1461,7 +1461,7 @@ tr.ph-row-open td { background: var(--blue-soft); }
   font-weight: 800;
   border-radius: 5px;
   padding: 1px 5px;
-  margin-left: 4px;
+  margin-right: 4px;
   vertical-align: middle;
   white-space: nowrap;
 }
