@@ -2579,9 +2579,11 @@ const NIGHT_START_MIN = 22 * 60, NIGHT_END_MIN = 30 * 60; // 당일 22:00(1320) 
 function nightHours(att) {
   if (!att?.inAt || !att?.outAt) return 0;
   const inMin = minOf(att.inAt);
+  // 출근 날짜와 퇴근 날짜를 엄격히 비교 (workedHours와 동일 규칙) —
+  // 같은 날 역전·동일 시각 기록을 24시간 근무로 오인하지 않도록 한다.
   let span = minOf(att.outAt) - inMin;
-  if (att.outDate && att.outDate > att.date) span += 1440;
-  if (span <= 0) span += 1440;
+  if ((att.outDate || att.date) > att.date) span += 1440;
+  if (span <= 0) return 0;
   const outMin = inMin + span;
   const overlap = (lo, hi) => Math.max(0, Math.min(outMin, hi) - Math.max(inMin, lo));
   const mins = overlap(0, 360) + overlap(NIGHT_START_MIN, NIGHT_END_MIN);
