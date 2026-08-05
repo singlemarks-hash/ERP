@@ -1432,20 +1432,24 @@ tr.att-carry td { background: #fff9db; }
 .pb-stats.s4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 
 /* 근무 캘린더 */
-.sc-grid.at .sc-cell { min-height: 118px; }
+.at-cal-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.at-cal-inner { min-width: 100%; }
+.sc-grid.at .sc-cell { min-height: 128px; align-items: stretch; }
 .at-ents { display: flex; flex-direction: column; min-width: 0; }
 .wa-label {
+  display: block;
   background: #eef0f3;
-  border-radius: 5px;
+  border-radius: 4px;
   font-size: 0.6rem;
   font-weight: 700;
   color: var(--ink-soft);
-  padding: 1px 5px;
-  margin: 2px 0 1px;
+  padding: 2px 5px;
+  margin: 3px 0 2px;
 }
-.shift-ent { display: block; border-radius: 6px; padding: 2px 5px; font-size: 0.64rem; margin: 1px 0; min-width: 0; }
+.at-ents .wa-label:first-child { margin-top: 1px; }
+.shift-ent { display: block; border-radius: 5px; padding: 3px 5px; font-size: 0.64rem; margin: 1px 0; min-width: 0; }
 .shift-ent b { display: block; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.shift-ent i { font-style: normal; font-size: 0.6rem; opacity: 0.85; white-space: nowrap; display: block; overflow: hidden; text-overflow: ellipsis; }
+.shift-ent i { font-style: normal; font-size: 0.62rem; opacity: 0.9; white-space: nowrap; display: block; overflow: hidden; text-overflow: ellipsis; }
 .shc0 { background: #cff4fc; color: #0b7285; }
 .shc1 { background: #ffe3e8; color: #c2255c; }
 .shc2 { background: #ffec99; color: #9a6700; }
@@ -1592,11 +1596,8 @@ tr.att-carry td { background: #fff9db; }
   .subtab { flex: 1; padding: 9px 6px; font-size: 0.82rem; }
   .att-io-grid { grid-template-columns: 1fr; }
   .pb-stats.s4 { grid-template-columns: 1fr 1fr; }
-  .sc-grid.at .sc-cell { min-height: 58px; padding: 3px 3px; }
-  .sc-grid.at { gap: 3px; }
-  .wa-label { display: none; }
-  .shift-ent { padding: 1px 3px; font-size: 0.56rem; border-radius: 4px; }
-  .shift-ent i { display: none; }
+  /* 근무 캘린더: 파트 구분·시간 요약을 유지한 채 가로 스크롤 (열 폭 확보) */
+  .at-cal-inner { min-width: 900px; }
   .at-legend-note { margin-left: 0; width: 100%; }
   .sc-cal-head #at-now, .sc-cal-head #ah-now, .sc-cal-head #adm-now { position: absolute; right: 0; }
   .adm-memo-td { min-width: 130px; }

@@ -2498,9 +2498,13 @@ function kAmPmLabel(t) {
   let h12 = h % 12; if (h12 === 0) h12 = 12;
   return m ? `${ap} ${h12}시 ${m}분` : `${ap} ${h12}시`;
 }
-/* 근무 표기: "09:00 ~ 16:00시 (6h)" (+휴게 아이콘) */
+/* 근무 표기: "09:00 ~ 16:00시 (6h)" (+휴게 표시) */
 function shiftRangeHtml(s) {
   return `${esc(s.start)} ~ ${esc(shiftEndLabel(s))}시 (${fmtH(shiftHours(s))}h)${s.breakIncluded ? " " + REST_ICON : ""}`;
+}
+/* 캘린더 셀용 축약 표기: "10:00-17:00 (7h)" / 익일 근무는 "익일" 표시 */
+function shiftCompact(s) {
+  return `${esc(s.start)}-${shiftOvernight(s) ? "익일 " : ""}${esc(s.end)} (${fmtH(shiftHours(s))}h)${s.breakIncluded ? "*" : ""}`;
 }
 function hmNowKST() { const d = kstNow(); return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`; }
 function prevDateStr(ds) { const d = new Date(ds + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); }
@@ -2722,7 +2726,7 @@ async function renderAttCalendar() {
       const g = list.filter((s) => s.area === area).sort((a, b) => minOf(a.start) - minOf(b.start));
       if (!g.length) return "";
       return `<span class="wa-label">${area}</span>` + g.map((s) =>
-        `<span class="shift-ent ${shiftColor(s.empId)}"><b>${esc(s.name)}</b><i>${shiftRangeHtml(s)}</i></span>`).join("");
+        `<span class="shift-ent ${shiftColor(s.empId)}"><b>${esc(s.name)}</b><i>${shiftCompact(s)}</i></span>`).join("");
     }).join("");
     return `<button type="button" class="sc-cell at-cell ${ds < today ? "past" : ""} ${ds === today ? "today" : ""}" data-atd="${ds}">
       <span class="d ${dow === 0 ? "sun" : dow === 6 ? "sat" : ""}">${d}</span>
@@ -2739,9 +2743,13 @@ async function renderAttCalendar() {
         <button type="button" class="cal-nav" id="at-next">&rsaquo;</button>
         <button type="button" class="btn btn-ghost btn-sm" id="at-now">오늘</button>
       </div>
-      <div class="sc-dow">${["일", "월", "화", "수", "목", "금", "토"].map((d, i) =>
-        `<span class="${i === 0 ? "sun" : i === 6 ? "sat" : ""}">${d}</span>`).join("")}</div>
-      <div class="sc-grid at">${cells.map((d, i) => cellHtml(d, i)).join("")}</div>
+      <div class="at-cal-scroll">
+        <div class="at-cal-inner">
+          <div class="sc-dow">${["일", "월", "화", "수", "목", "금", "토"].map((d, i) =>
+            `<span class="${i === 0 ? "sun" : i === 6 ? "sat" : ""}">${d}</span>`).join("")}</div>
+          <div class="sc-grid at">${cells.map((d, i) => cellHtml(d, i)).join("")}</div>
+        </div>
+      </div>
       <div class="at-legend">
         ${monthEmps.map(([id, nm]) => `<span class="at-legend-item ${shiftColor(id)}">${esc(nm)}</span>`).join("")}
         <span class="at-legend-note">${REST_ICON} 휴게 1시간 차감 · 날짜를 누르면 상세${canEditShifts() ? "·등록" : ""} 화면이 열립니다</span>
