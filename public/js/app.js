@@ -2556,11 +2556,20 @@ function breakApplied(att, shift) {
 }
 /* 실근무 시간(h): 출퇴근 기록 + 휴게 차감 여부 — 10분 블록 단위로 환산
    출근 날짜(date)와 퇴근 날짜(outDate)를 엄격히 비교: 퇴근 날짜가 다음날일 때만 +24h.
-   같은 날인데 퇴근이 출근보다 빠르면 잘못된 기록으로 보고 0을 반환한다. */
+   같은 날인데 퇴근이 출근보다 빠르면 잘못된 기록으로 보고 0을 반환한다.
+   예정 근무(shift)가 있으면 실제 출/퇴근이 예정 시각의 ±10분(유예) 이내일 때
+   예정 시각으로 스냅한다 — 유예 내 오차가 블록 환산으로 부풀려지는 것을 방지. */
 function workedHours(att, shift) {
   if (!att?.inAt || !att?.outAt) return null;
-  let span = minOf(att.outAt) - minOf(att.inAt);
-  if ((att.outDate || att.date) > att.date) span += 1440;
+  let inMin = minOf(att.inAt);
+  let outAbs = minOf(att.outAt) + ((att.outDate || att.date) > att.date ? 1440 : 0);
+  if (shift) {
+    const schedStart = minOf(shift.start);
+    const schedEnd = minOf(shift.end) + (shiftOvernight(shift) ? 1440 : 0);
+    if (Math.abs(inMin - schedStart) <= ATT_GRACE_MIN) inMin = schedStart;
+    if (Math.abs(outAbs - schedEnd) <= ATT_GRACE_MIN) outAbs = schedEnd;
+  }
+  const span = outAbs - inMin;
   if (span < 0) return 0;
   return blockHours(Math.max(0, span - (breakApplied(att, shift) ? 60 : 0)));
 }
@@ -3403,7 +3412,6 @@ function openAttEditModal(emp, date, att, shiftOf = () => null) {
     </div>
     <label class="sf-check"><input type="checkbox" id="ae-nd" ${rec.outDate && rec.outDate > rec.date ? "checked" : ""} /> 익일 퇴근 (자정을 넘겨 퇴근)</label>
     <label class="sf-check"><input type="checkbox" id="ae-brk" ${brkDefault ? "checked" : ""} /> 휴게시간 포함 (실근무에서 1시간 차감)</label>
-    <label class="sf-check"><input type="checkbox" id="ae-noout" ${isNew || !rec.outAt ? "checked" : ""} /> 퇴근 미기록 상태로 두기</label>
     <div class="ae-preview" id="ae-preview"></div>
     <div class="modal-actions">
       <button type="button" class="btn btn-ghost" id="ae-cancel">취소</button>
@@ -3415,16 +3423,15 @@ function openAttEditModal(emp, date, att, shiftOf = () => null) {
   const updatePreview = () => {
     const pv = $("#ae-preview");
     if (!pv) return;
-    if ($("#ae-noout").checked) { pv.innerHTML = `퇴근 미기록 — 실근무 시간은 퇴근 기록 후 계산됩니다.`; return; }
     const inAt = `${$("#ae-ih").value}:${$("#ae-im").value}`;
     const outAt = `${$("#ae-oh").value}:${$("#ae-om").value}`;
     const brk = $("#ae-brk").checked;
     const outDate = $("#ae-nd").checked ? nextDateStr(selDate) : selDate;
-    const wh = workedHours({ date: selDate, inAt, outAt, outDate, breakIncluded: brk }, null);
+    const wh = workedHours({ date: selDate, inAt, outAt, outDate, breakIncluded: brk }, shiftOf(selDate));
     pv.innerHTML = `${esc(inAt)} ~ ${$("#ae-nd").checked ? "익일 " : ""}${esc(outAt)}${brk ? " · 휴게 1시간 차감" : ""}
       → 실근무 <b>${fmtH(wh ?? 0)}시간</b>`;
   };
-  ["ae-ih", "ae-im", "ae-oh", "ae-om", "ae-nd", "ae-brk", "ae-noout"].forEach((id) => {
+  ["ae-ih", "ae-im", "ae-oh", "ae-om", "ae-nd", "ae-brk"].forEach((id) => {
     const el = $("#" + id);
     if (el) el.onchange = updatePreview;
   });
@@ -3444,11 +3451,10 @@ function openAttEditModal(emp, date, att, shiftOf = () => null) {
     const save = $("#ae-save");
     if (save.disabled) return;
     const inAt = `${$("#ae-ih").value}:${$("#ae-im").value}`;
-    const noOut = $("#ae-noout").checked;
     const nextDay = $("#ae-nd").checked;
     const outAt = `${$("#ae-oh").value}:${$("#ae-om").value}`;
     // 같은 날짜인데 퇴근이 출근보다 빠르면 익일 퇴근으로 체크해야 함
-    if (!noOut && !nextDay && outAt < inAt) {
+    if (!nextDay && outAt < inAt) {
       toast(`퇴근(${outAt})이 출근(${inAt})보다 빠릅니다. 자정을 넘겼다면 [익일 퇴근]을 체크하세요.`);
       return;
     }
@@ -3457,15 +3463,13 @@ function openAttEditModal(emp, date, att, shiftOf = () => null) {
       if (exist.exists && !confirm(`${emp.name}님의 ${selDate} 기록이 이미 있습니다. 덮어쓸까요?`)) return;
     }
     save.disabled = true;
-    // 휴게 차감 여부를 기록에 직접 저장 (일정 설정과 무관하게 이 기록에 확정 적용)
-    const data = { empId: emp.id, name: emp.name, dept: emp.dept || "", date: selDate, inAt, breakIncluded: $("#ae-brk").checked };
-    if (noOut) {
-      data.outAt = firebase.firestore.FieldValue.delete();
-      data.outDate = firebase.firestore.FieldValue.delete();
-    } else {
-      data.outAt = outAt;
-      data.outDate = nextDay ? nextDateStr(selDate) : selDate;
-    }
+    // 관리자가 대신 입력할 때는 항상 출근·퇴근을 함께 확정 저장한다.
+    // 휴게 차감 여부도 기록에 직접 저장 (일정 설정과 무관하게 이 기록에 확정 적용)
+    const data = {
+      empId: emp.id, name: emp.name, dept: emp.dept || "", date: selDate,
+      inAt, outAt, outDate: nextDay ? nextDateStr(selDate) : selDate,
+      breakIncluded: $("#ae-brk").checked
+    };
     await db.collection(COL.attendance).doc(`${emp.id}_${selDate}`).set(data, { merge: true });
     closeModal();
     toast(`${emp.name}님의 ${selDate} 출퇴근을 ${isNew ? "입력" : "수정"}했습니다.`);
