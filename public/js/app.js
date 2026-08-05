@@ -328,7 +328,8 @@ const ICONS = {
   monitor: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5c0 4.6 3.2 8.4 7.5 10 4.3-1.6 7.5-5.4 7.5-10V6L12 3Z"/><path d="m9 12 2 2 4-4"/></svg>',
   ledger: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>',
   grid: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg>',
-  calendar: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><circle cx="8.5" cy="14.5" r="1"/><circle cx="12" cy="14.5" r="1"/><circle cx="15.5" cy="14.5" r="1"/></svg>'
+  calendar: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><circle cx="8.5" cy="14.5" r="1"/><circle cx="12" cy="14.5" r="1"/><circle cx="15.5" cy="14.5" r="1"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>'
 };
 
 function renderSidebar() {
@@ -357,6 +358,7 @@ function renderSidebar() {
   const items = [
     { id: "home", ico: "home", label: "홈" },
     { id: "schedule", ico: "calendar", label: "일정" },
+    { id: "attend", ico: "clock", label: "근태관리" },
     { id: "payhistory", ico: "payroll", label: "급여" },
     { id: "leave", ico: "leave", label: "휴가" },
     { id: "settings", ico: "settings", label: "설정" }
@@ -368,6 +370,7 @@ function renderSidebar() {
     adminItems.push({ id: "systems", ico: "grid", label: "사내 시스템" });
     adminItems.push({ id: "paymanage", ico: "ledger", label: "급여관리" });
   }
+  if (isAdmin() || isSpecial()) adminItems.push({ id: "attendadmin", ico: "clock", label: "근태관리" });
   if (isAdmin() || isSpecial() || me.role === "executive") adminItems.push({ id: "leaveadmin", ico: "leave", label: "연차관리" });
   if (isAdmin()) {
     adminItems.push({ id: "employees", ico: "employees", label: "직원 관리" });
@@ -433,6 +436,8 @@ function navigate(view) {
   const render = {
     home: renderHome,
     schedule: renderSchedule,
+    attend: renderAttend,
+    attendadmin: renderAttendAdmin,
     payhistory: renderPayHistory,
     paymanage: renderPayroll,
     leave: renderLeave,
@@ -2468,6 +2473,578 @@ function openScheduleModal() {
 
   openModal(`<h3>일정 등록</h3><div id="sc-modal-body">${bodyHtml()}</div>`);
   wire();
+}
+
+/* ───────── 근태관리 (출퇴근 기록 · 근무 캘린더 · 근무 이력) ───────── */
+const WORK_AREAS = ["카페", "홀&바", "주방"];
+let attTab = "record";   // record | calendar | history
+let atCalYm = null;
+let atHistYm = null;
+let admAttYm = null;
+
+function canEditShifts() { return isAdmin() || isSpecial(); }
+function minOf(t) { const [h, m] = String(t || "0:0").split(":").map(Number); return h * 60 + (m || 0); }
+function hm(mins) { return `${String(Math.floor(mins / 60) % 24).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`; }
+function shiftOvernight(s) { return minOf(s.end) <= minOf(s.start); }
+function shiftSpanMin(s) { let d = minOf(s.end) - minOf(s.start); if (d <= 0) d += 1440; return d; }
+function shiftHours(s) { return Math.max(0, shiftSpanMin(s) / 60 - (s.breakIncluded ? 1 : 0)); }
+function shiftEndLabel(s) { return shiftOvernight(s) ? s.end + "+1" : s.end; }
+function fmtH(h) { return String(Math.round(h * 100) / 100); }
+function hmNowKST() { const d = kstNow(); return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`; }
+function prevDateStr(ds) { const d = new Date(ds + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); }
+function tsSec(t) { return t?.seconds ?? (t instanceof Date ? t.getTime() / 1000 : 0); }
+const SHIFT_COLOR_N = 8;
+function shiftColor(id) {
+  let h = 0;
+  for (const c of String(id || "")) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return "shc" + (h % SHIFT_COLOR_N);
+}
+/* 시간 셀렉트 (시 0-23 · 분 5분 단위) */
+function timeSelHtml(prefix, val) {
+  const now = hmNowKST();
+  const v = val || `${now.slice(0, 2)}:${String(Math.floor(Number(now.slice(3)) / 5) * 5).padStart(2, "0")}`;
+  const [vh, vm] = v.split(":");
+  return `<div class="io-time">
+    <select id="${prefix}-h">${Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0")).map((h) =>
+      `<option ${h === vh ? "selected" : ""}>${h}</option>`).join("")}</select>
+    <b>:</b>
+    <select id="${prefix}-m">${Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0")).map((m) =>
+      `<option ${m === vm ? "selected" : ""}>${m}</option>`).join("")}</select>
+  </div>`;
+}
+const timeSelVal = (prefix) => `${$(`#${prefix}-h`).value}:${$(`#${prefix}-m`).value}`;
+
+/* 실근무 시간(h): 출퇴근 기록 + (해당일 일정의 휴게 여부) */
+function workedHours(att, shift) {
+  if (!att?.inAt || !att?.outAt) return null;
+  let span = minOf(att.outAt) - minOf(att.inAt);
+  if (att.outDate && att.outDate > att.date) span += 1440;
+  if (span <= 0) span += 1440;
+  return Math.max(0, span / 60 - (shift?.breakIncluded ? 1 : 0));
+}
+/* 특이사항 (지각/조기출근/조기퇴근/연장) */
+function attNotes(att, shift) {
+  if (!att || !shift || !att.inAt) return [];
+  const notes = [];
+  const dIn = minOf(att.inAt) - minOf(shift.start);
+  if (dIn >= 5) notes.push({ k: "late", label: `지각 ${dIn}분` });
+  else if (dIn <= -5) notes.push({ k: "earlyin", label: `조기출근 ${-dIn}분` });
+  if (att.outAt) {
+    let outM = minOf(att.outAt) + (att.outDate && att.outDate > att.date ? 1440 : 0);
+    const endM = minOf(shift.end) + (shiftOvernight(shift) ? 1440 : 0);
+    const dOut = outM - endM;
+    if (dOut <= -5) notes.push({ k: "earlyout", label: `조기퇴근 ${-dOut}분` });
+    else if (dOut >= 5) notes.push({ k: "over", label: `연장 ${dOut}분` });
+  }
+  return notes;
+}
+const noteChips = (notes) => notes.map((n) => `<span class="att-note ${n.k}">${n.label}</span>`).join("");
+
+async function renderAttend() {
+  const main = $("#main");
+  main.innerHTML = pageHead("ATTEND", "근태관리", "출퇴근을 기록하고 근무 일정·이력을 확인합니다.") + `
+    <div class="subtabs">
+      ${[["record", "근태기록"], ["calendar", "근무 캘린더"], ["history", "근무 이력"]].map(([k, l]) =>
+        `<button class="subtab ${attTab === k ? "on" : ""}" data-atab="${k}">${l}</button>`).join("")}
+    </div>
+    <div id="att-body"><div class="empty">불러오는 중...</div></div>`;
+  main.querySelectorAll("[data-atab]").forEach((b) => {
+    b.onclick = () => { attTab = b.dataset.atab; renderAttend(); };
+  });
+  if (attTab === "record") await renderAttRecord();
+  else if (attTab === "calendar") await renderAttCalendar();
+  else await renderAttHistory();
+}
+
+/* ── 근태기록: 부서 알림 + 내 출퇴근 + 오늘 근무 현황 ── */
+async function renderAttRecord() {
+  const body = $("#att-body");
+  const today = todayKST();
+  const yesterday = prevDateStr(today);
+  const [shiftSnap, attSnap, wnSnap] = await Promise.all([
+    db.collection(COL.shifts).where("date", "in", [yesterday, today]).get(),
+    db.collection(COL.attendance).where("date", "in", [yesterday, today]).get(),
+    db.collection(COL.workNotices).get()
+  ]);
+  const shifts = shiftSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((s) => s.date === today || s.date === yesterday);
+  const atts = attSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((a) => a.date === today || a.date === yesterday);
+  const myToday = atts.find((a) => a.empId === me.id && a.date === today);
+  const myOpen = atts.find((a) => a.empId === me.id && a.inAt && !a.outAt);
+  const notices = wnSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    .filter((n) => n.dept === me.dept && !(n.ackIds || []).includes(me.id))
+    .sort((a, b) => tsSec(b.createdAt) - tsSec(a.createdAt)).slice(0, 10);
+
+  // 오늘 현황 행
+  const rows = [];
+  atts.filter((a) => a.date === yesterday && a.inAt && !a.outAt).forEach((a) => {
+    const s = shifts.find((x) => x.date === yesterday && x.empId === a.empId);
+    rows.push({ name: a.name, badge: yesterday, plan: s ? `${s.start}-${shiftEndLabel(s)}` : "-", inAt: a.inAt, outAt: a.outAt });
+  });
+  shifts.filter((s) => s.date === today).sort((a, b) => minOf(a.start) - minOf(b.start)).forEach((s) => {
+    const a = atts.find((x) => x.empId === s.empId && x.date === today);
+    rows.push({ name: s.name, badge: null, plan: `${s.start}-${shiftEndLabel(s)}`, inAt: a?.inAt, outAt: a?.outAt });
+  });
+  atts.filter((a) => a.date === today && !shifts.some((s) => s.date === today && s.empId === a.empId)).forEach((a) => {
+    rows.push({ name: a.name, badge: null, plan: "-", inAt: a.inAt, outAt: a.outAt });
+  });
+
+  const inDone = !!myToday?.inAt;
+  const outDone = !!myToday?.outAt;
+  const outTarget = myOpen || myToday;
+
+  body.innerHTML = `
+    ${notices.map((n) => `
+      <div class="wn-notice">
+        <div class="wn-head"><span class="wn-badge">근무 변경</span><b>${esc(n.authorName)}</b>
+          <span class="wn-meta">${esc(n.dept)} · ${fmtTs(n.createdAt)}</span></div>
+        <div class="wn-body">${linkify(n.text || "")}</div>
+        <div class="wn-foot"><button class="btn btn-primary btn-sm" data-wnack="${n.id}">확인함</button></div>
+      </div>`).join("")}
+    <div class="card">
+      <div class="card-title"><div>출퇴근 기록<div class="ct-desc">${esc(me.name)}님의 오늘(${dateLabelKo(today)}) 출퇴근을 기록합니다. 시간을 조정한 후 버튼을 누르세요.</div></div></div>
+      <div class="att-io-grid">
+        <div class="att-io in">
+          <div class="io-title">출근 시간</div>
+          ${timeSelHtml("ai", myToday?.inAt)}
+          <button class="btn io-btn in" id="att-in">${inDone ? `출근 완료 ${myToday.inAt}` : "출근하기"}</button>
+        </div>
+        <div class="att-io out">
+          <div class="io-title">퇴근 시간</div>
+          ${timeSelHtml("ao", myToday?.outAt)}
+          <button class="btn io-btn out" id="att-out" ${!outTarget?.inAt ? "disabled" : ""}>
+            ${outDone ? `퇴근 완료 ${myToday.outAt}` : outTarget?.inAt ? "퇴근하기" : "출근 먼저 하세요"}</button>
+        </div>
+      </div>
+      ${myOpen && myOpen.date === yesterday ? `<div class="mini-note">어제(${esc(yesterday)}) 퇴근 기록이 없습니다. 지금 퇴근을 누르면 어제 근무의 퇴근으로 기록됩니다.</div>` : ""}
+    </div>
+    <div class="card">
+      <div class="card-title"><div>오늘 근무 현황<div class="ct-desc">오늘 근무 예정자와 출퇴근 기록입니다.</div></div></div>
+      ${rows.length ? `<div class="table-wrap"><table class="data att-table">
+        <thead><tr><th>근무자명</th><th>예정</th><th>출근</th><th>퇴근</th></tr></thead>
+        <tbody>${rows.map((r) => `<tr class="${r.badge ? "att-carry" : ""}">
+          <td><b>${esc(r.name)}</b>${r.badge ? ` <span class="badge warn">${esc(r.badge)}</span>` : ""}</td>
+          <td class="att-mono">${esc(r.plan)}</td>
+          <td class="att-mono ${r.inAt ? "c-green" : "c-red"}">${r.inAt ? esc(r.inAt) : "-"}</td>
+          <td class="att-mono ${r.outAt ? "" : "c-red"}">${r.outAt ? esc(r.outAt) : "-"}</td>
+        </tr>`).join("")}</tbody>
+      </table></div>` : `<div class="empty">오늘 근무 예정자가 없습니다. [근무 캘린더]에서 일정을 등록하세요.</div>`}
+    </div>`;
+
+  body.querySelectorAll("[data-wnack]").forEach((b) => {
+    b.onclick = async () => {
+      await db.collection(COL.workNotices).doc(b.dataset.wnack)
+        .update({ ackIds: firebase.firestore.FieldValue.arrayUnion(me.id) });
+      renderAttend();
+    };
+  });
+  $("#att-in").onclick = async () => {
+    const t = timeSelVal("ai");
+    if (inDone && !confirm(`이미 ${myToday.inAt} 출근 기록이 있습니다. ${t}(으)로 덮어쓸까요?`)) return;
+    await db.collection(COL.attendance).doc(`${me.id}_${today}`)
+      .set({ empId: me.id, name: me.name, dept: me.dept, date: today, inAt: t }, { merge: true });
+    toast(`출근 ${t} 기록 완료`);
+    renderAttend();
+  };
+  $("#att-out").onclick = async () => {
+    if (!outTarget?.inAt) { toast("출근 먼저 기록하세요."); return; }
+    const t = timeSelVal("ao");
+    if (outTarget.outAt && !confirm(`이미 ${outTarget.outAt} 퇴근 기록이 있습니다. ${t}(으)로 덮어쓸까요?`)) return;
+    await db.collection(COL.attendance).doc(outTarget.id)
+      .set({ outAt: t, outDate: today }, { merge: true });
+    toast(`퇴근 ${t} 기록 완료`);
+    renderAttend();
+  };
+}
+
+/* ── 근무 캘린더 ── */
+async function renderAttCalendar() {
+  const body = $("#att-body");
+  const today = todayKST();
+  if (!atCalYm) atCalYm = ymNowKST();
+  const [yy, mm] = atCalYm.split("-").map(Number);
+  const [shiftSnap, emps] = await Promise.all([
+    db.collection(COL.shifts).where("date", ">=", `${atCalYm}-01`).where("date", "<=", `${atCalYm}-31`).get(),
+    loadActiveEmployees()
+  ]);
+  const shifts = shiftSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((s) => (s.date || "").startsWith(atCalYm));
+  const byDate = {};
+  shifts.forEach((s) => { (byDate[s.date] = byDate[s.date] || []).push(s); });
+
+  const first = new Date(Date.UTC(yy, mm - 1, 1));
+  const startDow = first.getUTCDay();
+  const daysIn = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+  const cells = [];
+  for (let i = 0; i < startDow; i++) cells.push(null);
+  for (let d = 1; d <= daysIn; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const cellHtml = (d, idx) => {
+    if (!d) return `<div class="sc-cell blank"></div>`;
+    const ds = `${yy}-${String(mm).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const dow = idx % 7;
+    const list = byDate[ds] || [];
+    const groups = WORK_AREAS.map((area) => {
+      const g = list.filter((s) => s.area === area).sort((a, b) => minOf(a.start) - minOf(b.start));
+      if (!g.length) return "";
+      return `<span class="wa-label">${area}</span>` + g.map((s) =>
+        `<span class="shift-ent ${shiftColor(s.empId)}"><b>${esc(s.name)}</b><i>${s.start}-${shiftEndLabel(s)} (${fmtH(shiftHours(s))}h)${s.breakIncluded ? "*" : ""}</i></span>`).join("");
+    }).join("");
+    return `<button type="button" class="sc-cell at-cell ${ds < today ? "past" : ""} ${ds === today ? "today" : ""}" data-atd="${ds}">
+      <span class="d ${dow === 0 ? "sun" : dow === 6 ? "sat" : ""}">${d}</span>
+      <span class="at-ents">${groups}</span>
+    </button>`;
+  };
+
+  const monthEmps = [...new Map(shifts.map((s) => [s.empId, s.name])).entries()];
+  body.innerHTML = `
+    <div class="card">
+      <div class="sc-cal-head">
+        <button type="button" class="cal-nav" id="at-prev">&lsaquo;</button>
+        <b class="sc-cal-title">${yy}년 ${mm}월</b>
+        <button type="button" class="cal-nav" id="at-next">&rsaquo;</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="at-now">오늘</button>
+      </div>
+      <div class="sc-dow">${["일", "월", "화", "수", "목", "금", "토"].map((d, i) =>
+        `<span class="${i === 0 ? "sun" : i === 6 ? "sat" : ""}">${d}</span>`).join("")}</div>
+      <div class="sc-grid at">${cells.map((d, i) => cellHtml(d, i)).join("")}</div>
+      <div class="at-legend">
+        ${monthEmps.map(([id, nm]) => `<span class="at-legend-item ${shiftColor(id)}">${esc(nm)}</span>`).join("")}
+        <span class="at-legend-note">* 휴게 1시간 차감 · 날짜를 누르면 상세${canEditShifts() ? "·등록" : ""} 화면이 열립니다</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><div>근무 변경 알림<div class="ct-desc">근무 변동사항을 작성하면 ${esc(me.dept)} 전원의 [근태기록] 화면에 표시됩니다.</div></div></div>
+      <textarea id="wn-text" class="wn-input" placeholder="예시:
+2월 17일 18:00~22:00 근무자 변동 (기존: 홍길동, 변경: 김아무개)
+2월 18일 김아무개 근무시간 변경 (기존: 16:00~22:00, 변경: 18:00~24:00)"></textarea>
+      <div class="modal-actions" style="margin-top:12px"><button class="btn btn-primary" id="wn-submit">변경 알림 제출</button></div>
+    </div>`;
+
+  const shiftMonth = (n) => {
+    let y = yy, m = mm + n;
+    if (m < 1) { m = 12; y--; }
+    if (m > 12) { m = 1; y++; }
+    atCalYm = `${y}-${String(m).padStart(2, "0")}`;
+    renderAttend();
+  };
+  $("#at-prev").onclick = () => shiftMonth(-1);
+  $("#at-next").onclick = () => shiftMonth(1);
+  $("#at-now").onclick = () => { atCalYm = ymNowKST(); renderAttend(); };
+  body.querySelectorAll("[data-atd]").forEach((b) => {
+    b.onclick = () => openShiftDayModal(b.dataset.atd, emps);
+  });
+  $("#wn-submit").onclick = async () => {
+    const text = $("#wn-text").value.trim();
+    if (!text) { toast("변동 내용을 입력하세요."); return; }
+    await db.collection(COL.workNotices).add({
+      text, dept: me.dept, authorId: me.id, authorName: me.name,
+      ackIds: [me.id],
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    $("#wn-text").value = "";
+    toast(`${me.dept} 전원에게 근무 변경 알림을 게시했습니다.`);
+  };
+}
+
+/* 근무 일정 일별 모달: 목록 + (관리자) 추가/수정/삭제 */
+function openShiftDayModal(ds, emps) {
+  const canEdit = canEditShifts();
+  let showForm = false;
+  let editing = null; // 수정 중인 shift
+
+  const formHtml = () => {
+    const s = editing || {};
+    const [sh, sm] = (s.start || "09:00").split(":");
+    const [eh, em] = (s.end || "18:00").split(":");
+    const hOpts = (v) => Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0")).map((h) =>
+      `<option ${h === v ? "selected" : ""}>${h}</option>`).join("");
+    const mOpts = (v) => Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0")).map((m) =>
+      `<option ${m === v ? "selected" : ""}>${m}</option>`).join("");
+    return `
+    <div class="shift-form">
+      <div class="sf-head"><b>${editing ? "일정 수정" : "새 스케줄"}</b><button type="button" class="icon-btn" id="sf-close">✕</button></div>
+      <div class="grid-2">
+        <label class="field"><span class="field-label">직원</span>
+          <select id="sf-emp">${emps.map((e) =>
+            `<option value="${e.id}" ${s.empId === e.id ? "selected" : ""}>${esc(e.name)} (${esc(e.dept)})</option>`).join("")}</select></label>
+        <label class="field"><span class="field-label">근무 영역</span>
+          <select id="sf-area">${WORK_AREAS.map((a) => `<option ${s.area === a ? "selected" : ""}>${a}</option>`).join("")}</select></label>
+      </div>
+      <div class="grid-2">
+        <div class="field"><span class="field-label">시작</span>
+          <div class="io-time"><select id="sf-sh">${hOpts(sh)}</select><b>:</b><select id="sf-sm">${mOpts(sm)}</select></div></div>
+        <div class="field"><span class="field-label">종료 <em class="sf-hint">(시작보다 빠르면 익일)</em></span>
+          <div class="io-time"><select id="sf-eh">${hOpts(eh)}</select><b>:</b><select id="sf-em">${mOpts(em)}</select></div></div>
+      </div>
+      <label class="sf-check"><input type="checkbox" id="sf-break" ${s.breakIncluded ? "checked" : ""} /> 휴게시간 포함 (총 근무시간에서 1시간 차감)</label>
+      ${!editing ? `<label class="sf-check"><input type="checkbox" id="sf-repeat" /> 매주 반복 (이번 달의 같은 요일에 모두 등록)</label>` : ""}
+      <button type="button" class="btn btn-primary btn-block" id="sf-save" style="margin-top:12px">저장</button>
+    </div>`;
+  };
+
+  const renderM = async () => {
+    const snap = await db.collection(COL.shifts).where("date", "==", ds).get();
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((s) => s.date === ds)
+      .sort((a, b) => WORK_AREAS.indexOf(a.area) - WORK_AREAS.indexOf(b.area) || minOf(a.start) - minOf(b.start));
+    openModal(`
+      <div class="sf-top"><h3>${dateLabelKo(ds)} 근무</h3>
+        ${canEdit && !showForm ? `<button class="btn btn-primary btn-sm" id="sh-addbtn">+ 추가</button>` : ""}</div>
+      ${showForm ? formHtml() : ""}
+      <div class="shift-list">
+        ${list.length ? list.map((s) => `
+          <div class="shift-row ${shiftColor(s.empId)}">
+            <div class="sr-main"><b>${esc(s.name)}</b> <span class="sr-area">(${esc(s.area)})</span>
+              <div class="sr-time">${s.start} ~ ${shiftEndLabel(s)} (${fmtH(shiftHours(s))}h)${s.breakIncluded ? " (휴게포함)" : ""}</div></div>
+            ${canEdit ? `<button class="sr-act" data-shedit="${s.id}">수정</button>
+              <button class="sr-act danger" data-shdel="${s.id}">삭제</button>` : ""}
+          </div>`).join("") : `<div class="empty" style="padding:14px">등록된 근무가 없습니다.</div>`}
+      </div>
+      <div class="modal-actions"><button class="btn btn-primary" id="sh-close">닫기</button></div>`);
+
+    $("#sh-close").onclick = () => { closeModal(); renderAttend(); };
+    const addBtn = $("#sh-addbtn");
+    if (addBtn) addBtn.onclick = () => { showForm = true; editing = null; renderM(); };
+    const sfClose = $("#sf-close");
+    if (sfClose) sfClose.onclick = () => { showForm = false; editing = null; renderM(); };
+
+    $("#modal").querySelectorAll("[data-shedit]").forEach((b) => {
+      b.onclick = () => { editing = list.find((x) => x.id === b.dataset.shedit); showForm = true; renderM(); };
+    });
+    $("#modal").querySelectorAll("[data-shdel]").forEach((b) => {
+      b.onclick = async () => {
+        const s = list.find((x) => x.id === b.dataset.shdel);
+        if (!confirm(`${s.name}님의 ${ds} ${s.start}~${shiftEndLabel(s)} 근무를 삭제할까요?`)) return;
+        await db.collection(COL.shifts).doc(s.id).delete();
+        renderM();
+      };
+    });
+
+    const save = $("#sf-save");
+    if (save) save.onclick = async () => {
+      if (save.disabled) return;
+      save.disabled = true;
+      const emp = emps.find((e) => e.id === $("#sf-emp").value);
+      if (!emp) { toast("직원을 선택하세요."); save.disabled = false; return; }
+      const start = `${$("#sf-sh").value}:${$("#sf-sm").value}`;
+      const end = `${$("#sf-eh").value}:${$("#sf-em").value}`;
+      if (start === end) { toast("시작과 종료 시간이 같습니다."); save.disabled = false; return; }
+      const data = {
+        empId: emp.id, name: emp.name, area: $("#sf-area").value,
+        start, end, breakIncluded: $("#sf-break").checked,
+        updatedBy: me.id
+      };
+      if (editing) {
+        await db.collection(COL.shifts).doc(editing.id).set({ ...data, date: editing.date }, { merge: true });
+      } else {
+        const dates = [ds];
+        if ($("#sf-repeat")?.checked) {
+          const d = new Date(ds + "T00:00:00Z");
+          for (;;) {
+            d.setUTCDate(d.getUTCDate() + 7);
+            const nd = d.toISOString().slice(0, 10);
+            if (!nd.startsWith(ds.slice(0, 7))) break;
+            dates.push(nd);
+          }
+        }
+        for (const dt of dates) {
+          await db.collection(COL.shifts).add({ ...data, date: dt, createdBy: me.id, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+        }
+        if (dates.length > 1) toast(`${dates.length}일(매주 반복)에 등록했습니다.`);
+      }
+      showForm = false;
+      editing = null;
+      renderM();
+    };
+  };
+  renderM();
+}
+
+/* ── 근무 이력 (본인) ── */
+async function renderAttHistory() {
+  const body = $("#att-body");
+  if (!atHistYm) atHistYm = ymNowKST();
+  const [yy, mm] = atHistYm.split("-").map(Number);
+  const [shiftSnap, attSnap] = await Promise.all([
+    db.collection(COL.shifts).where("date", ">=", `${atHistYm}-01`).where("date", "<=", `${atHistYm}-31`).get(),
+    db.collection(COL.attendance).where("date", ">=", `${atHistYm}-01`).where("date", "<=", `${atHistYm}-31`).get()
+  ]);
+  const myShifts = shiftSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    .filter((s) => s.empId === me.id && (s.date || "").startsWith(atHistYm));
+  const myAtts = attSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    .filter((a) => a.empId === me.id && (a.date || "").startsWith(atHistYm));
+  const shiftBy = {}; myShifts.forEach((s) => { shiftBy[s.date] = s; });
+  const attBy = {}; myAtts.forEach((a) => { attBy[a.date] = a; });
+  const allDates = [...new Set([...myShifts.map((s) => s.date), ...myAtts.map((a) => a.date)])].sort();
+
+  const schedDays = new Set(myShifts.map((s) => s.date)).size;
+  const schedH = myShifts.reduce((s, x) => s + shiftHours(x), 0);
+  const workedDays = myAtts.filter((a) => a.inAt).length;
+  const workedH = allDates.reduce((sum, d) => sum + (workedHours(attBy[d], shiftBy[d]) || 0), 0);
+  const noteCnt = { late: 0, earlyin: 0, earlyout: 0, over: 0 };
+  allDates.forEach((d) => attNotes(attBy[d], shiftBy[d]).forEach((n) => noteCnt[n.k]++));
+
+  body.innerHTML = `
+    <div class="card">
+      <div class="sc-cal-head">
+        <button type="button" class="cal-nav" id="ah-prev">&lsaquo;</button>
+        <b class="sc-cal-title">${yy}년 ${mm}월</b>
+        <button type="button" class="cal-nav" id="ah-next">&rsaquo;</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="ah-now">이번 달</button>
+      </div>
+      <div class="pb-stats s4">
+        <div><span>근무 예정일</span><b>${schedDays}일</b></div>
+        <div><span>예정 근무시간</span><b>${fmtH(schedH)}h</b></div>
+        <div><span>실 근무일</span><b class="c-green">${workedDays}일</b></div>
+        <div><span>실 근무시간</span><b class="c-green">${fmtH(workedH)}h</b></div>
+      </div>
+      <div class="att-notecnt">
+        <span class="att-note late">지각 ${noteCnt.late}회</span>
+        <span class="att-note earlyin">조기출근 ${noteCnt.earlyin}회</span>
+        <span class="att-note earlyout">조기퇴근 ${noteCnt.earlyout}회</span>
+        <span class="att-note over">연장 ${noteCnt.over}회</span>
+      </div>
+      ${allDates.length ? `<div class="table-wrap"><table class="data att-table">
+        <thead><tr><th>날짜</th><th>예정</th><th>출근</th><th>퇴근</th><th class="num">예정(h)</th><th class="num">실근무(h)</th><th>비고</th></tr></thead>
+        <tbody>${allDates.map((d) => {
+          const s = shiftBy[d], a = attBy[d];
+          const wh = workedHours(a, s);
+          return `<tr>
+            <td class="att-mono"><b>${d.slice(5)}</b> <span class="att-dow">(${"일월화수목금토"[dateParts(d).dow]})</span></td>
+            <td class="att-mono">${s ? `${s.start}-${shiftEndLabel(s)}` : "-"}</td>
+            <td class="att-mono ${a?.inAt ? "c-green" : ""}">${a?.inAt || "-"}</td>
+            <td class="att-mono">${a?.outAt || "-"}</td>
+            <td class="num">${s ? fmtH(shiftHours(s)) : "-"}</td>
+            <td class="num"><b>${wh != null ? fmtH(wh) : "-"}</b></td>
+            <td>${noteChips(attNotes(a, s)) || "-"}</td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table></div>` : `<div class="empty">${mm}월 근무 기록이 없습니다.</div>`}
+    </div>`;
+
+  const shiftMonth = (n) => {
+    let y = yy, m = mm + n;
+    if (m < 1) { m = 12; y--; }
+    if (m > 12) { m = 1; y++; }
+    atHistYm = `${y}-${String(m).padStart(2, "0")}`;
+    renderAttend();
+  };
+  $("#ah-prev").onclick = () => shiftMonth(-1);
+  $("#ah-next").onclick = () => shiftMonth(1);
+  $("#ah-now").onclick = () => { atHistYm = ymNowKST(); renderAttend(); };
+}
+
+/* ── 근태관리 (관리자: 전 직원 이력 + 메모) ── */
+let admOpenIds = new Set();
+async function renderAttendAdmin() {
+  if (!canEditShifts()) return navigate("home");
+  const main = $("#main");
+  if (!admAttYm) admAttYm = ymNowKST();
+  const [yy, mm] = admAttYm.split("-").map(Number);
+  main.innerHTML = pageHead("ADMIN", "근태관리", "전 직원의 출퇴근·근무 이력을 한눈에 확인하고 기록별 메모를 남깁니다.") +
+    `<div id="adm-body"><div class="empty">불러오는 중...</div></div>`;
+
+  const [shiftSnap, attSnap, emps] = await Promise.all([
+    db.collection(COL.shifts).where("date", ">=", `${admAttYm}-01`).where("date", "<=", `${admAttYm}-31`).get(),
+    db.collection(COL.attendance).where("date", ">=", `${admAttYm}-01`).where("date", "<=", `${admAttYm}-31`).get(),
+    loadActiveEmployees()
+  ]);
+  const shifts = shiftSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((s) => (s.date || "").startsWith(admAttYm));
+  const atts = attSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((a) => (a.date || "").startsWith(admAttYm));
+
+  // 직원 목록: 재직 직원 + (이번 달 근무 기록이 있는 외부 인원)
+  const people = new Map();
+  emps.forEach((e) => people.set(e.id, { id: e.id, name: e.name, dept: e.dept }));
+  [...shifts, ...atts].forEach((x) => {
+    if (x.empId && !people.has(x.empId)) people.set(x.empId, { id: x.empId, name: x.name, dept: x.dept || "-" });
+  });
+
+  const rowsHtml = [...people.values()].map((p) => {
+    const pShifts = shifts.filter((s) => s.empId === p.id);
+    const pAtts = atts.filter((a) => a.empId === p.id);
+    if (!pShifts.length && !pAtts.length) return "";
+    const shiftBy = {}; pShifts.forEach((s) => { shiftBy[s.date] = s; });
+    const attBy = {}; pAtts.forEach((a) => { attBy[a.date] = a; });
+    const dates = [...new Set([...pShifts.map((s) => s.date), ...pAtts.map((a) => a.date)])].sort();
+    const schedH = pShifts.reduce((s, x) => s + shiftHours(x), 0);
+    const workedH = dates.reduce((sum, d) => sum + (workedHours(attBy[d], shiftBy[d]) || 0), 0);
+    const noteCnt = { late: 0, earlyin: 0, earlyout: 0, over: 0 };
+    dates.forEach((d) => attNotes(attBy[d], shiftBy[d]).forEach((n) => noteCnt[n.k]++));
+    const open = admOpenIds.has(p.id);
+    const detail = `
+      <table class="data att-table adm-detail">
+        <thead><tr><th>날짜</th><th>예정</th><th>출근</th><th>퇴근</th><th class="num">실근무(h)</th><th>비고</th><th>메모</th></tr></thead>
+        <tbody>${dates.map((d) => {
+          const s = shiftBy[d], a = attBy[d];
+          const wh = workedHours(a, s);
+          return `<tr>
+            <td class="att-mono"><b>${d.slice(5)}</b></td>
+            <td class="att-mono">${s ? `${s.start}-${shiftEndLabel(s)}` : "-"}</td>
+            <td class="att-mono ${a?.inAt ? "c-green" : ""}">${a?.inAt || "-"}</td>
+            <td class="att-mono">${a?.outAt || "-"}</td>
+            <td class="num"><b>${wh != null ? fmtH(wh) : "-"}</b></td>
+            <td>${noteChips(attNotes(a, s)) || "-"}</td>
+            <td class="adm-memo-td"><input class="adm-memo" data-memo="${p.id}|${d}" value="${esc(a?.memo || "")}" placeholder="메모 입력 후 Enter" maxlength="100" /></td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table>`;
+    return `<tr class="ph-click" data-admtoggle="${p.id}">
+        <td><b>${esc(p.name)}</b></td><td>${esc(p.dept)}</td>
+        <td class="num">${new Set(pShifts.map((s) => s.date)).size}일</td>
+        <td class="num">${fmtH(schedH)}h</td>
+        <td class="num">${pAtts.filter((a) => a.inAt).length}일</td>
+        <td class="num"><b class="c-green">${fmtH(workedH)}h</b></td>
+        <td>${noteCnt.late ? `<span class="att-note late">지각 ${noteCnt.late}</span>` : ""}${noteCnt.earlyout ? `<span class="att-note earlyout">조기퇴근 ${noteCnt.earlyout}</span>` : ""}${!noteCnt.late && !noteCnt.earlyout ? "-" : ""}</td>
+      </tr>
+      <tr class="ph-detail-tr ${open ? "" : "hidden"}" data-admdetail="${p.id}"><td colspan="7"><div class="ph-detail ph-anim">${detail}</div></td></tr>`;
+  }).join("");
+
+  $("#adm-body").innerHTML = `
+    <div class="card">
+      <div class="sc-cal-head">
+        <button type="button" class="cal-nav" id="adm-prev">&lsaquo;</button>
+        <b class="sc-cal-title">${yy}년 ${mm}월</b>
+        <button type="button" class="cal-nav" id="adm-next">&rsaquo;</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="adm-now">이번 달</button>
+      </div>
+      ${rowsHtml.trim() ? `<div class="table-wrap"><table class="data att-table">
+        <thead><tr><th>이름</th><th>소속</th><th class="num">예정일</th><th class="num">예정시간</th><th class="num">근무일</th><th class="num">실근무</th><th>특이사항</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table></div>
+      <div class="mini-note">직원을 클릭하면 일별 이력이 펼쳐집니다. 메모는 입력 후 Enter로 저장됩니다.</div>`
+      : `<div class="empty">${mm}월 근무·출퇴근 기록이 없습니다.</div>`}
+    </div>`;
+
+  const shiftMonth = (n) => {
+    let y = yy, m = mm + n;
+    if (m < 1) { m = 12; y--; }
+    if (m > 12) { m = 1; y++; }
+    admAttYm = `${y}-${String(m).padStart(2, "0")}`;
+    renderAttendAdmin();
+  };
+  $("#adm-prev").onclick = () => shiftMonth(-1);
+  $("#adm-next").onclick = () => shiftMonth(1);
+  $("#adm-now").onclick = () => { admAttYm = ymNowKST(); renderAttendAdmin(); };
+  $("#adm-body").querySelectorAll("[data-admtoggle]").forEach((row) => {
+    row.onclick = (ev) => {
+      if (ev.target.closest("input")) return;
+      const id = row.dataset.admtoggle;
+      const detail = $("#adm-body").querySelector(`[data-admdetail="${id}"]`);
+      if (!detail) return;
+      detail.classList.toggle("hidden");
+      if (detail.classList.contains("hidden")) admOpenIds.delete(id); else admOpenIds.add(id);
+    };
+  });
+  $("#adm-body").querySelectorAll("[data-memo]").forEach((inp) => {
+    const saveMemo = async () => {
+      const [empId, date] = inp.dataset.memo.split("|");
+      const p = people.get(empId);
+      await db.collection(COL.attendance).doc(`${empId}_${date}`)
+        .set({ empId, name: p?.name || "", date, memo: inp.value.trim() }, { merge: true });
+      toast("메모를 저장했습니다.");
+    };
+    inp.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); inp.blur(); } };
+    inp.onchange = saveMemo;
+  });
 }
 
 /* ───────── 연차관리 (관리자 메뉴) ───────── */

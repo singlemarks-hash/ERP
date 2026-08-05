@@ -1249,7 +1249,7 @@ tr.ph-row-open td { background: var(--blue-soft); }
 .sc-cal-head .sc-cal-title { font-size: 1.05rem; font-weight: 800; letter-spacing: -0.02em; min-width: 110px; text-align: center; }
 .sc-cal-head.sm { margin-bottom: 8px; }
 .sc-cal-head.sm .sc-cal-title { font-size: 0.92rem; min-width: 90px; }
-.sc-cal-head #sc-now { position: absolute; right: 24px; }
+.sc-cal-head #sc-now, .sc-cal-head #at-now, .sc-cal-head #ah-now, .sc-cal-head #adm-now { position: absolute; right: 24px; }
 .sc-cal-head { position: relative; }
 
 .sc-dow { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: 0.72rem; font-weight: 700; color: var(--ink-faint); margin-bottom: 6px; }
@@ -1342,6 +1342,164 @@ tr.ph-row-open td { background: var(--blue-soft); }
 .field input.locked { background: #f2f4f6; color: var(--ink-soft); cursor: not-allowed; }
 .cal-input:disabled { background: #f2f4f6; color: var(--ink-faint); cursor: not-allowed; }
 
+/* ───────── 근태관리 ───────── */
+.subtabs {
+  display: inline-flex;
+  gap: 4px;
+  background: #e8ebf0;
+  padding: 4px;
+  border-radius: 12px;
+  margin-bottom: 18px;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.subtab {
+  border: none;
+  background: transparent;
+  padding: 9px 18px;
+  border-radius: 9px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.subtab.on { background: #fff; color: var(--ink); box-shadow: 0 1px 4px rgba(25, 31, 40, 0.1); }
+
+/* 근무 변경 알림 카드 */
+.wn-notice {
+  background: #fff9db;
+  border: 1.5px solid #ffd43b;
+  border-left: 6px solid #f59f00;
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-bottom: 14px;
+}
+.wn-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wn-badge { background: #f59f00; color: #fff; font-size: 0.7rem; font-weight: 800; border-radius: 7px; padding: 3px 9px; }
+.wn-meta { font-size: 0.75rem; color: var(--ink-soft); }
+.wn-body { margin-top: 10px; font-size: 0.9rem; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
+.wn-foot { display: flex; justify-content: flex-end; margin-top: 10px; }
+.wn-input {
+  width: 100%;
+  min-height: 110px;
+  padding: 13px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: #f9fafb;
+  font-family: inherit;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  resize: vertical;
+}
+.wn-input:focus { outline: none; border-color: var(--blue); background: #fff; }
+
+/* 출퇴근 기록 */
+.att-io-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.att-io { border-radius: 14px; padding: 16px; }
+.att-io.in { background: #f0faf4; border: 1.5px solid #c4ecd3; }
+.att-io.out { background: #fff5f5; border: 1.5px solid #f7d4d8; }
+.io-title { font-weight: 800; font-size: 0.9rem; margin-bottom: 10px; }
+.att-io.in .io-title { color: var(--green); }
+.att-io.out .io-title { color: var(--red); }
+.io-time { display: flex; gap: 6px; align-items: center; }
+.io-time select { flex: 1; min-width: 0; padding: 11px 8px; border: 1.5px solid var(--line); border-radius: 10px; background: #fff; text-align: center; }
+.io-btn { width: 100%; margin-top: 12px; font-weight: 800; color: #fff; }
+.io-btn.in { background: var(--green); }
+.io-btn.in:hover { background: #178a4c; }
+.io-btn.out { background: var(--red); }
+.io-btn.out:hover { background: #d63a49; }
+.io-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.att-table th, .att-table td { white-space: nowrap; }
+.att-mono { font-variant-numeric: tabular-nums; }
+.att-dow { font-size: 0.72rem; color: var(--ink-faint); }
+tr.att-carry td { background: #fff9db; }
+
+.att-note {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  border-radius: 7px;
+  padding: 2px 7px;
+  margin: 1px 2px 1px 0;
+  white-space: nowrap;
+}
+.att-note.late, .att-note.earlyout { background: var(--red-soft); color: var(--red); }
+.att-note.earlyin { background: var(--blue-soft); color: var(--blue-deep); }
+.att-note.over { background: #e6f4ec; color: var(--green); }
+.att-notecnt { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+.pb-stats.s4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+/* 근무 캘린더 */
+.sc-grid.at .sc-cell { min-height: 118px; }
+.at-ents { display: flex; flex-direction: column; min-width: 0; }
+.wa-label {
+  background: #eef0f3;
+  border-radius: 5px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  padding: 1px 5px;
+  margin: 2px 0 1px;
+}
+.shift-ent { display: block; border-radius: 6px; padding: 2px 5px; font-size: 0.64rem; margin: 1px 0; min-width: 0; }
+.shift-ent b { display: block; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shift-ent i { font-style: normal; font-size: 0.6rem; opacity: 0.85; white-space: nowrap; display: block; overflow: hidden; text-overflow: ellipsis; }
+.shc0 { background: #cff4fc; color: #0b7285; }
+.shc1 { background: #ffe3e8; color: #c2255c; }
+.shc2 { background: #ffec99; color: #9a6700; }
+.shc3 { background: #d3f9d8; color: #2b8a3e; }
+.shc4 { background: #ffe8cc; color: #d9480f; }
+.shc5 { background: #e5dbff; color: #6741d9; }
+.shc6 { background: #c3fae8; color: #087f5b; }
+.shc7 { background: #e9ecef; color: #495057; }
+.at-legend { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+.at-legend-item { font-size: 0.72rem; font-weight: 700; border-radius: 7px; padding: 3px 9px; }
+.at-legend-note { font-size: 0.72rem; color: var(--ink-faint); margin-left: auto; }
+
+/* 근무 일별 모달 */
+.sf-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+.sf-top h3 { margin: 0; }
+.shift-form { background: #f7f8fa; border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+.sf-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.sf-hint { font-style: normal; font-weight: 400; color: var(--ink-faint); font-size: 0.7rem; }
+.sf-check { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; margin-top: 8px; cursor: pointer; }
+.sf-check input { width: 16px; height: 16px; accent-color: var(--blue); }
+.shift-list { display: flex; flex-direction: column; gap: 8px; }
+.shift-row { display: flex; align-items: center; gap: 10px; border-radius: 12px; padding: 11px 14px; }
+.sr-main { flex: 1; min-width: 0; font-size: 0.92rem; }
+.sr-area { font-size: 0.78rem; opacity: 0.8; }
+.sr-time { font-size: 0.85rem; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.sr-act {
+  border: none;
+  background: rgba(255, 255, 255, 0.75);
+  border-radius: 8px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 6px 10px;
+  cursor: pointer;
+  color: var(--ink-soft);
+  flex-shrink: 0;
+}
+.sr-act.danger { color: var(--red); }
+
+/* 관리자 근태 상세 */
+.adm-detail { background: #fff; border-radius: 10px; }
+.adm-detail th { font-size: 0.7rem; }
+.adm-detail td { font-size: 0.82rem; }
+.adm-memo-td { min-width: 170px; }
+.adm-memo {
+  width: 100%;
+  min-width: 150px;
+  padding: 7px 10px;
+  border: 1.5px solid var(--line);
+  border-radius: 9px;
+  background: #f9fafb;
+  font-size: 0.8rem;
+}
+.adm-memo:focus { outline: none; border-color: var(--blue); background: #fff; }
+
 /* 반응형 */
 @media (max-width: 1020px) {
   .widget-grid { grid-template-columns: minmax(0, 1fr); }
@@ -1403,6 +1561,21 @@ tr.ph-row-open td { background: var(--blue-soft); }
   .sc-cal-head #sc-now { right: 0; }
   .sc-sum-line { font-size: 0.84rem; }
   .sc-legend { gap: 10px; }
+
+  /* 근태관리 */
+  .subtabs { display: flex; width: 100%; }
+  .subtab { flex: 1; padding: 9px 6px; font-size: 0.82rem; }
+  .att-io-grid { grid-template-columns: 1fr; }
+  .pb-stats.s4 { grid-template-columns: 1fr 1fr; }
+  .sc-grid.at .sc-cell { min-height: 58px; padding: 3px 3px; }
+  .sc-grid.at { gap: 3px; }
+  .wa-label { display: none; }
+  .shift-ent { padding: 1px 3px; font-size: 0.56rem; border-radius: 4px; }
+  .shift-ent i { display: none; }
+  .at-legend-note { margin-left: 0; width: 100%; }
+  .sc-cal-head #at-now, .sc-cal-head #ah-now, .sc-cal-head #adm-now { position: absolute; right: 0; }
+  .adm-memo-td { min-width: 130px; }
+  .adm-memo { min-width: 110px; }
 
   /* 줄바꿈 방지: 텍스트 축소 + nowrap */
   .btn { white-space: nowrap; }
