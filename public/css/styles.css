@@ -1431,6 +1431,7 @@ tr.att-carry td { background: #fff9db; }
 .att-note.late, .att-note.earlyout { background: var(--red-soft); color: var(--red); }
 .att-note.earlyin { background: var(--blue-soft); color: var(--blue-deep); }
 .att-note.over { background: #e6f4ec; color: var(--green); }
+.att-note.night { background: #e5dbff; color: #6741d9; }
 .att-notecnt { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
 .pb-stats.s4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 

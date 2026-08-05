@@ -2550,25 +2550,45 @@ function otHours(mins) {
   const whole = Math.floor(blocks / 6), rem = blocks % 6;
   return whole + (rem ? OT_TABLE[rem - 1] : 0);
 }
-/* 특이사항 (지각/조기출근/조기퇴근/연장) — 조기출근·연장은 인정 시간(h) 포함 */
+/* 야간근무(22:00~06:00) 가산: 유예 없이 1분 초과부터 바로 10분 블록 인정
+   (otHours에 유예(ATT_GRACE_MIN)만큼 더해 넣어 grace 상쇄 → 1분부터 바로 0.17h 단위 적용) */
+const NIGHT_START_MIN = 22 * 60, NIGHT_END_MIN = 30 * 60; // 당일 22:00(1320) ~ 익일 06:00(1800), 자정 기준 분
+function nightHours(att) {
+  if (!att?.inAt || !att?.outAt) return 0;
+  const inMin = minOf(att.inAt);
+  let span = minOf(att.outAt) - inMin;
+  if (att.outDate && att.outDate > att.date) span += 1440;
+  if (span <= 0) span += 1440;
+  const outMin = inMin + span;
+  const overlap = (lo, hi) => Math.max(0, Math.min(outMin, hi) - Math.max(inMin, lo));
+  const mins = overlap(0, 360) + overlap(NIGHT_START_MIN, NIGHT_END_MIN);
+  return mins > 0 ? otHours(mins + ATT_GRACE_MIN) : 0;
+}
+/* 특이사항 (지각/조기출근/조기퇴근/연장/야간근무) — 시간(h)이 있는 항목은 급여 가산 대상 */
 function attNotes(att, shift) {
-  if (!att || !shift || !att.inAt) return [];
   const notes = [];
-  const dIn = minOf(att.inAt) - minOf(shift.start);
-  if (dIn > ATT_GRACE_MIN) notes.push({ k: "late", label: `지각 ${dIn}분` });
-  else if (-dIn > ATT_GRACE_MIN) {
-    const h = otHours(-dIn);
-    notes.push({ k: "earlyin", label: `조기출근 ${-dIn}분 (+${fmtH(h)}h)`, h });
+  if (!att || !att.inAt) return notes;
+  if (shift) {
+    const dIn = minOf(att.inAt) - minOf(shift.start);
+    if (dIn > ATT_GRACE_MIN) notes.push({ k: "late", label: `지각 ${dIn}분` });
+    else if (-dIn > ATT_GRACE_MIN) {
+      const h = otHours(-dIn);
+      notes.push({ k: "earlyin", label: `조기출근 ${-dIn}분 (+${fmtH(h)}h)`, h });
+    }
+    if (att.outAt) {
+      let outM = minOf(att.outAt) + (att.outDate && att.outDate > att.date ? 1440 : 0);
+      const endM = minOf(shift.end) + (shiftOvernight(shift) ? 1440 : 0);
+      const dOut = outM - endM;
+      if (-dOut > ATT_GRACE_MIN) notes.push({ k: "earlyout", label: `조기퇴근 ${-dOut}분` });
+      else if (dOut > ATT_GRACE_MIN) {
+        const h = otHours(dOut);
+        notes.push({ k: "over", label: `연장 ${dOut}분 (+${fmtH(h)}h)`, h });
+      }
+    }
   }
   if (att.outAt) {
-    let outM = minOf(att.outAt) + (att.outDate && att.outDate > att.date ? 1440 : 0);
-    const endM = minOf(shift.end) + (shiftOvernight(shift) ? 1440 : 0);
-    const dOut = outM - endM;
-    if (-dOut > ATT_GRACE_MIN) notes.push({ k: "earlyout", label: `조기퇴근 ${-dOut}분` });
-    else if (dOut > ATT_GRACE_MIN) {
-      const h = otHours(dOut);
-      notes.push({ k: "over", label: `연장 ${dOut}분 (+${fmtH(h)}h)`, h });
-    }
+    const nh = nightHours(att);
+    if (nh > 0) notes.push({ k: "night", label: `야간근무 (+${fmtH(nh)}h)`, h: nh });
   }
   return notes;
 }
@@ -2633,9 +2653,11 @@ async function renderAttRecord() {
   const outDone = !!myRec.outAt;
   const usingCarry = isTodayMode && !!myOpen;   // 퇴근 버튼이 '어제 이월 건'을 마감하는 상태
   const outTarget = usingCarry ? myOpen : myRec;
-  // 출근 버튼: (오늘 모드에서) 미퇴근 이월 기록이 있으면 잠금, 그 외엔 항상 활성 (완료 후엔 덮어쓰기 확인)
-  const inLocked = usingCarry;
-  const inLabel = inLocked ? "퇴근 처리부터 하세요" : inDone ? `출근 완료 ${myRec.inAt}` : "출근하기";
+  // 출근 버튼: (오늘 모드에서) 미퇴근 이월 기록이 있거나 이미 출근을 기록했으면 잠금 (덮어쓰기 없음)
+  const inLocked = usingCarry || inDone;
+  const inLabel = usingCarry ? "퇴근 처리부터 하세요" : inDone ? `출근 완료 ${myRec.inAt}` : "출근하기";
+  // 퇴근 버튼: 출근 전이거나 이미 퇴근을 기록했으면 잠금
+  const outLocked = !outTarget?.inAt || outDone;
 
   body.innerHTML = `
     ${notices.map((n) => `
@@ -2662,7 +2684,7 @@ async function renderAttRecord() {
         <div class="att-io out">
           <div class="io-title">퇴근 시간</div>
           ${timeSelHtml("ao", myRec.outAt)}
-          <button class="btn io-btn out" id="att-out" ${!outTarget?.inAt ? "disabled" : ""}>
+          <button class="btn io-btn out" id="att-out" ${outLocked ? "disabled" : ""}>
             ${outDone ? `퇴근 완료 ${myRec.outAt}` : outTarget?.inAt ? "퇴근하기" : "출근 먼저 하세요"}</button>
         </div>
       </div>
@@ -2699,16 +2721,14 @@ async function renderAttRecord() {
   $("#att-in").onclick = async () => {
     if (inLocked) return;
     const t = timeSelVal("ai");
-    if (inDone && !confirm(`이미 ${myRec.inAt} 출근 기록이 있습니다. ${t}(으)로 덮어쓸까요?`)) return;
     await db.collection(COL.attendance).doc(myRec.id)
       .set({ empId: me.id, name: me.name, dept: me.dept, date: recDate, inAt: t }, { merge: true });
     toast(`${recDate} 출근 ${t} 기록 완료`);
     renderAttend();
   };
   $("#att-out").onclick = async () => {
-    if (!outTarget?.inAt) { toast("출근 먼저 기록하세요."); return; }
+    if (outLocked) return;
     const t = timeSelVal("ao");
-    if (outTarget.outAt && !confirm(`이미 ${outTarget.outAt} 퇴근 기록이 있습니다. ${t}(으)로 덮어쓸까요?`)) return;
     await db.collection(COL.attendance).doc(outTarget.id)
       .set({ outAt: t, outDate: usingCarry ? today : recDate }, { merge: true });
     toast(`퇴근 ${t} 기록 완료`);
@@ -2963,9 +2983,12 @@ async function renderAttHistory() {
   const schedH = myShifts.reduce((s, x) => s + shiftHours(x), 0);
   const workedDays = myAtts.filter((a) => a.inAt).length;
   const workedH = allDates.reduce((sum, d) => sum + (workedHours(attBy[d], shiftBy[d]) || 0), 0);
-  const noteCnt = { late: 0, earlyin: 0, earlyout: 0, over: 0 };
-  let otSum = 0;
-  allDates.forEach((d) => attNotes(attBy[d], shiftBy[d]).forEach((n) => { noteCnt[n.k]++; otSum += n.h || 0; }));
+  const noteCnt = { late: 0, earlyin: 0, earlyout: 0, over: 0, night: 0 };
+  let otSum = 0, nightSum = 0;
+  allDates.forEach((d) => attNotes(attBy[d], shiftBy[d]).forEach((n) => {
+    noteCnt[n.k]++;
+    if (n.k === "night") nightSum += n.h || 0; else otSum += n.h || 0;
+  }));
 
   body.innerHTML = `
     <div class="card">
@@ -2986,9 +3009,11 @@ async function renderAttHistory() {
         <span class="att-note earlyin">조기출근 ${noteCnt.earlyin}회</span>
         <span class="att-note earlyout">조기퇴근 ${noteCnt.earlyout}회</span>
         <span class="att-note over">연장 ${noteCnt.over}회</span>
+        <span class="att-note night">야간근무 ${noteCnt.night}회</span>
         ${otSum ? `<span class="att-note over">인정 추가근무 합계 +${fmtH(otSum)}h</span>` : ""}
+        ${nightSum ? `<span class="att-note night">야간근무 합계 +${fmtH(nightSum)}h</span>` : ""}
       </div>
-      <div class="mini-note">출퇴근은 예정 시간 전후 10분까지 정상으로 처리되며, 11분부터 10분 단위로 추가근무가 인정됩니다.</div>
+      <div class="mini-note">출퇴근은 예정 시간 전후 10분까지 정상으로 처리되며, 11분부터 10분 단위로 추가근무가 인정됩니다. 22:00~06:00 근무는 유예 없이 1분부터 야간근무로 가산됩니다.</div>
       ${allDates.length ? `<div class="table-wrap"><table class="data att-table">
         <thead><tr><th>날짜</th><th>예정</th><th>출근</th><th>퇴근</th><th class="num">예정(h)</th><th class="num">실근무(h)</th><th>비고</th></tr></thead>
         <tbody>${allDates.map((d) => {
@@ -3058,7 +3083,7 @@ async function renderAttendAdmin() {
     const dates = pAtts.map((a) => a.date).sort();
     const schedH = pShifts.reduce((s, x) => s + shiftHours(x), 0);
     const workedH = dates.reduce((sum, d) => sum + (workedHours(attBy[d], shiftBy[d]) || 0), 0);
-    const noteCnt = { late: 0, earlyin: 0, earlyout: 0, over: 0 };
+    const noteCnt = { late: 0, earlyin: 0, earlyout: 0, over: 0, night: 0 };
     dates.forEach((d) => attNotes(attBy[d], shiftBy[d]).forEach((n) => noteCnt[n.k]++));
     const open = admAttEmp === p.id || admOpenIds.has(p.id);
     const detail = `
@@ -3084,7 +3109,7 @@ async function renderAttendAdmin() {
         <td class="num">${fmtH(schedH)}h</td>
         <td class="num">${pAtts.length}일</td>
         <td class="num"><b class="c-green">${fmtH(workedH)}h</b></td>
-        <td>${noteCnt.late ? `<span class="att-note late">지각 ${noteCnt.late}</span>` : ""}${noteCnt.earlyout ? `<span class="att-note earlyout">조기퇴근 ${noteCnt.earlyout}</span>` : ""}${!noteCnt.late && !noteCnt.earlyout ? "-" : ""}</td>
+        <td>${noteCnt.late ? `<span class="att-note late">지각 ${noteCnt.late}</span>` : ""}${noteCnt.earlyout ? `<span class="att-note earlyout">조기퇴근 ${noteCnt.earlyout}</span>` : ""}${noteCnt.night ? `<span class="att-note night">야간 ${noteCnt.night}</span>` : ""}${!noteCnt.late && !noteCnt.earlyout && !noteCnt.night ? "-" : ""}</td>
       </tr>
       <tr class="ph-detail-tr ${open ? "" : "hidden"}" data-admdetail="${p.id}"><td colspan="7"><div class="ph-detail ph-anim">${detail}</div></td></tr>`;
   }).join("");
