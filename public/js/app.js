@@ -357,8 +357,8 @@ function renderSidebar() {
 
   const items = [
     { id: "home", ico: "home", label: "홈" },
-    { id: "schedule", ico: "calendar", label: "일정" },
     { id: "attend", ico: "clock", label: "근태기록" },
+    { id: "schedule", ico: "calendar", label: "일정" },
     { id: "payhistory", ico: "payroll", label: "급여" },
     { id: "leave", ico: "leave", label: "휴가" },
     { id: "settings", ico: "settings", label: "설정" }
