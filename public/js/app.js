@@ -2539,24 +2539,29 @@ function timeSelHtml(prefix, val) {
 }
 const timeSelVal = (prefix) => `${$(`#${prefix}-h`).value}:${$(`#${prefix}-m`).value}`;
 
-/* 실근무 시간(h): 출퇴근 기록 + (해당일 일정의 휴게 여부) */
+/* 실근무 시간(h): 출퇴근 기록 + (해당일 일정의 휴게 여부) — 10분 블록 단위로 환산 */
 function workedHours(att, shift) {
   if (!att?.inAt || !att?.outAt) return null;
   let span = minOf(att.outAt) - minOf(att.inAt);
   if (att.outDate && att.outDate > att.date) span += 1440;
   if (span <= 0) span += 1440;
-  return Math.max(0, span / 60 - (shift?.breakIncluded ? 1 : 0));
+  return blockHours(Math.max(0, span - (shift?.breakIncluded ? 60 : 0)));
 }
 /* 출퇴근 정책: 예정 시간 전후 10분까지는 무시.
    11분부터 10분 단위 블록으로 인정 — 11~20분: 0.17h, 21~30분: 0.34h,
    31~40분: 0.5h, 41~50분: 0.67h, 51~60분: 0.84h, 60분마다 +1h 반복. */
 const ATT_GRACE_MIN = 10;
 const OT_TABLE = [0.17, 0.34, 0.5, 0.67, 0.84];
-function otHours(mins) {
-  if (mins <= ATT_GRACE_MIN) return 0;
-  const blocks = Math.ceil((mins - ATT_GRACE_MIN) / 10);
+/* 회사 표준 시간 단위: 모든 근무시간은 10분 블록으로 환산
+   1~10분 0.17h · 11~20분 0.34h · 21~30분 0.5h · 31~40분 0.67h · 41~50분 0.84h · 51~60분 1h */
+function blockHours(mins) {
+  if (mins <= 0) return 0;
+  const blocks = Math.ceil(mins / 10);
   const whole = Math.floor(blocks / 6), rem = blocks % 6;
   return whole + (rem ? OT_TABLE[rem - 1] : 0);
+}
+function otHours(mins) {
+  return mins <= ATT_GRACE_MIN ? 0 : blockHours(mins - ATT_GRACE_MIN);
 }
 /* 야간근무(22:00~06:00) 가산: 유예 없이 1분 초과부터 바로 10분 블록 인정
    (otHours에 유예(ATT_GRACE_MIN)만큼 더해 넣어 grace 상쇄 → 1분부터 바로 0.17h 단위 적용) */
@@ -2570,7 +2575,7 @@ function nightHours(att) {
   const outMin = inMin + span;
   const overlap = (lo, hi) => Math.max(0, Math.min(outMin, hi) - Math.max(inMin, lo));
   const mins = overlap(0, 360) + overlap(NIGHT_START_MIN, NIGHT_END_MIN);
-  return mins > 0 ? otHours(mins + ATT_GRACE_MIN) : 0;
+  return blockHours(mins);
 }
 /* 특이사항 (지각/조기출근/조기퇴근/연장/야간근무) — 시간(h)이 있는 항목은 급여 가산 대상 */
 function attNotes(att, shift) {
@@ -2706,7 +2711,7 @@ async function renderAttRecord() {
           <td><b>${esc(r.name)}</b>${r.badge ? ` <span class="badge warn">${esc(r.badge)}</span>` : ""}</td>
           <td class="att-mono">${esc(r.plan)}</td>
           <td class="att-mono ${r.inAt ? "c-green" : "c-red"}">${r.inAt ? esc(r.inAt) : "-"}</td>
-          <td class="att-mono ${r.outAt ? "" : "c-red"}">${r.outAt ? esc(r.outAt) : "-"}</td>
+          <td class="att-mono c-red">${r.outAt ? esc(r.outAt) : "-"}</td>
         </tr>`).join("")}</tbody>
       </table></div>` : `<div class="empty">오늘 근무 예정자가 없습니다. [근무 캘린더]에서 일정을 등록하세요.</div>`}
     </div>`;
@@ -3034,7 +3039,7 @@ async function renderAttHistory() {
             <td class="att-mono"><b>${d.slice(5)}</b> <span class="att-dow">(${"일월화수목금토"[dateParts(d).dow]})</span></td>
             <td class="att-mono">${s ? `${s.start}-${shiftEndLabel(s)}` : "-"}</td>
             <td class="att-mono ${a?.inAt ? "c-green" : ""}">${a?.inAt || "-"}</td>
-            <td class="att-mono">${a?.outAt || "-"}</td>
+            <td class="att-mono ${a?.outAt ? "c-red" : ""}">${a?.outAt || "-"}</td>
             <td class="num">${s ? fmtH(shiftHours(s)) : "-"}</td>
             <td class="num"><b>${wh != null ? fmtH(wh) : "-"}</b></td>
             <td>${noteChips(attNotes(a, s)) || "-"}</td>
@@ -3107,7 +3112,7 @@ async function renderAttendAdmin() {
             <td class="att-mono"><b>${d.slice(5)}</b></td>
             <td class="att-mono">${s ? `${s.start}-${shiftEndLabel(s)}` : "-"}</td>
             <td class="att-mono c-green">${a.inAt}</td>
-            <td class="att-mono">${a.outAt || "-"}</td>
+            <td class="att-mono ${a.outAt ? "c-red" : ""}">${a.outAt || "-"}</td>
             <td class="num"><b>${wh != null ? fmtH(wh) : "-"}</b></td>
             <td>${noteChips(attNotes(a, s)) || "-"}</td>
             <td class="adm-memo-td"><input class="adm-memo" data-memo="${p.id}|${d}" value="${esc(a.memo || "")}" placeholder="메모 입력 후 Enter" maxlength="100" /></td>
