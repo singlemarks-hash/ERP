@@ -1407,12 +1407,59 @@ tr.ph-row-open td { background: var(--blue-soft); }
 .att-io.out .io-title { color: var(--red); }
 .io-time { display: flex; gap: 6px; align-items: center; }
 .io-time select { flex: 1; min-width: 0; padding: 11px 8px; border: 1.5px solid var(--line); border-radius: 10px; background: #fff; text-align: center; }
-.io-btn { width: 100%; margin-top: 12px; font-weight: 800; color: #fff; }
+.io-btn { width: 100%; margin-top: 12px; font-weight: 800; color: #fff; display: inline-flex; align-items: center; justify-content: center; gap: 9px; }
+.io-btn svg { width: 17px; height: 17px; flex-shrink: 0; }
 .io-btn.in { background: var(--green); }
-.io-btn.in:hover { background: #178a4c; }
+.io-btn.in:hover:not(:disabled) { background: #178a4c; }
 .io-btn.out { background: var(--red); }
-.io-btn.out:hover { background: #d63a49; }
-.io-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.io-btn.out:hover:not(:disabled) { background: #d63a49; }
+.io-btn:disabled { cursor: not-allowed; }
+.io-btn.in:disabled { background: #8fd9ab; }
+.io-btn.out:disabled { background: #f0a3ab; }
+
+/* 오늘 근무 현황: 파트 구분 행 */
+.att-area-row td {
+  background: #eef0f3 !important;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--ink-soft);
+  padding: 6px 10px;
+  letter-spacing: 0.02em;
+}
+
+/* 퇴근 확인 모달 */
+.ioc { text-align: center; padding: 4px 0; }
+.ioc-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--red-soft);
+  color: var(--red);
+  display: grid;
+  place-items: center;
+  margin: 0 auto 12px;
+}
+.ioc-icon svg { width: 26px; height: 26px; }
+.ioc h3 { margin-bottom: 14px; }
+.ioc-sub { font-size: 0.86rem; color: var(--ink-soft); }
+.ioc-time { font-size: 2.6rem; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin: 2px 0; }
+.ioc-ampm { font-size: 1.05rem; font-weight: 800; color: var(--red); margin-bottom: 8px; }
+.ioc-date { font-size: 0.9rem; color: var(--ink-soft); }
+.ioc-worked {
+  margin: 12px auto 0;
+  display: inline-block;
+  background: #f7f8fa;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 9px 16px;
+  font-size: 0.86rem;
+  color: var(--ink-soft);
+}
+.ioc-worked b { color: var(--ink); font-size: 0.95rem; }
+.ioc-q { margin-top: 14px; font-size: 0.9rem; font-weight: 600; }
+.ioc-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+.ioc-confirm { background: var(--red); color: #fff; font-weight: 800; }
+.ioc-confirm:hover { background: #d63a49; }
 
 .att-table th, .att-table td { white-space: nowrap; }
 .att-mono { font-variant-numeric: tabular-nums; }

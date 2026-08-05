@@ -2648,19 +2648,33 @@ async function renderAttRecord() {
     .filter((n) => n.dept === me.dept && !(n.ackIds || []).includes(me.id))
     .sort((a, b) => tsSec(b.createdAt) - tsSec(a.createdAt)).slice(0, 10);
 
-  // 오늘 현황 행 (오늘/어제 실황 — 기록 날짜 선택과 무관하게 항상 오늘 기준)
-  const rows = [];
-  atts.filter((a) => a.date === yesterday && a.inAt && !a.outAt).forEach((a) => {
+  // 오늘 현황 행 (파트별 그룹 — 기록 날짜 선택과 무관하게 항상 오늘 기준)
+  const rowHtml = (r) => `<tr class="${r.badge ? "att-carry" : ""}">
+    <td><b>${esc(r.name)}</b>${r.badge ? ` <span class="badge warn">${esc(r.badge)}</span>` : ""}</td>
+    <td class="att-mono">${esc(r.plan)}</td>
+    <td class="att-mono ${r.inAt ? "c-green" : "c-red"}">${r.inAt ? esc(r.inAt) : "-"}</td>
+    <td class="att-mono c-red">${r.outAt ? esc(r.outAt) : "-"}</td>
+  </tr>`;
+  const groupRow = (label) => `<tr class="att-area-row"><td colspan="4">${esc(label)}</td></tr>`;
+  let statusBody = "";
+  // 전일 미퇴근 이월 건 최상단
+  const carryRows = atts.filter((a) => a.date === yesterday && a.inAt && !a.outAt).map((a) => {
     const s = shifts.find((x) => x.date === yesterday && x.empId === a.empId);
-    rows.push({ name: a.name, badge: yesterday, plan: s ? `${s.start}-${shiftEndLabel(s)}` : "-", inAt: a.inAt, outAt: a.outAt });
+    return rowHtml({ name: a.name, badge: yesterday, plan: s ? `${s.start}-${shiftEndLabel(s)}` : "-", inAt: a.inAt, outAt: a.outAt });
+  }).join("");
+  if (carryRows) statusBody += groupRow("전일 미퇴근") + carryRows;
+  const todayShifts = shifts.filter((s) => s.date === today);
+  WORK_AREAS.forEach((area) => {
+    const g = todayShifts.filter((s) => s.area === area).sort((a, b) => minOf(a.start) - minOf(b.start));
+    if (!g.length) return;
+    statusBody += groupRow(area) + g.map((s) => {
+      const a = atts.find((x) => x.empId === s.empId && x.date === today);
+      return rowHtml({ name: s.name, badge: null, plan: `${s.start}-${shiftEndLabel(s)}`, inAt: a?.inAt, outAt: a?.outAt });
+    }).join("");
   });
-  shifts.filter((s) => s.date === today).sort((a, b) => minOf(a.start) - minOf(b.start)).forEach((s) => {
-    const a = atts.find((x) => x.empId === s.empId && x.date === today);
-    rows.push({ name: s.name, badge: null, plan: `${s.start}-${shiftEndLabel(s)}`, inAt: a?.inAt, outAt: a?.outAt });
-  });
-  atts.filter((a) => a.date === today && !shifts.some((s) => s.date === today && s.empId === a.empId)).forEach((a) => {
-    rows.push({ name: a.name, badge: null, plan: "-", inAt: a.inAt, outAt: a.outAt });
-  });
+  const etcRows = atts.filter((a) => a.date === today && !todayShifts.some((s) => s.empId === a.empId))
+    .map((a) => rowHtml({ name: a.name, badge: null, plan: "-", inAt: a.inAt, outAt: a.outAt })).join("");
+  if (etcRows) statusBody += groupRow("일정 외 출근") + etcRows;
 
   const inDone = !!myRec.inAt;
   const outDone = !!myRec.outAt;
@@ -2668,9 +2682,17 @@ async function renderAttRecord() {
   const outTarget = usingCarry ? myOpen : myRec;
   // 출근 버튼: (오늘 모드에서) 미퇴근 이월 기록이 있거나 이미 출근을 기록했으면 잠금 (덮어쓰기 없음)
   const inLocked = usingCarry || inDone;
-  const inLabel = usingCarry ? "퇴근 처리부터 하세요" : inDone ? `출근 완료 ${myRec.inAt}` : "출근하기";
+  const IN_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/></svg>';
+  const OUT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>';
+  const inLabel = usingCarry ? "퇴근 처리부터 하세요"
+    : inDone ? `출근 완료 ${myRec.inAt}`
+    : isTodayMode ? "출근하기" : `${recDate} 출근하기`;
   // 퇴근 버튼: 출근 전이거나 이미 퇴근을 기록했으면 잠금
   const outLocked = !outTarget?.inAt || outDone;
+  const outLabel = outDone ? `퇴근 완료 ${myRec.outAt}`
+    : !outTarget?.inAt ? "출근 먼저 하세요"
+    : usingCarry ? `${myOpen.date} 퇴근하기`
+    : isTodayMode ? "퇴근하기" : `${recDate} 퇴근하기`;
 
   body.innerHTML = `
     ${notices.map((n) => `
@@ -2692,27 +2714,21 @@ async function renderAttRecord() {
         <div class="att-io in">
           <div class="io-title">출근 시간</div>
           ${timeSelHtml("ai", myRec.inAt)}
-          <button class="btn io-btn in" id="att-in" ${inLocked ? "disabled" : ""}>${inLabel}</button>
+          <button class="btn io-btn in" id="att-in" ${inLocked ? "disabled" : ""}>${IN_ICON}${inLabel}</button>
         </div>
         <div class="att-io out">
           <div class="io-title">퇴근 시간</div>
           ${timeSelHtml("ao", myRec.outAt)}
-          <button class="btn io-btn out" id="att-out" ${outLocked ? "disabled" : ""}>
-            ${outDone ? `퇴근 완료 ${myRec.outAt}` : outTarget?.inAt ? "퇴근하기" : "출근 먼저 하세요"}</button>
+          <button class="btn io-btn out" id="att-out" ${outLocked ? "disabled" : ""}>${OUT_ICON}${outLabel}</button>
         </div>
       </div>
       ${usingCarry ? `<div class="mini-note">어제(${esc(yesterday)}) 퇴근 기록이 없습니다. 지금 퇴근을 누르면 어제 근무의 퇴근으로 기록됩니다.</div>` : ""}
     </div>
     <div class="card">
-      <div class="card-title"><div>오늘 근무 현황<div class="ct-desc">오늘 근무 예정자와 출퇴근 기록입니다.</div></div></div>
-      ${rows.length ? `<div class="table-wrap"><table class="data att-table">
+      <div class="card-title"><div>오늘 근무 현황<div class="ct-desc">오늘 근무 예정자와 출퇴근 기록입니다. 근무 영역별로 표시됩니다.</div></div></div>
+      ${statusBody ? `<div class="table-wrap"><table class="data att-table">
         <thead><tr><th>근무자명</th><th>예정</th><th>출근</th><th>퇴근</th></tr></thead>
-        <tbody>${rows.map((r) => `<tr class="${r.badge ? "att-carry" : ""}">
-          <td><b>${esc(r.name)}</b>${r.badge ? ` <span class="badge warn">${esc(r.badge)}</span>` : ""}</td>
-          <td class="att-mono">${esc(r.plan)}</td>
-          <td class="att-mono ${r.inAt ? "c-green" : "c-red"}">${r.inAt ? esc(r.inAt) : "-"}</td>
-          <td class="att-mono c-red">${r.outAt ? esc(r.outAt) : "-"}</td>
-        </tr>`).join("")}</tbody>
+        <tbody>${statusBody}</tbody>
       </table></div>` : `<div class="empty">오늘 근무 예정자가 없습니다. [근무 캘린더]에서 일정을 등록하세요.</div>`}
     </div>`;
 
@@ -2725,6 +2741,7 @@ async function renderAttRecord() {
   });
   $("#rec-date-btn").onclick = () => openDatePicker($("#rec-date-btn"), recDate, (v) => {
     if (!v) return;
+    if (v > today) { toast("미래 날짜에는 출퇴근을 기록할 수 없습니다."); return; }
     attRecDate = v;
     renderAttend();
   });
@@ -2734,18 +2751,70 @@ async function renderAttRecord() {
   $("#att-in").onclick = async () => {
     if (inLocked) return;
     const t = timeSelVal("ai");
+    // 미래 시각 출근 차단 (오늘 기록 기준, 한국시간)
+    if (isTodayMode && t > hmNowKST()) {
+      toast(`미래 시각(${t})으로는 출근을 기록할 수 없습니다. 현재 ${hmNowKST()}`);
+      return;
+    }
     await db.collection(COL.attendance).doc(myRec.id)
       .set({ empId: me.id, name: me.name, dept: me.dept, date: recDate, inAt: t }, { merge: true });
     toast(`${recDate} 출근 ${t} 기록 완료`);
     renderAttend();
   };
-  $("#att-out").onclick = async () => {
+  $("#att-out").onclick = () => {
     if (outLocked) return;
     const t = timeSelVal("ao");
-    await db.collection(COL.attendance).doc(outTarget.id)
-      .set({ outAt: t, outDate: usingCarry ? today : recDate }, { merge: true });
-    toast(`퇴근 ${t} 기록 완료`);
-    renderAttend();
+    const outDateEff = usingCarry ? today : recDate;
+    // 미래 시각 퇴근 차단 (퇴근이 실제로 찍히는 날짜가 오늘인 경우, 한국시간)
+    if (outDateEff === today && t > hmNowKST()) {
+      toast(`미래 시각(${t})으로는 퇴근을 기록할 수 없습니다. 현재 ${hmNowKST()}`);
+      return;
+    }
+    // 근무시간 계산 (해당일 일정의 휴게 포함 여부 반영)
+    const workDate = outTarget.date;
+    const shiftOfDay = shifts.find((s) => s.date === workDate && s.empId === me.id);
+    const wh = workedHours({ ...outTarget, outAt: t, outDate: outDateEff }, shiftOfDay);
+    openOutConfirmModal({
+      time: t,
+      workDate,
+      outDateEff,
+      inAt: outTarget.inAt,
+      workedH: wh,
+      onConfirm: async () => {
+        await db.collection(COL.attendance).doc(outTarget.id)
+          .set({ outAt: t, outDate: outDateEff }, { merge: true });
+        closeModal();
+        toast(`${workDate} 퇴근 ${t} 기록 완료`);
+        renderAttend();
+      }
+    });
+  };
+}
+
+/* 퇴근 확인 모달: 시각·날짜·총 근무시간을 크게 보여주고 확정 (오입력 방지) */
+function openOutConfirmModal({ time, workDate, outDateEff, inAt, workedH, onConfirm }) {
+  const p = dateParts(workDate);
+  openModal(`
+    <div class="ioc">
+      <div class="ioc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg></div>
+      <h3>퇴근 시간 확인</h3>
+      <p class="ioc-sub">${esc(me.name)}님의 퇴근 시간</p>
+      <div class="ioc-time">${esc(time)}</div>
+      <div class="ioc-ampm">(${kAmPmLabel(time)})</div>
+      <div class="ioc-date">${p.y}년 ${p.m}월 ${p.d}일 (${"일월화수목금토"[p.dow]}) 근무${outDateEff !== workDate ? " · 익일 퇴근" : ""}</div>
+      <div class="ioc-worked">출근 ${esc(inAt)} → 퇴근 ${esc(time)} · 총 근무 <b>${fmtH(workedH ?? 0)}시간</b></div>
+      <p class="ioc-q">위 시간이 맞습니까?</p>
+      <div class="ioc-actions">
+        <button type="button" class="btn btn-ghost" id="ioc-cancel">취소</button>
+        <button type="button" class="btn ioc-confirm" id="ioc-ok">퇴근 확인</button>
+      </div>
+    </div>`);
+  $("#ioc-cancel").onclick = closeModal;
+  $("#ioc-ok").onclick = () => {
+    const b = $("#ioc-ok");
+    if (b.disabled) return;
+    b.disabled = true;
+    onConfirm();
   };
 }
 
@@ -2998,12 +3067,21 @@ async function renderAttHistory() {
   const schedH = myShifts.reduce((s, x) => s + shiftHours(x), 0);
   const workedDays = myAtts.filter((a) => a.inAt).length;
   const workedH = allDates.reduce((sum, d) => sum + (workedHours(attBy[d], shiftBy[d]) || 0), 0);
-  const noteCnt = { late: 0, earlyin: 0, earlyout: 0, over: 0, night: 0 };
-  let otSum = 0, nightSum = 0;
+  const agg = { late: { n: 0, h: 0 }, earlyin: { n: 0, h: 0 }, earlyout: { n: 0, h: 0 }, over: { n: 0, h: 0 }, night: { n: 0, h: 0 } };
   allDates.forEach((d) => attNotes(attBy[d], shiftBy[d]).forEach((n) => {
-    noteCnt[n.k]++;
-    if (n.k === "night") nightSum += n.h || 0; else otSum += n.h || 0;
+    agg[n.k].n++;
+    agg[n.k].h += n.h || 0;
   }));
+  // 인정 추가근무(조기출근+연장+야간) 합계
+  const extraH = agg.earlyin.h + agg.over.h + agg.night.h;
+  const extraN = agg.earlyin.n + agg.over.n + agg.night.n;
+  // 0값 항목은 표기하지 않음 · 시간이 있는 항목은 "Xh (n회)" 형식
+  const chipLabel = (a, label) => a.h ? `${label} ${fmtH(a.h)}h (${a.n}회)` : `${label} ${a.n}회`;
+  const summaryChips = [
+    ["late", "지각"], ["earlyin", "조기출근"], ["earlyout", "조기퇴근"], ["over", "연장"], ["night", "야간근무"]
+  ].filter(([k]) => agg[k].n > 0).map(([k, label]) => `<span class="att-note ${k}">${chipLabel(agg[k], label)}</span>`)
+    .concat(extraN ? [`<span class="att-note over">추가근무 합계 ${fmtH(extraH)}h (${extraN}회)</span>`] : [])
+    .join("");
 
   body.innerHTML = `
     <div class="card">
@@ -3020,15 +3098,7 @@ async function renderAttHistory() {
         <div><span>실 근무일</span><b class="c-green">${workedDays}일</b></div>
         <div><span>실 근무시간</span><b class="c-green">${fmtH(workedH)}h</b></div>
       </div>
-      <div class="att-notecnt">
-        <span class="att-note late">지각 ${noteCnt.late}회</span>
-        <span class="att-note earlyin">조기출근 ${noteCnt.earlyin}회</span>
-        <span class="att-note earlyout">조기퇴근 ${noteCnt.earlyout}회</span>
-        <span class="att-note over">연장 ${noteCnt.over}회</span>
-        <span class="att-note night">야간근무 ${noteCnt.night}회</span>
-        ${otSum ? `<span class="att-note over">인정 추가근무 합계 +${fmtH(otSum)}h</span>` : ""}
-        ${nightSum ? `<span class="att-note night">야간근무 합계 +${fmtH(nightSum)}h</span>` : ""}
-      </div>
+      ${summaryChips ? `<div class="att-notecnt">${summaryChips}</div>` : ""}
       <div class="mini-note">출퇴근 등록 시 예정 시간 전후 10분까지 정상으로 처리됩니다.</div>
       ${allDates.length ? `<div class="table-wrap"><table class="data att-table">
         <thead><tr><th>날짜</th><th>예정</th><th>출근</th><th>퇴근</th><th class="num">예정(h)</th><th class="num">실근무(h)</th><th>비고</th></tr></thead>
@@ -3099,8 +3169,12 @@ async function renderAttendAdmin() {
     const dates = pAtts.map((a) => a.date).sort();
     const schedH = pShifts.reduce((s, x) => s + shiftHours(x), 0);
     const workedH = dates.reduce((sum, d) => sum + (workedHours(attBy[d], shiftBy[d]) || 0), 0);
-    const noteCnt = { late: 0, earlyin: 0, earlyout: 0, over: 0, night: 0 };
-    dates.forEach((d) => attNotes(attBy[d], shiftBy[d]).forEach((n) => noteCnt[n.k]++));
+    const agg = { late: { n: 0, h: 0 }, earlyin: { n: 0, h: 0 }, earlyout: { n: 0, h: 0 }, over: { n: 0, h: 0 }, night: { n: 0, h: 0 } };
+    dates.forEach((d) => attNotes(attBy[d], shiftBy[d]).forEach((n) => { agg[n.k].n++; agg[n.k].h += n.h || 0; }));
+    const noteSummary = [["late", "지각"], ["earlyin", "조기출근"], ["earlyout", "조기퇴근"], ["over", "연장"], ["night", "야간"]]
+      .filter(([k]) => agg[k].n > 0)
+      .map(([k, label]) => `<span class="att-note ${k}">${agg[k].h ? `${label} ${fmtH(agg[k].h)}h (${agg[k].n}회)` : `${label} ${agg[k].n}회`}</span>`)
+      .join("");
     const open = admAttEmp === p.id || admOpenIds.has(p.id);
     const detail = `
       <table class="data att-table adm-detail">
@@ -3129,7 +3203,7 @@ async function renderAttendAdmin() {
         <td class="num">${fmtH(schedH)}h</td>
         <td class="num">${pAtts.length}일</td>
         <td class="num"><b class="c-green">${fmtH(workedH)}h</b></td>
-        <td>${noteCnt.late ? `<span class="att-note late">지각 ${noteCnt.late}</span>` : ""}${noteCnt.earlyout ? `<span class="att-note earlyout">조기퇴근 ${noteCnt.earlyout}</span>` : ""}${noteCnt.night ? `<span class="att-note night">야간 ${noteCnt.night}</span>` : ""}${!noteCnt.late && !noteCnt.earlyout && !noteCnt.night ? "-" : ""}</td>
+        <td>${noteSummary || "-"}</td>
       </tr>
       <tr class="ph-detail-tr ${open ? "" : "hidden"}" data-admdetail="${p.id}"><td colspan="7"><div class="ph-detail ph-anim">${detail}</div></td></tr>`;
   }).join("");
