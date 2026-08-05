@@ -2488,9 +2488,9 @@ function hm(mins) { return `${String(Math.floor(mins / 60) % 24).padStart(2, "0"
 function shiftOvernight(s) { return minOf(s.end) <= minOf(s.start); }
 function shiftSpanMin(s) { let d = minOf(s.end) - minOf(s.start); if (d <= 0) d += 1440; return d; }
 function shiftHours(s) { return Math.max(0, shiftSpanMin(s) / 60 - (s.breakIncluded ? 1 : 0)); }
-function shiftEndLabel(s) { return shiftOvernight(s) ? s.end + "+1" : s.end; }
+function shiftEndLabel(s) { return shiftOvernight(s) ? "익일 " + s.end : s.end; }
 function fmtH(h) { return String(Math.round(h * 100) / 100); }
-const REST_ICON = '<span class="rest-ico" title="휴게시간 포함">☕</span>';
+const REST_ICON = '<span class="rest-ico" title="휴게시간 포함 (1시간 차감)">*</span>';
 /* 24시간 "HH:MM" → 한국어 오전/오후 표기 (00:00은 자정=오전 12시) */
 function kAmPmLabel(t) {
   const [h, m] = String(t || "0:0").split(":").map(Number);
@@ -2534,19 +2534,36 @@ function workedHours(att, shift) {
   if (span <= 0) span += 1440;
   return Math.max(0, span / 60 - (shift?.breakIncluded ? 1 : 0));
 }
-/* 특이사항 (지각/조기출근/조기퇴근/연장) */
+/* 출퇴근 정책: 예정 시간 전후 10분까지는 무시.
+   11분부터 10분 단위 블록으로 인정 — 11~20분: 0.17h, 21~30분: 0.34h,
+   31~40분: 0.5h, 41~50분: 0.67h, 51~60분: 0.84h, 60분마다 +1h 반복. */
+const ATT_GRACE_MIN = 10;
+const OT_TABLE = [0.17, 0.34, 0.5, 0.67, 0.84];
+function otHours(mins) {
+  if (mins <= ATT_GRACE_MIN) return 0;
+  const blocks = Math.ceil((mins - ATT_GRACE_MIN) / 10);
+  const whole = Math.floor(blocks / 6), rem = blocks % 6;
+  return whole + (rem ? OT_TABLE[rem - 1] : 0);
+}
+/* 특이사항 (지각/조기출근/조기퇴근/연장) — 조기출근·연장은 인정 시간(h) 포함 */
 function attNotes(att, shift) {
   if (!att || !shift || !att.inAt) return [];
   const notes = [];
   const dIn = minOf(att.inAt) - minOf(shift.start);
-  if (dIn >= 5) notes.push({ k: "late", label: `지각 ${dIn}분` });
-  else if (dIn <= -5) notes.push({ k: "earlyin", label: `조기출근 ${-dIn}분` });
+  if (dIn > ATT_GRACE_MIN) notes.push({ k: "late", label: `지각 ${dIn}분` });
+  else if (-dIn > ATT_GRACE_MIN) {
+    const h = otHours(-dIn);
+    notes.push({ k: "earlyin", label: `조기출근 ${-dIn}분 (+${fmtH(h)}h)`, h });
+  }
   if (att.outAt) {
     let outM = minOf(att.outAt) + (att.outDate && att.outDate > att.date ? 1440 : 0);
     const endM = minOf(shift.end) + (shiftOvernight(shift) ? 1440 : 0);
     const dOut = outM - endM;
-    if (dOut <= -5) notes.push({ k: "earlyout", label: `조기퇴근 ${-dOut}분` });
-    else if (dOut >= 5) notes.push({ k: "over", label: `연장 ${dOut}분` });
+    if (-dOut > ATT_GRACE_MIN) notes.push({ k: "earlyout", label: `조기퇴근 ${-dOut}분` });
+    else if (dOut > ATT_GRACE_MIN) {
+      const h = otHours(dOut);
+      notes.push({ k: "over", label: `연장 ${dOut}분 (+${fmtH(h)}h)`, h });
+    }
   }
   return notes;
 }
@@ -2603,6 +2620,11 @@ async function renderAttRecord() {
   const inDone = !!myToday?.inAt;
   const outDone = !!myToday?.outAt;
   const outTarget = myOpen || myToday;
+  // 출근 버튼: 미퇴근 기록이 있으면 잠금 (퇴근 먼저), 없으면 활성 (완료 후엔 덮어쓰기 확인)
+  const inLocked = !!myOpen;
+  const inLabel = myOpen
+    ? (myOpen.date === yesterday ? "퇴근 처리부터 하세요" : `출근 완료 ${myToday.inAt}`)
+    : inDone ? `출근 완료 ${myToday.inAt}` : "출근하기";
 
   body.innerHTML = `
     ${notices.map((n) => `
@@ -2618,7 +2640,7 @@ async function renderAttRecord() {
         <div class="att-io in">
           <div class="io-title">출근 시간</div>
           ${timeSelHtml("ai", myToday?.inAt)}
-          <button class="btn io-btn in" id="att-in">${inDone ? `출근 완료 ${myToday.inAt}` : "출근하기"}</button>
+          <button class="btn io-btn in" id="att-in" ${inLocked ? "disabled" : ""}>${inLabel}</button>
         </div>
         <div class="att-io out">
           <div class="io-title">퇴근 시간</div>
@@ -2650,6 +2672,7 @@ async function renderAttRecord() {
     };
   });
   $("#att-in").onclick = async () => {
+    if (inLocked) return;
     const t = timeSelVal("ai");
     if (inDone && !confirm(`이미 ${myToday.inAt} 출근 기록이 있습니다. ${t}(으)로 덮어쓸까요?`)) return;
     await db.collection(COL.attendance).doc(`${me.id}_${today}`)
@@ -2804,7 +2827,8 @@ function openShiftDayModal(ds, emps) {
     const brk = $("#sf-break").checked;
     const tmp = { start, end, breakIncluded: brk };
     if (start === end) { pv.textContent = ""; return; }
-    pv.innerHTML = `${kAmPmLabel(start)} ~ ${kAmPmLabel(end)} (${fmtH(shiftHours(tmp))}시간)${brk ? " · 휴게시간 포함" : ""}`;
+    const overnight = minOf(end) <= minOf(start);
+    pv.innerHTML = `${kAmPmLabel(start)} ~ ${overnight ? "익일 " : ""}${kAmPmLabel(end)} (${fmtH(shiftHours(tmp))}시간)${brk ? " · 휴게시간 포함" : ""}`;
   };
 
   const renderM = async () => {
@@ -2824,7 +2848,7 @@ function openShiftDayModal(ds, emps) {
               <button class="sr-act danger" data-shdel="${s.id}">삭제</button>` : ""}
           </div>`).join("") : `<div class="empty" style="padding:14px">등록된 근무가 없습니다.</div>`}
       </div>
-      <div class="modal-actions"><button class="btn btn-primary" id="sh-close">닫기</button></div>`);
+      <div class="modal-actions"><button class="btn btn-ghost btn-sm" id="sh-close">닫기</button></div>`);
 
     $("#sh-close").onclick = () => { closeModal(); renderAttend(); };
     const addBtn = $("#sh-addbtn");
@@ -2911,7 +2935,8 @@ async function renderAttHistory() {
   const workedDays = myAtts.filter((a) => a.inAt).length;
   const workedH = allDates.reduce((sum, d) => sum + (workedHours(attBy[d], shiftBy[d]) || 0), 0);
   const noteCnt = { late: 0, earlyin: 0, earlyout: 0, over: 0 };
-  allDates.forEach((d) => attNotes(attBy[d], shiftBy[d]).forEach((n) => noteCnt[n.k]++));
+  let otSum = 0;
+  allDates.forEach((d) => attNotes(attBy[d], shiftBy[d]).forEach((n) => { noteCnt[n.k]++; otSum += n.h || 0; }));
 
   body.innerHTML = `
     <div class="card">
@@ -2932,7 +2957,9 @@ async function renderAttHistory() {
         <span class="att-note earlyin">조기출근 ${noteCnt.earlyin}회</span>
         <span class="att-note earlyout">조기퇴근 ${noteCnt.earlyout}회</span>
         <span class="att-note over">연장 ${noteCnt.over}회</span>
+        ${otSum ? `<span class="att-note over">인정 추가근무 합계 +${fmtH(otSum)}h</span>` : ""}
       </div>
+      <div class="mini-note">출퇴근은 예정 시간 전후 10분까지 정상으로 처리되며, 11분부터 10분 단위로 추가근무가 인정됩니다.</div>
       ${allDates.length ? `<div class="table-wrap"><table class="data att-table">
         <thead><tr><th>날짜</th><th>예정</th><th>출근</th><th>퇴근</th><th class="num">예정(h)</th><th class="num">실근무(h)</th><th>비고</th></tr></thead>
         <tbody>${allDates.map((d) => {
