@@ -2557,9 +2557,7 @@ function workedHours(att, shift) {
   if (span < 0) return 0;
   return blockHours(Math.max(0, span - (shift?.breakIncluded ? 60 : 0)));
 }
-/* 출퇴근 정책: 예정 시간 전후 10분까지는 무시.
-   11분부터 10분 단위 블록으로 인정 — 11~20분: 0.17h, 21~30분: 0.34h,
-   31~40분: 0.5h, 41~50분: 0.67h, 51~60분: 0.84h, 60분마다 +1h 반복. */
+/* 출퇴근 정책: 예정 시간 전후 10분까지는 정상 처리(무시). */
 const ATT_GRACE_MIN = 10;
 const OT_TABLE = [0.17, 0.34, 0.5, 0.67, 0.84];
 /* 회사 표준 시간 단위: 모든 근무시간은 10분 블록으로 환산
@@ -2570,11 +2568,13 @@ function blockHours(mins) {
   const whole = Math.floor(blocks / 6), rem = blocks % 6;
   return whole + (rem ? OT_TABLE[rem - 1] : 0);
 }
+/* 추가근무(조기출근·연장) 인정: 10분은 '유예 기준선'일 뿐 차감하지 않는다.
+   10분 이하는 0, 10분을 넘기면 전체 시간을 10분 블록으로 인정
+   (30분 → 0.5h · 60분 → 1h · 90분 → 1.5h) */
 function otHours(mins) {
-  return mins <= ATT_GRACE_MIN ? 0 : blockHours(mins - ATT_GRACE_MIN);
+  return mins <= ATT_GRACE_MIN ? 0 : blockHours(mins);
 }
-/* 야간근무(22:00~06:00) 가산: 유예 없이 1분 초과부터 바로 10분 블록 인정
-   (otHours에 유예(ATT_GRACE_MIN)만큼 더해 넣어 grace 상쇄 → 1분부터 바로 0.17h 단위 적용) */
+/* 야간근무(22:00~06:00) 가산: 유예 없이 1분 초과부터 바로 10분 블록 인정 */
 const NIGHT_START_MIN = 22 * 60, NIGHT_END_MIN = 30 * 60; // 당일 22:00(1320) ~ 익일 06:00(1800), 자정 기준 분
 function nightHours(att) {
   if (!att?.inAt || !att?.outAt) return 0;
