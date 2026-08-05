@@ -1461,6 +1461,24 @@ tr.ph-row-open td { background: var(--blue-soft); }
 .iocw-row b { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
 .iocw-row.total b { font-size: 1.02rem; font-weight: 800; }
 
+/* 내 정보 표 */
+.info-table { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.info-table th {
+  width: 96px;
+  background: #f7f8fa;
+  text-align: left;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  white-space: nowrap;
+}
+.info-table td { padding: 11px 14px; font-size: 0.88rem; border-bottom: 1px solid var(--line); }
+.info-table tr:last-child th, .info-table tr:last-child td { border-bottom: none; }
+.info-table tr:hover td { background: transparent; }
+
 /* 근태기록: 내 기록 상태 카드 + 안내 박스 */
 .my-rec { background: #f7f8fa; border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; }
 .my-rec-head { display: flex; align-items: center; gap: 11px; padding-bottom: 11px; border-bottom: 1px solid var(--line); }

@@ -410,23 +410,25 @@ async function updateLeaveAlarm() {
 }
 
 function openMyInfoModal() {
-  const row = (k, v) => v ? `<li><b>${k}</b> ${esc(v)}</li>` : "";
+  const row = (k, v) => v ? `<tr><th>${k}</th><td>${esc(v)}</td></tr>` : "";
   openModal(`
     <h3>내 정보</h3>
     <p class="modal-desc">정보 수정이 필요하면 경영지원본부에 요청하세요.</p>
-    <ul class="p-meta" style="font-size:.88rem">
-      ${row("이름", me.name)}
-      ${row("부서", me.dept)}
-      ${row("직급", me.grade)}
-      ${row("직책", me.position)}
-      ${row("권한", roleLabel(me.role))}
-      ${me.joinDate ? `<li><b>입사일</b> ${esc(me.joinDate)} <em class="tenure">${tenureYM(me.joinDate)} 근무</em></li>` : ""}
-      ${row("이메일", me.email)}
-      ${row("연락처", me.phone)}
-      ${row("고용 구분", empTypeShort(me.empType))}
-      ${row("재직 상태", me.status)}
-    </ul>
-    <div class="modal-actions"><button class="btn btn-primary" id="mi-close">닫기</button></div>`);
+    <div class="table-wrap"><table class="data info-table">
+      <tbody>
+        ${row("이름", me.name)}
+        ${row("부서", me.dept)}
+        ${row("직급", me.grade)}
+        ${row("직책", me.position)}
+        ${row("권한", roleLabel(me.role))}
+        ${me.joinDate ? `<tr><th>입사일</th><td>${esc(me.joinDate)} <em class="tenure">${tenureYM(me.joinDate)} 근무</em></td></tr>` : ""}
+        ${row("이메일", me.email)}
+        ${row("연락처", me.phone)}
+        ${row("고용 구분", empTypeShort(me.empType))}
+        ${row("재직 상태", me.status)}
+      </tbody>
+    </table></div>
+    <div class="modal-actions"><button class="btn btn-ghost btn-sm" id="mi-close">닫기</button></div>`);
   $("#mi-close").onclick = closeModal;
 }
 
