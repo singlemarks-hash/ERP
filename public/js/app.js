@@ -2490,6 +2490,18 @@ function shiftSpanMin(s) { let d = minOf(s.end) - minOf(s.start); if (d <= 0) d 
 function shiftHours(s) { return Math.max(0, shiftSpanMin(s) / 60 - (s.breakIncluded ? 1 : 0)); }
 function shiftEndLabel(s) { return shiftOvernight(s) ? s.end + "+1" : s.end; }
 function fmtH(h) { return String(Math.round(h * 100) / 100); }
+const REST_ICON = '<span class="rest-ico" title="휴게시간 포함">☕</span>';
+/* 24시간 "HH:MM" → 한국어 오전/오후 표기 (00:00은 자정=오전 12시) */
+function kAmPmLabel(t) {
+  const [h, m] = String(t || "0:0").split(":").map(Number);
+  const ap = h < 12 ? "오전" : "오후";
+  let h12 = h % 12; if (h12 === 0) h12 = 12;
+  return m ? `${ap} ${h12}시 ${m}분` : `${ap} ${h12}시`;
+}
+/* 근무 표기: "09:00 ~ 16:00시 (6h)" (+휴게 아이콘) */
+function shiftRangeHtml(s) {
+  return `${esc(s.start)} ~ ${esc(shiftEndLabel(s))}시 (${fmtH(shiftHours(s))}h)${s.breakIncluded ? " " + REST_ICON : ""}`;
+}
 function hmNowKST() { const d = kstNow(); return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`; }
 function prevDateStr(ds) { const d = new Date(ds + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); }
 function tsSec(t) { return t?.seconds ?? (t instanceof Date ? t.getTime() / 1000 : 0); }
@@ -2687,7 +2699,7 @@ async function renderAttCalendar() {
       const g = list.filter((s) => s.area === area).sort((a, b) => minOf(a.start) - minOf(b.start));
       if (!g.length) return "";
       return `<span class="wa-label">${area}</span>` + g.map((s) =>
-        `<span class="shift-ent ${shiftColor(s.empId)}"><b>${esc(s.name)}</b><i>${s.start}-${shiftEndLabel(s)} (${fmtH(shiftHours(s))}h)${s.breakIncluded ? "*" : ""}</i></span>`).join("");
+        `<span class="shift-ent ${shiftColor(s.empId)}"><b>${esc(s.name)}</b><i>${shiftRangeHtml(s)}</i></span>`).join("");
     }).join("");
     return `<button type="button" class="sc-cell at-cell ${ds < today ? "past" : ""} ${ds === today ? "today" : ""}" data-atd="${ds}">
       <span class="d ${dow === 0 ? "sun" : dow === 6 ? "sat" : ""}">${d}</span>
@@ -2709,7 +2721,7 @@ async function renderAttCalendar() {
       <div class="sc-grid at">${cells.map((d, i) => cellHtml(d, i)).join("")}</div>
       <div class="at-legend">
         ${monthEmps.map(([id, nm]) => `<span class="at-legend-item ${shiftColor(id)}">${esc(nm)}</span>`).join("")}
-        <span class="at-legend-note">* 휴게 1시간 차감 · 날짜를 누르면 상세${canEditShifts() ? "·등록" : ""} 화면이 열립니다</span>
+        <span class="at-legend-note">${REST_ICON} 휴게 1시간 차감 · 날짜를 누르면 상세${canEditShifts() ? "·등록" : ""} 화면이 열립니다</span>
       </div>
     </div>
     <div class="card">
@@ -2778,8 +2790,21 @@ function openShiftDayModal(ds, emps) {
       </div>
       <label class="sf-check"><input type="checkbox" id="sf-break" ${s.breakIncluded ? "checked" : ""} /> 휴게시간 포함 (총 근무시간에서 1시간 차감)</label>
       ${!editing ? `<label class="sf-check"><input type="checkbox" id="sf-repeat" /> 매주 반복 (이번 달의 같은 요일에 모두 등록)</label>` : ""}
+      <div class="sf-preview" id="sf-preview"></div>
       <button type="button" class="btn btn-primary btn-block" id="sf-save" style="margin-top:12px">저장</button>
     </div>`;
+  };
+
+  /* 24시간 입력값을 오전/오후 문장으로 읽어주는 실시간 미리보기 */
+  const updatePreview = () => {
+    const pv = $("#sf-preview");
+    if (!pv) return;
+    const start = `${$("#sf-sh").value}:${$("#sf-sm").value}`;
+    const end = `${$("#sf-eh").value}:${$("#sf-em").value}`;
+    const brk = $("#sf-break").checked;
+    const tmp = { start, end, breakIncluded: brk };
+    if (start === end) { pv.textContent = ""; return; }
+    pv.innerHTML = `${kAmPmLabel(start)} ~ ${kAmPmLabel(end)} (${fmtH(shiftHours(tmp))}시간)${brk ? " · 휴게시간 포함" : ""}`;
   };
 
   const renderM = async () => {
@@ -2794,7 +2819,7 @@ function openShiftDayModal(ds, emps) {
         ${list.length ? list.map((s) => `
           <div class="shift-row ${shiftColor(s.empId)}">
             <div class="sr-main"><b>${esc(s.name)}</b> <span class="sr-area">(${esc(s.area)})</span>
-              <div class="sr-time">${s.start} ~ ${shiftEndLabel(s)} (${fmtH(shiftHours(s))}h)${s.breakIncluded ? " (휴게포함)" : ""}</div></div>
+              <div class="sr-time">${shiftRangeHtml(s)}</div></div>
             ${canEdit ? `<button class="sr-act" data-shedit="${s.id}">수정</button>
               <button class="sr-act danger" data-shdel="${s.id}">삭제</button>` : ""}
           </div>`).join("") : `<div class="empty" style="padding:14px">등록된 근무가 없습니다.</div>`}
@@ -2806,6 +2831,11 @@ function openShiftDayModal(ds, emps) {
     if (addBtn) addBtn.onclick = () => { showForm = true; editing = null; renderM(); };
     const sfClose = $("#sf-close");
     if (sfClose) sfClose.onclick = () => { showForm = false; editing = null; renderM(); };
+    if (showForm) {
+      ["sf-sh", "sf-sm", "sf-eh", "sf-em"].forEach((id) => { $("#" + id).onchange = updatePreview; });
+      $("#sf-break").onchange = updatePreview;
+      updatePreview();
+    }
 
     $("#modal").querySelectorAll("[data-shedit]").forEach((b) => {
       b.onclick = () => { editing = list.find((x) => x.id === b.dataset.shedit); showForm = true; renderM(); };
