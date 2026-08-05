@@ -2652,7 +2652,7 @@ async function renderAttRecord() {
   const shifts = shiftSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((s) => s.date === today || s.date === yesterday);
   const atts = attSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((a) => a.date === today || a.date === yesterday);
   // 실시간 미퇴근 이월(어제 출근 후 미퇴근)은 오늘 기록 모드에서만 우선 처리 대상
-  const myOpen = isTodayMode ? atts.find((a) => a.empId === me.id && a.inAt && !a.outAt) : null;
+  const myOpen = atts.find((a) => a.empId === me.id && a.inAt && !a.outAt) || null;
   // recDate에 대한 내 기록 (없으면 새로 만들 빈 문서로 취급)
   const myRec = { id: `${me.id}_${recDate}`, ...(recSnap.exists ? recSnap.data() : {}) };
   const notices = wnSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
@@ -2689,23 +2689,14 @@ async function renderAttRecord() {
 
   const inDone = !!myRec.inAt;
   const outDone = !!myRec.outAt;
-  const usingCarry = isTodayMode && !!myOpen;   // 퇴근 버튼이 '어제 이월 건'을 마감하는 상태
-  const outTarget = usingCarry ? myOpen : myRec;
-  // 출근 버튼: (오늘 모드에서) 미퇴근 이월 기록이 있거나 이미 출근을 기록했으면 잠금 (덮어쓰기 없음)
-  const inLocked = usingCarry || inDone;
   const IN_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/></svg>';
   const OUT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>';
-  const inLabel = usingCarry ? "퇴근 처리부터 하세요"
-    : inDone ? `출근 완료 ${myRec.inAt}`
-    : isTodayMode ? "출근하기" : `${recDate} 출근하기`;
-  // 퇴근 버튼: 출근 전이거나 이미 퇴근을 기록했으면 잠금
-  const outLocked = !outTarget?.inAt || outDone;
-  const outLabel = outDone ? `퇴근 완료 ${myRec.outAt}`
-    : !outTarget?.inAt ? "출근 먼저 하세요"
-    : usingCarry ? `${myOpen.date} 퇴근하기`
-    : isTodayMode ? "퇴근하기" : `${recDate} 퇴근하기`;
+  // 기록 단계: 출근 전 → 출근만 입력 / 출근 후 → 퇴근만 입력 / 둘 다 → 완료
+  const stage = !inDone ? "in" : !outDone ? "out" : "done";
+  // 선택한 날짜가 아닌 다른 날에 미퇴근 기록이 남아 있으면 안내 (그 날짜로 바꿔 퇴근하도록)
+  const openElsewhere = myOpen && myOpen.date !== recDate ? myOpen : null;
 
-  /* 내 기록 상태 요약 + 버튼이 잠긴 이유 안내 (노란 박스) */
+  /* 내 기록 상태 요약 */
   const myShiftToday = shifts.find((s) => s.date === recDate && s.empId === me.id);
   const recWorked = workedHours(myRec, myShiftToday);
   const statusCard = `
@@ -2729,14 +2720,22 @@ async function renderAttRecord() {
         ${recWorked != null ? `<div class="mr-cell"><span class="mr-label">총 근무</span><b>${fmtH(recWorked)}시간</b></div>` : ""}
       </div>
     </div>`;
-  // 잠긴 이유 안내 문구
-  const alertMsg = usingCarry
-    ? `<b>${esc(myOpen.date)}</b> 출근 기록이 미완료 상태입니다. 먼저 퇴근 처리를 해주세요.`
-    : inDone && outDone
+  const alertMsg = openElsewhere
+    ? `<b>${esc(openElsewhere.date)}</b> 출근(${esc(openElsewhere.inAt)}) 기록이 아직 미완료입니다.
+       아래 기록 날짜를 <b>${esc(openElsewhere.date)}</b>로 바꿔 퇴근을 먼저 기록해 주세요.
+       <button type="button" class="btn btn-ghost btn-sm alert-act" id="rec-goto-open">${esc(openElsewhere.date)}로 이동</button>`
+    : stage === "done"
       ? `<b>${esc(recDate)}</b> 출퇴근이 모두 기록되었습니다. 수정이 필요하면 경영지원본부에 요청하세요.`
-      : inDone && !outDone
-        ? `출근만 기록된 상태입니다. 퇴근 시간을 선택하고 <b>퇴근하기</b>를 눌러주세요.`
-        : "";
+      : "";
+
+  /* 단계별 입력 패널 (해당 단계의 시간 입력 + 버튼만 노출) */
+  const ioPanel = stage === "done" ? "" : `
+    <div class="att-io ${stage} single">
+      <div class="io-title">${stage === "in" ? "출근 시간" : "퇴근 시간"}</div>
+      ${stage === "in" ? timeSelHtml("ai", null) : timeSelHtml("ao", null)}
+      <button class="btn io-btn ${stage}" id="${stage === "in" ? "att-in" : "att-out"}">
+        ${stage === "in" ? IN_ICON : OUT_ICON}${isTodayMode ? (stage === "in" ? "출근하기" : "퇴근하기") : `${recDate} ${stage === "in" ? "출근하기" : "퇴근하기"}`}</button>
+    </div>`;
 
   body.innerHTML = `
     ${notices.map((n) => `
@@ -2748,26 +2747,15 @@ async function renderAttRecord() {
       </div>`).join("")}
     <div class="card">
       <div class="card-title"><div>출퇴근 기록<div class="ct-desc">${esc(me.name)}님의 출퇴근을 기록합니다. 날짜를 확인하고 시간을 조정한 후 버튼을 누르세요.</div></div></div>
+      ${statusCard}
+      ${alertMsg ? `<div class="att-alert">${alertMsg}</div>` : ""}
       <div class="rec-date-row">
         <span class="field-label">기록 날짜</span>
         <button type="button" class="cal-input" id="rec-date-btn"><span id="rec-date-btn-label">${dateLabelKo(recDate)}</span>${CAL_ICON}</button>
         ${!isTodayMode ? `<button type="button" class="btn btn-ghost btn-sm" id="rec-date-today">오늘로</button>` : ""}
       </div>
-      ${!isTodayMode ? `<div class="mini-note">과거 날짜를 수정 중입니다. 날짜를 놓쳐 미입력된 경우 여기서 직접 기록하세요.</div>` : ""}
-      ${statusCard}
-      ${alertMsg ? `<div class="att-alert">${alertMsg}</div>` : ""}
-      <div class="att-io-grid">
-        <div class="att-io in">
-          <div class="io-title">출근 시간</div>
-          ${timeSelHtml("ai", myRec.inAt)}
-          <button class="btn io-btn in" id="att-in" ${inLocked ? "disabled" : ""}>${IN_ICON}${inLabel}</button>
-        </div>
-        <div class="att-io out">
-          <div class="io-title">퇴근 시간</div>
-          ${timeSelHtml("ao", myRec.outAt)}
-          <button class="btn io-btn out" id="att-out" ${outLocked ? "disabled" : ""}>${OUT_ICON}${outLabel}</button>
-        </div>
-      </div>
+      ${!isTodayMode ? `<div class="mini-note">과거 날짜를 기록·수정 중입니다. 날짜를 놓쳐 미입력된 경우 여기서 직접 기록하세요.</div>` : ""}
+      ${ioPanel}
     </div>
     <div class="card">
       <div class="card-title"><div>오늘 근무 현황<div class="ct-desc">오늘 근무 예정자와 출퇴근 기록입니다. 근무 영역별로 표시됩니다.</div></div></div>
@@ -2792,46 +2780,52 @@ async function renderAttRecord() {
   });
   const todayBtn = $("#rec-date-today");
   if (todayBtn) todayBtn.onclick = () => { attRecDate = today; renderAttend(); };
+  const gotoOpen = $("#rec-goto-open");
+  if (gotoOpen) gotoOpen.onclick = () => { attRecDate = openElsewhere.date; renderAttend(); };
 
-  $("#att-in").onclick = async () => {
-    if (inLocked) return;
+  const inBtn = $("#att-in");
+  if (inBtn) inBtn.onclick = async () => {
+    if (inBtn.disabled) return;
     const t = timeSelVal("ai");
     // 미래 시각 출근 차단 (오늘 기록 기준, 한국시간)
     if (isTodayMode && t > hmNowKST()) {
       toast(`미래 시각(${t})으로는 출근을 기록할 수 없습니다. 현재 ${hmNowKST()}`);
       return;
     }
+    inBtn.disabled = true;
     await db.collection(COL.attendance).doc(myRec.id)
       .set({ empId: me.id, name: me.name, dept: me.dept, date: recDate, inAt: t }, { merge: true });
     toast(`${recDate} 출근 ${t} 기록 완료`);
     renderAttend();
   };
-  $("#att-out").onclick = () => {
-    if (outLocked) return;
+
+  const outBtn = $("#att-out");
+  if (outBtn) outBtn.onclick = () => {
+    if (outBtn.disabled) return;
     const t = timeSelVal("ao");
-    const outDateEff = usingCarry ? today : recDate;
+    // 퇴근은 선택한 기록 날짜의 출근 건을 마감한다 (자정을 넘겼으면 다음날로 저장)
+    const workDate = recDate;
+    const crossMidnight = t < myRec.inAt;
+    const outDateEff = crossMidnight ? nextDateStr(workDate) : workDate;
     // 미래 시각 퇴근 차단 (퇴근이 실제로 찍히는 날짜가 오늘인 경우, 한국시간)
+    if (outDateEff > today) {
+      toast(`아직 오지 않은 시각입니다. 자정을 넘긴 퇴근은 날짜가 지난 뒤에 기록할 수 있습니다.`);
+      return;
+    }
     if (outDateEff === today && t > hmNowKST()) {
       toast(`미래 시각(${t})으로는 퇴근을 기록할 수 없습니다. 현재 ${hmNowKST()}`);
       return;
     }
-    // 근무시간 계산 (해당일 일정의 휴게 포함 여부 반영)
-    const workDate = outTarget.date;
-    // 같은 날짜인데 퇴근이 출근보다 빠르면 잘못된 입력 — 저장 차단
-    if (outDateEff === workDate && t < outTarget.inAt) {
-      toast(`퇴근 시각(${t})이 출근 시각(${outTarget.inAt})보다 빠릅니다. 자정을 넘겨 근무했다면 기록 날짜를 확인하세요.`);
-      return;
-    }
     const shiftOfDay = shifts.find((s) => s.date === workDate && s.empId === me.id);
-    const wh = workedHours({ ...outTarget, outAt: t, outDate: outDateEff }, shiftOfDay);
+    const wh = workedHours({ ...myRec, date: workDate, outAt: t, outDate: outDateEff }, shiftOfDay);
     openOutConfirmModal({
       time: t,
       workDate,
       outDateEff,
-      inAt: outTarget.inAt,
+      inAt: myRec.inAt,
       workedH: wh,
       onConfirm: async () => {
-        await db.collection(COL.attendance).doc(outTarget.id)
+        await db.collection(COL.attendance).doc(myRec.id)
           .set({ outAt: t, outDate: outDateEff }, { merge: true });
         closeModal();
         toast(`${workDate} 퇴근 ${t} 기록 완료`);

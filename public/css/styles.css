@@ -1399,6 +1399,9 @@ tr.ph-row-open td { background: var(--blue-soft); }
 .rec-date-row .field-label { margin: 0; white-space: nowrap; }
 .rec-date-row .cal-input { width: auto; min-width: 160px; }
 .att-io-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+/* 단계별 단일 입력 패널 (출근 전 → 출근만 / 출근 후 → 퇴근만) */
+.att-io.single { max-width: 420px; }
+.att-alert .alert-act { margin-left: 8px; background: #fff; border-color: #ffd43b; color: #9a6700; }
 .att-io { border-radius: 14px; padding: 16px; }
 .att-io.in { background: #f0faf4; border: 1.5px solid #c4ecd3; }
 .att-io.out { background: #fff5f5; border: 1.5px solid #f7d4d8; }
