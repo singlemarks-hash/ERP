@@ -2532,17 +2532,18 @@ function shiftColor(id) {
   return "shc" + (h % SHIFT_COLOR_N);
 }
 function nextDateStr(ds) { const d = new Date(ds + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); }
-/* 시간 셀렉트 (시 0-23 · 분 5분 단위) */
+/* 시·분 옵션 (출퇴근 기록은 1분 단위로 정확히 입력) */
+const hourOpts = (v) => Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0")).map((h) =>
+  `<option ${h === v ? "selected" : ""}>${h}</option>`).join("");
+const minOpts = (v) => Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0")).map((m) =>
+  `<option ${m === v ? "selected" : ""}>${m}</option>`).join("");
+/* 시간 셀렉트 (시 0-23 · 분 1분 단위) — 기본값은 현재 시각(KST) */
 function timeSelHtml(prefix, val) {
-  const now = hmNowKST();
-  const v = val || `${now.slice(0, 2)}:${String(Math.floor(Number(now.slice(3)) / 5) * 5).padStart(2, "0")}`;
-  const [vh, vm] = v.split(":");
+  const [vh, vm] = (val || hmNowKST()).split(":");
   return `<div class="io-time">
-    <select id="${prefix}-h">${Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0")).map((h) =>
-      `<option ${h === vh ? "selected" : ""}>${h}</option>`).join("")}</select>
+    <select id="${prefix}-h">${hourOpts(vh)}</select>
     <b>:</b>
-    <select id="${prefix}-m">${Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0")).map((m) =>
-      `<option ${m === vm ? "selected" : ""}>${m}</option>`).join("")}</select>
+    <select id="${prefix}-m">${minOpts(vm)}</select>
   </div>`;
 }
 const timeSelVal = (prefix) => `${$(`#${prefix}-h`).value}:${$(`#${prefix}-m`).value}`;
@@ -2978,8 +2979,8 @@ function openShiftDayModal(ds, emps) {
     const s = editing || {};
     const [sh, sm] = (s.start || "09:00").split(":");
     const [eh, em] = (s.end || "18:00").split(":");
-    const hOpts = (v) => Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0")).map((h) =>
-      `<option ${h === v ? "selected" : ""}>${h}</option>`).join("");
+    const hOpts = hourOpts;
+    // 근무 '예정' 일정은 5분 단위 (실제 출퇴근 기록만 1분 단위로 입력)
     const mOpts = (v) => Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0")).map((m) =>
       `<option ${m === v ? "selected" : ""}>${m}</option>`).join("");
     return `
@@ -3384,10 +3385,7 @@ function openAttEditModal(emp, date, att, shiftOf = () => null) {
   const rec = att || {};
   let selDate = date || todayKST();
   const brkDefault = breakApplied(rec, shiftOf(selDate));
-  const hOpts = (v) => Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0")).map((h) =>
-    `<option ${h === v ? "selected" : ""}>${h}</option>`).join("");
-  const mOpts = (v) => Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0")).map((m) =>
-    `<option ${m === v ? "selected" : ""}>${m}</option>`).join("");
+  const hOpts = hourOpts, mOpts = minOpts;   // 출퇴근 기록은 1분 단위
   const [ih, im] = (rec.inAt || "09:00").split(":");
   const [oh, om] = (rec.outAt || "18:00").split(":");
   openModal(`
