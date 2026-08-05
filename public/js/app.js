@@ -335,7 +335,6 @@ const ICONS = {
 function renderSidebar() {
   $("#user-card").innerHTML = `
     <div class="profile-top">
-      <span class="avatar">${esc((me.name || "?").charAt(0))}</span>
       <div>
         <div class="p-name">${esc(me.name)} 님</div>
         <div class="p-badges">
@@ -2702,7 +2701,6 @@ async function renderAttRecord() {
   const statusCard = `
     <div class="my-rec">
       <div class="my-rec-head">
-        <span class="avatar sm">${esc((me.name || "?").charAt(0))}</span>
         <div>
           <div class="mr-name">${esc(me.name)}</div>
           <div class="mr-plan">${myShiftToday ? `${myShiftToday.start}-${shiftEndLabel(myShiftToday)}` : "등록된 근무 일정 없음"}</div>
