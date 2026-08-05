@@ -3296,17 +3296,27 @@ async function renderAttendAdmin() {
           <option value="" ${!admAttEmp ? "selected" : ""}>전체 직원</option>
           ${empOptions}
         </select>
-        <span class="adm-filter-note">출퇴근을 입력한 기록만 표시됩니다.</span>
+        ${admAttEmp && isAdmin()
+          ? `<button type="button" class="btn btn-primary btn-sm" id="adm-add">+ 출퇴근 입력</button>`
+          : ""}
+        <span class="adm-filter-note">${admAttEmp && isAdmin()
+          ? "직원을 대신해 출퇴근을 직접 기록할 수 있습니다."
+          : "출퇴근을 입력한 기록만 표시됩니다."}</span>
       </div>
       ${rowsHtml.trim() ? `<div class="table-wrap"><table class="data att-table">
         <thead><tr><th>이름</th><th>소속</th><th class="num">예정일</th><th class="num">예정시간</th><th class="num">근무일</th><th class="num">실근무</th><th>특이사항</th></tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table></div>
       <div class="mini-note">직원을 클릭하면 일별 이력이 펼쳐집니다. 메모는 입력 후 Enter로 저장됩니다.</div>`
-      : `<div class="empty">${mm}월${admAttEmp ? " 해당 직원의" : ""} 출퇴근 입력 기록이 없습니다.</div>`}
+      : `<div class="empty">${mm}월${admAttEmp ? " 해당 직원의" : ""} 출퇴근 입력 기록이 없습니다.${admAttEmp && isAdmin() ? " [+ 출퇴근 입력]으로 직접 기록할 수 있습니다." : ""}</div>`}
     </div>`;
 
   $("#adm-emp").onchange = (ev) => { admAttEmp = ev.target.value; renderAttendAdmin(); };
+  const addBtn = $("#adm-add");
+  if (addBtn) addBtn.onclick = () => {
+    const p = people.get(admAttEmp);
+    if (p) openAttEditModal(p, null, null);
+  };
 
   const shiftMonth = (n) => {
     let y = yy, m = mm + n;
@@ -3361,45 +3371,74 @@ async function renderAttendAdmin() {
 }
 
 /* 관리자: 출퇴근 기록 수정 모달 */
+/* 관리자 출퇴근 입력/수정 모달
+   att === null 이면 신규 입력 모드 (날짜를 직접 고를 수 있음) */
 function openAttEditModal(emp, date, att) {
+  const isNew = !att;
+  const rec = att || {};
+  let selDate = date || todayKST();
   const hOpts = (v) => Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0")).map((h) =>
     `<option ${h === v ? "selected" : ""}>${h}</option>`).join("");
   const mOpts = (v) => Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0")).map((m) =>
     `<option ${m === v ? "selected" : ""}>${m}</option>`).join("");
-  const [ih, im] = (att.inAt || "09:00").split(":");
-  const [oh, om] = (att.outAt || "18:00").split(":");
+  const [ih, im] = (rec.inAt || "09:00").split(":");
+  const [oh, om] = (rec.outAt || "18:00").split(":");
   openModal(`
-    <h3>${esc(emp.name)} · ${esc(date)} 출퇴근 수정</h3>
+    <h3>${esc(emp.name)} 출퇴근 ${isNew ? "입력" : "수정"}</h3>
+    ${isNew
+      ? `<p class="modal-desc">관리자가 대신 기록합니다. 날짜와 시간을 확인한 후 저장하세요.</p>
+         <div class="field"><span class="field-label">기록 날짜</span>
+           <button type="button" class="cal-input" id="ae-date"><span id="ae-date-label">${dateLabelKo(selDate)}</span>${CAL_ICON}</button></div>`
+      : `<p class="modal-desc">${esc(date)} 기록을 수정합니다.</p>`}
     <div class="grid-2">
       <div class="field"><span class="field-label">출근 시간</span>
         <div class="io-time"><select id="ae-ih">${hOpts(ih)}</select><b>:</b><select id="ae-im">${mOpts(im)}</select></div></div>
       <div class="field"><span class="field-label">퇴근 시간</span>
         <div class="io-time"><select id="ae-oh">${hOpts(oh)}</select><b>:</b><select id="ae-om">${mOpts(om)}</select></div></div>
     </div>
-    <label class="sf-check"><input type="checkbox" id="ae-nd" ${att.outDate && att.outDate > att.date ? "checked" : ""} /> 익일 퇴근 (자정을 넘겨 퇴근)</label>
-    <label class="sf-check"><input type="checkbox" id="ae-noout" ${!att.outAt ? "checked" : ""} /> 퇴근 미기록 상태로 두기</label>
+    <label class="sf-check"><input type="checkbox" id="ae-nd" ${rec.outDate && rec.outDate > rec.date ? "checked" : ""} /> 익일 퇴근 (자정을 넘겨 퇴근)</label>
+    <label class="sf-check"><input type="checkbox" id="ae-noout" ${isNew || !rec.outAt ? "checked" : ""} /> 퇴근 미기록 상태로 두기</label>
     <div class="modal-actions">
       <button type="button" class="btn btn-ghost" id="ae-cancel">취소</button>
       <button type="button" class="btn btn-primary" id="ae-save">저장</button>
     </div>`);
   $("#ae-cancel").onclick = closeModal;
+  const dateBtn = $("#ae-date");
+  if (dateBtn) dateBtn.onclick = () => openDatePicker(dateBtn, selDate, (v) => {
+    if (!v) return;
+    if (v > todayKST()) { toast("미래 날짜에는 기록할 수 없습니다."); return; }
+    selDate = v;
+    $("#ae-date-label").textContent = dateLabelKo(v);
+  });
   $("#ae-save").onclick = async () => {
     const save = $("#ae-save");
     if (save.disabled) return;
-    save.disabled = true;
     const inAt = `${$("#ae-ih").value}:${$("#ae-im").value}`;
     const noOut = $("#ae-noout").checked;
-    const data = { empId: emp.id, name: emp.name, date, inAt };
+    const nextDay = $("#ae-nd").checked;
+    const outAt = `${$("#ae-oh").value}:${$("#ae-om").value}`;
+    // 같은 날짜인데 퇴근이 출근보다 빠르면 익일 퇴근으로 체크해야 함
+    if (!noOut && !nextDay && outAt < inAt) {
+      toast(`퇴근(${outAt})이 출근(${inAt})보다 빠릅니다. 자정을 넘겼다면 [익일 퇴근]을 체크하세요.`);
+      return;
+    }
+    if (isNew) {
+      const exist = await db.collection(COL.attendance).doc(`${emp.id}_${selDate}`).get();
+      if (exist.exists && !confirm(`${emp.name}님의 ${selDate} 기록이 이미 있습니다. 덮어쓸까요?`)) return;
+    }
+    save.disabled = true;
+    const data = { empId: emp.id, name: emp.name, dept: emp.dept || "", date: selDate, inAt };
     if (noOut) {
       data.outAt = firebase.firestore.FieldValue.delete();
       data.outDate = firebase.firestore.FieldValue.delete();
     } else {
-      data.outAt = `${$("#ae-oh").value}:${$("#ae-om").value}`;
-      data.outDate = $("#ae-nd").checked ? nextDateStr(date) : date;
+      data.outAt = outAt;
+      data.outDate = nextDay ? nextDateStr(selDate) : selDate;
     }
-    await db.collection(COL.attendance).doc(`${emp.id}_${date}`).set(data, { merge: true });
+    await db.collection(COL.attendance).doc(`${emp.id}_${selDate}`).set(data, { merge: true });
     closeModal();
-    toast("출퇴근 기록을 수정했습니다.");
+    toast(`${emp.name}님의 ${selDate} 출퇴근을 ${isNew ? "입력" : "수정"}했습니다.`);
+    admAttEmp = emp.id;
     renderAttendAdmin();
   };
 }
