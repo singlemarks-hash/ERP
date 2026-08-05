@@ -2497,6 +2497,7 @@ function shiftHours(s) { return Math.max(0, shiftSpanMin(s) / 60 - (s.breakInclu
 function shiftEndLabel(s) { return shiftOvernight(s) ? "익일 " + s.end : s.end; }
 function fmtH(h) { return String(Math.round(h * 100) / 100); }
 const REST_ICON = '<span class="rest-ico" title="휴게시간 포함 (1시간 차감)">*</span>';
+const REST_BADGE = '<span class="rest-badge" title="휴게시간 포함 (1시간 차감)">휴게포함</span>';
 /* 24시간 "HH:MM" → 한국어 오전/오후 표기 (00:00은 자정=오전 12시) */
 function kAmPmLabel(t) {
   const [h, m] = String(t || "0:0").split(":").map(Number);
@@ -3197,7 +3198,7 @@ async function renderAttHistory() {
             <td class="att-mono ${a?.inAt ? "c-green" : ""}">${a?.inAt || "-"}</td>
             <td class="att-mono ${a?.outAt ? "c-red" : ""}">${a?.outAt || "-"}</td>
             <td class="num">${s ? fmtH(shiftHours(s)) : "-"}</td>
-            <td class="num"><b>${wh != null ? fmtH(wh) : "-"}</b>${wh != null && breakApplied(a, s) ? REST_ICON : ""}</td>
+            <td class="num"><b>${wh != null ? fmtH(wh) : "-"}</b>${wh != null && breakApplied(a, s) ? REST_BADGE : ""}</td>
             <td>${noteChips(attNotes(a, s)) || "-"}</td>
           </tr>`;
         }).join("")}</tbody>
@@ -3273,7 +3274,7 @@ async function renderAttendAdmin() {
             <td class="att-mono">${s ? `${s.start}-${shiftEndLabel(s)}` : "-"}</td>
             <td class="att-mono c-green">${a.inAt}</td>
             <td class="att-mono ${a.outAt ? "c-red" : ""}">${a.outAt || "-"}</td>
-            <td class="num"><b>${wh != null ? fmtH(wh) : "-"}</b>${wh != null && breakApplied(a, s) ? REST_ICON : ""}</td>
+            <td class="num"><b>${wh != null ? fmtH(wh) : "-"}</b>${wh != null && breakApplied(a, s) ? REST_BADGE : ""}</td>
             <td>${noteChips(attNotes(a, s)) || "-"}</td>
             <td class="adm-memo-td"><input class="adm-memo" data-memo="${p.id}|${d}" value="${esc(a.memo || "")}" placeholder="메모 입력 후 Enter" maxlength="100" /></td>
             <td class="adm-acts">
