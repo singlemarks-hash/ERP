@@ -2539,12 +2539,14 @@ function timeSelHtml(prefix, val) {
 }
 const timeSelVal = (prefix) => `${$(`#${prefix}-h`).value}:${$(`#${prefix}-m`).value}`;
 
-/* 실근무 시간(h): 출퇴근 기록 + (해당일 일정의 휴게 여부) — 10분 블록 단위로 환산 */
+/* 실근무 시간(h): 출퇴근 기록 + (해당일 일정의 휴게 여부) — 10분 블록 단위로 환산
+   출근 날짜(date)와 퇴근 날짜(outDate)를 엄격히 비교: 퇴근 날짜가 다음날일 때만 +24h.
+   같은 날인데 퇴근이 출근보다 빠르면 잘못된 기록으로 보고 0을 반환한다. */
 function workedHours(att, shift) {
   if (!att?.inAt || !att?.outAt) return null;
   let span = minOf(att.outAt) - minOf(att.inAt);
-  if (att.outDate && att.outDate > att.date) span += 1440;
-  if (span <= 0) span += 1440;
+  if ((att.outDate || att.date) > att.date) span += 1440;
+  if (span < 0) return 0;
   return blockHours(Math.max(0, span - (shift?.breakIncluded ? 60 : 0)));
 }
 /* 출퇴근 정책: 예정 시간 전후 10분까지는 무시.
@@ -2694,6 +2696,39 @@ async function renderAttRecord() {
     : usingCarry ? `${myOpen.date} 퇴근하기`
     : isTodayMode ? "퇴근하기" : `${recDate} 퇴근하기`;
 
+  /* 내 기록 상태 요약 + 버튼이 잠긴 이유 안내 (노란 박스) */
+  const myShiftToday = shifts.find((s) => s.date === recDate && s.empId === me.id);
+  const recWorked = workedHours(myRec, myShiftToday);
+  const statusCard = `
+    <div class="my-rec">
+      <div class="my-rec-head">
+        <span class="avatar sm">${esc((me.name || "?").charAt(0))}</span>
+        <div>
+          <div class="mr-name">${esc(me.name)}</div>
+          <div class="mr-plan">${myShiftToday ? `${myShiftToday.start}-${shiftEndLabel(myShiftToday)}` : "등록된 근무 일정 없음"}</div>
+        </div>
+      </div>
+      <div class="my-rec-body">
+        <div class="mr-cell">
+          <span class="mr-label">출근</span>
+          ${myRec.inAt ? `<b class="c-green">${esc(myRec.inAt)}</b> <em>(${esc(recDate)})</em>` : `<b class="mr-none">미기록</b>`}
+        </div>
+        <div class="mr-cell">
+          <span class="mr-label">퇴근</span>
+          ${myRec.outAt ? `<b class="c-red">${esc(myRec.outAt)}</b> <em>(${esc(myRec.outDate || recDate)})</em>` : `<b class="mr-none">미기록</b>`}
+        </div>
+        ${recWorked != null ? `<div class="mr-cell"><span class="mr-label">총 근무</span><b>${fmtH(recWorked)}시간</b></div>` : ""}
+      </div>
+    </div>`;
+  // 잠긴 이유 안내 문구
+  const alertMsg = usingCarry
+    ? `<b>${esc(myOpen.date)}</b> 출근 기록이 미완료 상태입니다. 먼저 퇴근 처리를 해주세요.`
+    : inDone && outDone
+      ? `<b>${esc(recDate)}</b> 출퇴근이 모두 기록되었습니다. 수정이 필요하면 경영지원본부에 요청하세요.`
+      : inDone && !outDone
+        ? `출근만 기록된 상태입니다. 퇴근 시간을 선택하고 <b>퇴근하기</b>를 눌러주세요.`
+        : "";
+
   body.innerHTML = `
     ${notices.map((n) => `
       <div class="wn-notice">
@@ -2710,6 +2745,8 @@ async function renderAttRecord() {
         ${!isTodayMode ? `<button type="button" class="btn btn-ghost btn-sm" id="rec-date-today">오늘로</button>` : ""}
       </div>
       ${!isTodayMode ? `<div class="mini-note">과거 날짜를 수정 중입니다. 날짜를 놓쳐 미입력된 경우 여기서 직접 기록하세요.</div>` : ""}
+      ${statusCard}
+      ${alertMsg ? `<div class="att-alert">${alertMsg}</div>` : ""}
       <div class="att-io-grid">
         <div class="att-io in">
           <div class="io-title">출근 시간</div>
@@ -2722,7 +2759,6 @@ async function renderAttRecord() {
           <button class="btn io-btn out" id="att-out" ${outLocked ? "disabled" : ""}>${OUT_ICON}${outLabel}</button>
         </div>
       </div>
-      ${usingCarry ? `<div class="mini-note">어제(${esc(yesterday)}) 퇴근 기록이 없습니다. 지금 퇴근을 누르면 어제 근무의 퇴근으로 기록됩니다.</div>` : ""}
     </div>
     <div class="card">
       <div class="card-title"><div>오늘 근무 현황<div class="ct-desc">오늘 근무 예정자와 출퇴근 기록입니다. 근무 영역별로 표시됩니다.</div></div></div>
@@ -2772,6 +2808,11 @@ async function renderAttRecord() {
     }
     // 근무시간 계산 (해당일 일정의 휴게 포함 여부 반영)
     const workDate = outTarget.date;
+    // 같은 날짜인데 퇴근이 출근보다 빠르면 잘못된 입력 — 저장 차단
+    if (outDateEff === workDate && t < outTarget.inAt) {
+      toast(`퇴근 시각(${t})이 출근 시각(${outTarget.inAt})보다 빠릅니다. 자정을 넘겨 근무했다면 기록 날짜를 확인하세요.`);
+      return;
+    }
     const shiftOfDay = shifts.find((s) => s.date === workDate && s.empId === me.id);
     const wh = workedHours({ ...outTarget, outAt: t, outDate: outDateEff }, shiftOfDay);
     openOutConfirmModal({
@@ -2802,7 +2843,11 @@ function openOutConfirmModal({ time, workDate, outDateEff, inAt, workedH, onConf
       <div class="ioc-time">${esc(time)}</div>
       <div class="ioc-ampm">(${kAmPmLabel(time)})</div>
       <div class="ioc-date">${p.y}년 ${p.m}월 ${p.d}일 (${"일월화수목금토"[p.dow]}) 근무${outDateEff !== workDate ? " · 익일 퇴근" : ""}</div>
-      <div class="ioc-worked">출근 ${esc(inAt)} → 퇴근 ${esc(time)} · 총 근무 <b>${fmtH(workedH ?? 0)}시간</b></div>
+      <div class="ioc-worked">
+        <div class="iocw-row"><span>출근</span><b>${esc(workDate)} ${esc(inAt)}</b></div>
+        <div class="iocw-row"><span>퇴근</span><b>${esc(outDateEff)} ${esc(time)}</b></div>
+        <div class="iocw-row total"><span>총 근무</span><b>${fmtH(workedH ?? 0)}시간</b></div>
+      </div>
       <p class="ioc-q">위 시간이 맞습니까?</p>
       <div class="ioc-actions">
         <button type="button" class="btn btn-ghost" id="ioc-cancel">취소</button>
