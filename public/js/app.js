@@ -2521,9 +2521,12 @@ const SHIFT_COLOR_N = 14;
 let shiftColorMap = {};
 function assignShiftColors(ids) {
   shiftColorMap = {};
-  [...new Set(ids)].sort().forEach((id, i) => { shiftColorMap[id] = "shc" + (i % SHIFT_COLOR_N); });
+  [...new Set(ids)].filter((id) => !String(id || "").startsWith("temp:")).sort()
+    .forEach((id, i) => { shiftColorMap[id] = "shc" + (i % SHIFT_COLOR_N); });
 }
 function shiftColor(id) {
+  // 단기알바는 색상 배정에서 제외하고 항상 무채색 고정
+  if (String(id || "").startsWith("temp:")) return "shc-temp";
   if (shiftColorMap[id]) return shiftColorMap[id];
   let h = 0;
   for (const c of String(id || "")) h = (h * 31 + c.charCodeAt(0)) >>> 0;

@@ -1577,6 +1577,8 @@ tr.att-carry td { background: #fff9db; }
 .shc11 { background: #efe0d1; color: #946b3d; }
 .shc12 { background: #ffd8cc; color: #bf3f22; }
 .shc13 { background: #d0e2e8; color: #2b6777; }
+/* 단기알바 전용 무채색 (직원 색상 팔레트에서 제외) */
+.shc-temp { background: #e9ecef; color: #495057; }
 .at-legend { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
 .at-legend-item { font-size: 0.72rem; font-weight: 700; border-radius: 7px; padding: 3px 9px; }
 .at-legend-note { font-size: 0.72rem; color: var(--ink-faint); margin-left: auto; }
