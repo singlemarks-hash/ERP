@@ -1710,9 +1710,21 @@ tr.att-carry td { background: #fff9db; }
   .sc-chips { flex-direction: row; flex-wrap: wrap; gap: 3px; }
   .sc-chip b { display: none; }
   .sc-chip .sc-dot { width: 8px; height: 8px; }
-  .sc-cal-head #sc-now { right: 0; }
   .sc-sum-line { font-size: 0.84rem; }
   .sc-legend { gap: 10px; }
+
+  /* 월 이동 헤더: 절대위치 대신 flex 배치로 전환해 '이번 달' 버튼이
+     다음달 화살표와 겹치지 않도록 (라벨 길이와 무관하게 안전) */
+  .sc-cal-head { gap: 4px; }
+  .sc-cal-head .sc-cal-title { flex: 1; min-width: 0; font-size: 0.95rem; }
+  .sc-cal-head #sc-now, .sc-cal-head #at-now,
+  .sc-cal-head #ah-now, .sc-cal-head #adm-now {
+    position: static;
+    right: auto;
+    flex: none;
+    padding: 7px 10px;
+    font-size: 0.76rem;
+  }
 
   /* 근태관리 */
   .subtabs { display: flex; width: 100%; }
@@ -1728,7 +1740,6 @@ tr.att-carry td { background: #fff9db; }
   .shift-ent i.full { display: none; }
   .shift-ent i.st-only { display: block; font-size: 0.54rem; }
   .at-legend-note { margin-left: 0; width: 100%; }
-  .sc-cal-head #at-now, .sc-cal-head #ah-now, .sc-cal-head #adm-now { position: absolute; right: 0; }
   .adm-memo-td { min-width: 130px; }
   .adm-memo { min-width: 110px; }
 
