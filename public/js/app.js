@@ -3148,7 +3148,7 @@ async function renderAttHistory() {
     .filter((a) => a.empId === me.id && (a.date || "").startsWith(atHistYm));
   const shiftBy = {}; myShifts.forEach((s) => { shiftBy[s.date] = s; });
   const attBy = {}; myAtts.forEach((a) => { attBy[a.date] = a; });
-  const allDates = [...new Set([...myShifts.map((s) => s.date), ...myAtts.map((a) => a.date)])].sort();
+  const allDates = [...new Set([...myShifts.map((s) => s.date), ...myAtts.map((a) => a.date)])].sort().reverse();
 
   const schedDays = new Set(myShifts.map((s) => s.date)).size;
   const schedH = myShifts.reduce((s, x) => s + shiftHours(x), 0);
@@ -3253,7 +3253,7 @@ async function renderAttendAdmin() {
     if (!pAtts.length) return ""; // 출퇴근 입력 기록이 있는 직원만 노출
     const shiftBy = {}; pShifts.forEach((s) => { shiftBy[s.date] = s; });
     const attBy = {}; pAtts.forEach((a) => { attBy[a.date] = a; });
-    const dates = pAtts.map((a) => a.date).sort();
+    const dates = pAtts.map((a) => a.date).sort().reverse();
     const schedH = pShifts.reduce((s, x) => s + shiftHours(x), 0);
     const workedH = dates.reduce((sum, d) => sum + (workedHours(attBy[d], shiftBy[d]) || 0), 0);
     const agg = { late: { n: 0, h: 0 }, earlyin: { n: 0, h: 0 }, earlyout: { n: 0, h: 0 }, over: { n: 0, h: 0 }, night: { n: 0, h: 0 } };
