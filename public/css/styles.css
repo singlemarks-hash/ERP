@@ -1462,7 +1462,13 @@ tr.att-carry td { background: #fff9db; }
 .shc4 { background: #ffe8cc; color: #d9480f; }
 .shc5 { background: #e5dbff; color: #6741d9; }
 .shc6 { background: #c3fae8; color: #087f5b; }
-.shc7 { background: #e9ecef; color: #495057; }
+.shc7 { background: #d0ebff; color: #1971c2; } /* 회색은 파트 라벨과 겹쳐 스카이블루로 교체 */
+.shc8 { background: #d8f5a2; color: #5c940d; }
+.shc9 { background: #dbe4ff; color: #3b5bdb; }
+.shc10 { background: #f3d9fa; color: #9c36b5; }
+.shc11 { background: #efe0d1; color: #946b3d; }
+.shc12 { background: #ffd8cc; color: #bf3f22; }
+.shc13 { background: #d0e2e8; color: #2b6777; }
 .at-legend { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
 .at-legend-item { font-size: 0.72rem; font-weight: 700; border-radius: 7px; padding: 3px 9px; }
 .at-legend-note { font-size: 0.72rem; color: var(--ink-faint); margin-left: auto; }
@@ -1519,6 +1525,8 @@ tr.att-carry td { background: #fff9db; }
 .adm-filter-note { font-size: 0.76rem; color: var(--ink-faint); }
 
 /* 관리자 근태 상세 */
+.adm-acts { white-space: nowrap; }
+.adm-acts .icon-btn { margin-right: 2px; }
 .adm-detail { background: #fff; border-radius: 10px; }
 .adm-detail th { font-size: 0.7rem; }
 .adm-detail td { font-size: 0.82rem; }

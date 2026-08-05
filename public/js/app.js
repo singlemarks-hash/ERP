@@ -2510,12 +2510,20 @@ function shiftCompact(s) {
 function hmNowKST() { const d = kstNow(); return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`; }
 function prevDateStr(ds) { const d = new Date(ds + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); }
 function tsSec(t) { return t?.seconds ?? (t instanceof Date ? t.getTime() / 1000 : 0); }
-const SHIFT_COLOR_N = 8;
+const SHIFT_COLOR_N = 14;
+/* 직원별 색상: 해시 대신 명단 순서로 고유 배정 → 14명까지는 겹침 없음 */
+let shiftColorMap = {};
+function assignShiftColors(ids) {
+  shiftColorMap = {};
+  [...new Set(ids)].sort().forEach((id, i) => { shiftColorMap[id] = "shc" + (i % SHIFT_COLOR_N); });
+}
 function shiftColor(id) {
+  if (shiftColorMap[id]) return shiftColorMap[id];
   let h = 0;
   for (const c of String(id || "")) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return "shc" + (h % SHIFT_COLOR_N);
 }
+function nextDateStr(ds) { const d = new Date(ds + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); }
 /* 시간 셀렉트 (시 0-23 · 분 5분 단위) */
 function timeSelHtml(prefix, val) {
   const now = hmNowKST();
@@ -2749,6 +2757,8 @@ async function renderAttCalendar() {
   const shifts = shiftSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((s) => (s.date || "").startsWith(atCalYm));
   const byDate = {};
   shifts.forEach((s) => { (byDate[s.date] = byDate[s.date] || []).push(s); });
+  // 이번 달 근무자 + 재직 직원 전체에 겹치지 않는 색상 배정
+  assignShiftColors([...shifts.map((s) => s.empId), ...emps.map((e) => e.id)]);
 
   const first = new Date(Date.UTC(yy, mm - 1, 1));
   const startDow = first.getUTCDay();
@@ -2992,6 +3002,7 @@ async function renderAttHistory() {
 
   body.innerHTML = `
     <div class="card">
+      <div class="card-title"><div>${esc(me.name)}님의 근무 이력입니다.</div></div>
       <div class="sc-cal-head">
         <button type="button" class="cal-nav" id="ah-prev">&lsaquo;</button>
         <b class="sc-cal-title">${yy}년 ${mm}월</b>
@@ -3013,7 +3024,7 @@ async function renderAttHistory() {
         ${otSum ? `<span class="att-note over">인정 추가근무 합계 +${fmtH(otSum)}h</span>` : ""}
         ${nightSum ? `<span class="att-note night">야간근무 합계 +${fmtH(nightSum)}h</span>` : ""}
       </div>
-      <div class="mini-note">출퇴근은 예정 시간 전후 10분까지 정상으로 처리되며, 11분부터 10분 단위로 추가근무가 인정됩니다. 22:00~06:00 근무는 유예 없이 1분부터 야간근무로 가산됩니다.</div>
+      <div class="mini-note">출퇴근 등록 시 예정 시간 전후 10분까지 정상으로 처리됩니다.</div>
       ${allDates.length ? `<div class="table-wrap"><table class="data att-table">
         <thead><tr><th>날짜</th><th>예정</th><th>출근</th><th>퇴근</th><th class="num">예정(h)</th><th class="num">실근무(h)</th><th>비고</th></tr></thead>
         <tbody>${allDates.map((d) => {
@@ -3088,7 +3099,7 @@ async function renderAttendAdmin() {
     const open = admAttEmp === p.id || admOpenIds.has(p.id);
     const detail = `
       <table class="data att-table adm-detail">
-        <thead><tr><th>날짜</th><th>예정</th><th>출근</th><th>퇴근</th><th class="num">실근무(h)</th><th>비고</th><th>메모</th></tr></thead>
+        <thead><tr><th>날짜</th><th>예정</th><th>출근</th><th>퇴근</th><th class="num">실근무(h)</th><th>비고</th><th>메모</th><th></th></tr></thead>
         <tbody>${dates.map((d) => {
           const s = shiftBy[d], a = attBy[d];
           const wh = workedHours(a, s);
@@ -3100,6 +3111,10 @@ async function renderAttendAdmin() {
             <td class="num"><b>${wh != null ? fmtH(wh) : "-"}</b></td>
             <td>${noteChips(attNotes(a, s)) || "-"}</td>
             <td class="adm-memo-td"><input class="adm-memo" data-memo="${p.id}|${d}" value="${esc(a.memo || "")}" placeholder="메모 입력 후 Enter" maxlength="100" /></td>
+            <td class="adm-acts">
+              <button class="icon-btn" data-attedit="${p.id}|${d}" title="출퇴근 수정"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.8 2.8 0 0 1 4 4L8 20l-5 1 1-5L17 3Z"/></svg></button>
+              <button class="icon-btn" data-attdel="${p.id}|${d}" title="기록 삭제"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/><path d="M10 11v6M14 11v6"/></svg></button>
+            </td>
           </tr>`;
         }).join("")}</tbody>
       </table>`;
@@ -3175,6 +3190,69 @@ async function renderAttendAdmin() {
     inp.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); inp.blur(); } };
     inp.onchange = saveMemo;
   });
+  // 출퇴근 기록 수정/삭제
+  $("#adm-body").querySelectorAll("[data-attedit]").forEach((b) => {
+    b.onclick = () => {
+      const [empId, date] = b.dataset.attedit.split("|");
+      const att = atts.find((a) => a.empId === empId && a.date === date);
+      const p = people.get(empId);
+      if (att && p) openAttEditModal(p, date, att);
+    };
+  });
+  $("#adm-body").querySelectorAll("[data-attdel]").forEach((b) => {
+    b.onclick = async () => {
+      const [empId, date] = b.dataset.attdel.split("|");
+      const p = people.get(empId);
+      if (!confirm(`${p?.name || "?"}님의 ${date} 출퇴근 기록을 정말로 삭제할까요?\n삭제하면 복구할 수 없습니다.`)) return;
+      await db.collection(COL.attendance).doc(`${empId}_${date}`).delete();
+      toast("출퇴근 기록을 삭제했습니다.");
+      renderAttendAdmin();
+    };
+  });
+}
+
+/* 관리자: 출퇴근 기록 수정 모달 */
+function openAttEditModal(emp, date, att) {
+  const hOpts = (v) => Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0")).map((h) =>
+    `<option ${h === v ? "selected" : ""}>${h}</option>`).join("");
+  const mOpts = (v) => Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0")).map((m) =>
+    `<option ${m === v ? "selected" : ""}>${m}</option>`).join("");
+  const [ih, im] = (att.inAt || "09:00").split(":");
+  const [oh, om] = (att.outAt || "18:00").split(":");
+  openModal(`
+    <h3>${esc(emp.name)} · ${esc(date)} 출퇴근 수정</h3>
+    <div class="grid-2">
+      <div class="field"><span class="field-label">출근 시간</span>
+        <div class="io-time"><select id="ae-ih">${hOpts(ih)}</select><b>:</b><select id="ae-im">${mOpts(im)}</select></div></div>
+      <div class="field"><span class="field-label">퇴근 시간</span>
+        <div class="io-time"><select id="ae-oh">${hOpts(oh)}</select><b>:</b><select id="ae-om">${mOpts(om)}</select></div></div>
+    </div>
+    <label class="sf-check"><input type="checkbox" id="ae-nd" ${att.outDate && att.outDate > att.date ? "checked" : ""} /> 익일 퇴근 (자정을 넘겨 퇴근)</label>
+    <label class="sf-check"><input type="checkbox" id="ae-noout" ${!att.outAt ? "checked" : ""} /> 퇴근 미기록 상태로 두기</label>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" id="ae-cancel">취소</button>
+      <button type="button" class="btn btn-primary" id="ae-save">저장</button>
+    </div>`);
+  $("#ae-cancel").onclick = closeModal;
+  $("#ae-save").onclick = async () => {
+    const save = $("#ae-save");
+    if (save.disabled) return;
+    save.disabled = true;
+    const inAt = `${$("#ae-ih").value}:${$("#ae-im").value}`;
+    const noOut = $("#ae-noout").checked;
+    const data = { empId: emp.id, name: emp.name, date, inAt };
+    if (noOut) {
+      data.outAt = firebase.firestore.FieldValue.delete();
+      data.outDate = firebase.firestore.FieldValue.delete();
+    } else {
+      data.outAt = `${$("#ae-oh").value}:${$("#ae-om").value}`;
+      data.outDate = $("#ae-nd").checked ? nextDateStr(date) : date;
+    }
+    await db.collection(COL.attendance).doc(`${emp.id}_${date}`).set(data, { merge: true });
+    closeModal();
+    toast("출퇴근 기록을 수정했습니다.");
+    renderAttendAdmin();
+  };
 }
 
 /* ───────── 연차관리 (관리자 메뉴) ───────── */
