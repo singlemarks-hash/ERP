@@ -2547,7 +2547,13 @@ function timeSelHtml(prefix, val) {
 }
 const timeSelVal = (prefix) => `${$(`#${prefix}-h`).value}:${$(`#${prefix}-m`).value}`;
 
-/* 실근무 시간(h): 출퇴근 기록 + (해당일 일정의 휴게 여부) — 10분 블록 단위로 환산
+/* 휴게 1시간 차감 여부: 출퇴근 기록에 직접 지정한 값이 있으면 그것을 우선하고,
+   없으면 해당일 근무 일정의 '휴게시간 포함' 설정을 따른다. */
+function breakApplied(att, shift) {
+  if (att && typeof att.breakIncluded === "boolean") return att.breakIncluded;
+  return !!shift?.breakIncluded;
+}
+/* 실근무 시간(h): 출퇴근 기록 + 휴게 차감 여부 — 10분 블록 단위로 환산
    출근 날짜(date)와 퇴근 날짜(outDate)를 엄격히 비교: 퇴근 날짜가 다음날일 때만 +24h.
    같은 날인데 퇴근이 출근보다 빠르면 잘못된 기록으로 보고 0을 반환한다. */
 function workedHours(att, shift) {
@@ -2555,7 +2561,7 @@ function workedHours(att, shift) {
   let span = minOf(att.outAt) - minOf(att.inAt);
   if ((att.outDate || att.date) > att.date) span += 1440;
   if (span < 0) return 0;
-  return blockHours(Math.max(0, span - (shift?.breakIncluded ? 60 : 0)));
+  return blockHours(Math.max(0, span - (breakApplied(att, shift) ? 60 : 0)));
 }
 /* 출퇴근 정책: 예정 시간 전후 10분까지는 정상 처리(무시). */
 const ATT_GRACE_MIN = 10;
@@ -3181,7 +3187,7 @@ async function renderAttHistory() {
             <td class="att-mono ${a?.inAt ? "c-green" : ""}">${a?.inAt || "-"}</td>
             <td class="att-mono ${a?.outAt ? "c-red" : ""}">${a?.outAt || "-"}</td>
             <td class="num">${s ? fmtH(shiftHours(s)) : "-"}</td>
-            <td class="num"><b>${wh != null ? fmtH(wh) : "-"}</b></td>
+            <td class="num"><b>${wh != null ? fmtH(wh) : "-"}</b>${wh != null && breakApplied(a, s) ? REST_ICON : ""}</td>
             <td>${noteChips(attNotes(a, s)) || "-"}</td>
           </tr>`;
         }).join("")}</tbody>
@@ -3257,7 +3263,7 @@ async function renderAttendAdmin() {
             <td class="att-mono">${s ? `${s.start}-${shiftEndLabel(s)}` : "-"}</td>
             <td class="att-mono c-green">${a.inAt}</td>
             <td class="att-mono ${a.outAt ? "c-red" : ""}">${a.outAt || "-"}</td>
-            <td class="num"><b>${wh != null ? fmtH(wh) : "-"}</b></td>
+            <td class="num"><b>${wh != null ? fmtH(wh) : "-"}</b>${wh != null && breakApplied(a, s) ? REST_ICON : ""}</td>
             <td>${noteChips(attNotes(a, s)) || "-"}</td>
             <td class="adm-memo-td"><input class="adm-memo" data-memo="${p.id}|${d}" value="${esc(a.memo || "")}" placeholder="메모 입력 후 Enter" maxlength="100" /></td>
             <td class="adm-acts">
@@ -3315,7 +3321,7 @@ async function renderAttendAdmin() {
   const addBtn = $("#adm-add");
   if (addBtn) addBtn.onclick = () => {
     const p = people.get(admAttEmp);
-    if (p) openAttEditModal(p, null, null);
+    if (p) openAttEditModal(p, null, null, (d) => shifts.find((s) => s.date === d && s.empId === p.id));
   };
 
   const shiftMonth = (n) => {
@@ -3355,7 +3361,7 @@ async function renderAttendAdmin() {
       const [empId, date] = b.dataset.attedit.split("|");
       const att = atts.find((a) => a.empId === empId && a.date === date);
       const p = people.get(empId);
-      if (att && p) openAttEditModal(p, date, att);
+      if (att && p) openAttEditModal(p, date, att, (d) => shifts.find((s) => s.date === d && s.empId === empId));
     };
   });
   $("#adm-body").querySelectorAll("[data-attdel]").forEach((b) => {
@@ -3370,13 +3376,14 @@ async function renderAttendAdmin() {
   });
 }
 
-/* 관리자: 출퇴근 기록 수정 모달 */
 /* 관리자 출퇴근 입력/수정 모달
-   att === null 이면 신규 입력 모드 (날짜를 직접 고를 수 있음) */
-function openAttEditModal(emp, date, att) {
+   att === null 이면 신규 입력 모드 (날짜를 직접 고를 수 있음)
+   shiftOf(date) 로 해당일 근무 일정을 조회해 휴게 차감 기본값을 맞춘다 */
+function openAttEditModal(emp, date, att, shiftOf = () => null) {
   const isNew = !att;
   const rec = att || {};
   let selDate = date || todayKST();
+  const brkDefault = breakApplied(rec, shiftOf(selDate));
   const hOpts = (v) => Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0")).map((h) =>
     `<option ${h === v ? "selected" : ""}>${h}</option>`).join("");
   const mOpts = (v) => Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0")).map((m) =>
@@ -3397,18 +3404,43 @@ function openAttEditModal(emp, date, att) {
         <div class="io-time"><select id="ae-oh">${hOpts(oh)}</select><b>:</b><select id="ae-om">${mOpts(om)}</select></div></div>
     </div>
     <label class="sf-check"><input type="checkbox" id="ae-nd" ${rec.outDate && rec.outDate > rec.date ? "checked" : ""} /> 익일 퇴근 (자정을 넘겨 퇴근)</label>
+    <label class="sf-check"><input type="checkbox" id="ae-brk" ${brkDefault ? "checked" : ""} /> 휴게시간 포함 (실근무에서 1시간 차감)</label>
     <label class="sf-check"><input type="checkbox" id="ae-noout" ${isNew || !rec.outAt ? "checked" : ""} /> 퇴근 미기록 상태로 두기</label>
+    <div class="ae-preview" id="ae-preview"></div>
     <div class="modal-actions">
       <button type="button" class="btn btn-ghost" id="ae-cancel">취소</button>
       <button type="button" class="btn btn-primary" id="ae-save">저장</button>
     </div>`);
   $("#ae-cancel").onclick = closeModal;
+
+  /* 저장 전 실근무 시간 미리보기 (휴게 차감이 눈에 보이도록) */
+  const updatePreview = () => {
+    const pv = $("#ae-preview");
+    if (!pv) return;
+    if ($("#ae-noout").checked) { pv.innerHTML = `퇴근 미기록 — 실근무 시간은 퇴근 기록 후 계산됩니다.`; return; }
+    const inAt = `${$("#ae-ih").value}:${$("#ae-im").value}`;
+    const outAt = `${$("#ae-oh").value}:${$("#ae-om").value}`;
+    const brk = $("#ae-brk").checked;
+    const outDate = $("#ae-nd").checked ? nextDateStr(selDate) : selDate;
+    const wh = workedHours({ date: selDate, inAt, outAt, outDate, breakIncluded: brk }, null);
+    pv.innerHTML = `${esc(inAt)} ~ ${$("#ae-nd").checked ? "익일 " : ""}${esc(outAt)}${brk ? " · 휴게 1시간 차감" : ""}
+      → 실근무 <b>${fmtH(wh ?? 0)}시간</b>`;
+  };
+  ["ae-ih", "ae-im", "ae-oh", "ae-om", "ae-nd", "ae-brk", "ae-noout"].forEach((id) => {
+    const el = $("#" + id);
+    if (el) el.onchange = updatePreview;
+  });
+  updatePreview();
+
   const dateBtn = $("#ae-date");
   if (dateBtn) dateBtn.onclick = () => openDatePicker(dateBtn, selDate, (v) => {
     if (!v) return;
     if (v > todayKST()) { toast("미래 날짜에는 기록할 수 없습니다."); return; }
     selDate = v;
     $("#ae-date-label").textContent = dateLabelKo(v);
+    // 선택한 날짜의 근무 일정에 맞춰 휴게 차감 기본값 갱신
+    $("#ae-brk").checked = !!shiftOf(v)?.breakIncluded;
+    updatePreview();
   });
   $("#ae-save").onclick = async () => {
     const save = $("#ae-save");
@@ -3427,7 +3459,8 @@ function openAttEditModal(emp, date, att) {
       if (exist.exists && !confirm(`${emp.name}님의 ${selDate} 기록이 이미 있습니다. 덮어쓸까요?`)) return;
     }
     save.disabled = true;
-    const data = { empId: emp.id, name: emp.name, dept: emp.dept || "", date: selDate, inAt };
+    // 휴게 차감 여부를 기록에 직접 저장 (일정 설정과 무관하게 이 기록에 확정 적용)
+    const data = { empId: emp.id, name: emp.name, dept: emp.dept || "", date: selDate, inAt, breakIncluded: $("#ae-brk").checked };
     if (noOut) {
       data.outAt = firebase.firestore.FieldValue.delete();
       data.outDate = firebase.firestore.FieldValue.delete();

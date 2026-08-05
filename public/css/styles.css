@@ -1611,6 +1611,18 @@ tr.att-carry td { background: #fff9db; }
 }
 .sr-act.danger { color: var(--red); }
 
+/* 관리자 출퇴근 입력 모달: 실근무 미리보기 */
+.ae-preview {
+  margin-top: 14px;
+  padding: 10px 13px;
+  background: var(--blue-soft);
+  color: var(--blue-deep);
+  border-radius: 10px;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+.ae-preview b { font-weight: 800; }
+
 /* 관리자 근태: 직원 필터 */
 .adm-filter { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 .adm-filter select {
