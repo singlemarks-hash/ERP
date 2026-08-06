@@ -2751,7 +2751,7 @@ function attNotes(att, shift, reqOf) {
   }
   if (att.outAt) {
     const nh = nightHours(effIn, effOut, breakApplied(att, shift) ? 60 : 0);
-    if (nh > 0) notes.push({ k: "night", h: nh, approved: true, label: `야간근무 (가산 ${fmtH(nh)}h)` });
+    if (nh > 0) notes.push({ k: "night", h: nh, approved: true, label: `야간근무 ${fmtH(nh)}h` });
   }
   return notes;
 }
@@ -3580,8 +3580,7 @@ async function renderAttHistory() {
         <div><span>실 근무시간</span><b class="c-green">${fmtH(workedH)}h</b></div>
       </div>
       ${summaryChips ? `<div class="att-notecnt">${summaryChips}</div>` : ""}
-      <div class="mini-note">출퇴근 등록 시 예정 시간 전후 10분까지 정상으로 처리됩니다.
-        야간근무 가산(22:00~06:00)은 그날 실근무가 1시간 이상일 때만 인정됩니다.</div>
+      <div class="mini-note">출퇴근 등록 시 예정 시간 전후 10분까지 정상으로 처리됩니다.</div>
       ${allDates.length ? `<div class="table-wrap"><table class="data att-table">
         <thead><tr><th>날짜</th><th>예정</th><th>출근</th><th>퇴근</th><th class="num">예정(h)</th><th class="num">실근무(h)</th><th>비고</th></tr></thead>
         <tbody>${allDates.map((d) => {
