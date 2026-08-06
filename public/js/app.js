@@ -8,20 +8,20 @@ const PAY_CATS = ["4대보험", "3.3%"];
 const LEAVE_TYPES = ["연차", "반차", "병가", "경조", "기타"];
 const SESSION_KEY = "quote_erp_session_v1";
 
-/* 휴가 결재자 지정 규칙
-   - 일반 권한 + 오프라인사업부: 안은비 / 권민호 중 선택 (단, 본인이 권민호면 안은비만)
-   - 일반 권한 + 그 외 부서: 안은비
-   - 임원 이상(일반 외) 권한: 장서영 자동 지정 */
-const APPROVER_OFFLINE = ["안은비", "권민호"];
-const APPROVER_DEFAULT = "안은비";
+/* 휴가 결재자 지정 규칙 (권한 서열: 총괄 > 특수 > 임원열람 > 매니저 > 일반)
+   - 일반 권한: 권민호(기본값) / 안은비 중 선택
+   - 매니저: 특수관리자(안은비) 자동 지정
+   - 매니저보다 상위 권한(임원열람·특수관리자·총괄 관리자): 장서영 자동 지정
+   어느 경우든 본인은 본인 결재를 올릴 수 없으므로 후보에서 제외한다. */
+const APPROVER_MEMBER = ["권민호", "안은비"];
+const APPROVER_MANAGER = "안은비";
 const APPROVER_EXEC = "장서영";
 function approverOptions() {
-  if (me.role !== "member") return [APPROVER_EXEC];
-  if (me.dept === "오프라인사업부") {
-    const opts = APPROVER_OFFLINE.filter((n) => n !== me.name);
-    return opts.length ? opts : [APPROVER_DEFAULT];
-  }
-  return [APPROVER_DEFAULT];
+  const opts = me.role === "member" ? APPROVER_MEMBER
+    : me.role === "manager" ? [APPROVER_MANAGER]
+    : [APPROVER_EXEC];
+  const usable = opts.filter((n) => n !== me.name);
+  return usable.length ? usable : [APPROVER_EXEC].filter((n) => n !== me.name);
 }
 
 /* 일정 종류별 색상 (휴가=빨강, 행사=그린, 기타=오렌지, 휴무=자주) */
@@ -110,8 +110,19 @@ function roleLabel(role) {
 }
 function isSpecial() { return me && me.role === "special"; }
 function isManager() { return me && me.role === "manager"; }
-// 특수관리자: 사내 시스템·급여관리 조회/수정 가능
+// 특수관리자: 사내 시스템·급여관리·직원 관리 조회/수정 가능
 function canManageOps() { return isAdmin() || isSpecial(); }
+
+/* 권한 서열 — 숫자가 클수록 상위 권한.
+   근무 일정에만 존재하는 단기알바 등 역할이 없는 인원은 일반과 동일하게 본다. */
+const ROLE_RANK = { admin: 40, special: 30, executive: 20, manager: 10, member: 0 };
+function roleRank(role) { return ROLE_RANK[role] ?? 0; }
+/* 매니저는 자신과 같거나 낮은 권한(매니저·일반)의 근태 기록만 편집할 수 있다. */
+function canEditAttOf(role) {
+  if (isAdmin() || isSpecial()) return true;
+  if (isManager()) return roleRank(role) <= roleRank("manager");
+  return false;
+}
 
 /* ───────── 초기화 ───────── */
 async function boot() {
@@ -370,10 +381,8 @@ function renderSidebar() {
   if (canManageOps() || isManager()) adminItems.push({ id: "paymanage", ico: "ledger", label: "급여관리" });
   if (isAdmin() || isSpecial() || isManager()) adminItems.push({ id: "attendadmin", ico: "clock", label: "근태관리" });
   if (isAdmin() || isSpecial() || isManager() || me.role === "executive") adminItems.push({ id: "leaveadmin", ico: "leave", label: "연차관리" });
-  if (isAdmin()) {
-    adminItems.push({ id: "employees", ico: "employees", label: "직원 관리" });
-    adminItems.push({ id: "monitor", ico: "monitor", label: "권한 모니터링" });
-  }
+  if (canManageOps()) adminItems.push({ id: "employees", ico: "employees", label: "직원 관리" });
+  if (isAdmin()) adminItems.push({ id: "monitor", ico: "monitor", label: "권한 모니터링" });
   if (adminItems.length) {
     html += `<div class="nav-label">관리자 메뉴</div>` +
       adminItems.map((i) => `<button class="nav-item" data-view="${i.id}">${ICONS[i.ico]}${i.label}</button>`).join("");
@@ -386,21 +395,22 @@ function renderSidebar() {
   updateLeaveAlarm();
 }
 
-/* 휴가 신청 대기 알람 — 특수관리자 이상에게 연차관리 탭에 빨간 점 표시 */
+/* 휴가 결재 대기 알람 — 나를 결재자로 지정한 신청이 있으면 연차관리 탭에 빨간 점 표시 */
 async function updateLeaveAlarm() {
-  if (!me || !(isAdmin() || isSpecial())) return;
+  if (!me) return;
   const btn = document.querySelector('.nav-item[data-view="leaveadmin"]');
   if (!btn) return;
   try {
     const snap = await db.collection(COL.leaveRequests).where("status", "==", "대기").get();
+    const mine = snap.docs.filter((d) => d.data().approver === me.name).length;
     let dot = btn.querySelector(".nav-dot");
-    if (snap.size > 0) {
+    if (mine > 0) {
       if (!dot) {
         dot = document.createElement("span");
         dot.className = "nav-dot";
         btn.appendChild(dot);
       }
-      dot.title = `대기 중인 휴가 신청 ${snap.size}건`;
+      dot.title = `내 결재 대기 ${mine}건`;
     } else if (dot) {
       dot.remove();
     }
@@ -3232,7 +3242,6 @@ let admOpenIds = new Set();
 let admAttEmp = ""; // "" = 전체 직원
 async function renderAttendAdmin() {
   if (!canEditShifts() && !isManager()) return navigate("home");
-  const readOnly = isManager(); // 매니저는 근태관리를 조회만 할 수 있다
   const main = $("#main");
   if (!admAttYm) admAttYm = ymNowKST();
   const [yy, mm] = admAttYm.split("-").map(Number);
@@ -3249,9 +3258,10 @@ async function renderAttendAdmin() {
 
   // 직원 목록: 재직 직원 + (이번 달 근무 기록이 있는 외부 인원)
   const people = new Map();
-  emps.forEach((e) => people.set(e.id, { id: e.id, name: e.name, dept: e.dept }));
+  emps.forEach((e) => people.set(e.id, { id: e.id, name: e.name, dept: e.dept, role: e.role }));
   [...shifts, ...atts].forEach((x) => {
-    if (x.empId && !people.has(x.empId)) people.set(x.empId, { id: x.empId, name: x.name, dept: x.dept || "-" });
+    // 단기알바 등 직원 명단에 없는 인원은 일반 권한과 동일하게 취급한다.
+    if (x.empId && !people.has(x.empId)) people.set(x.empId, { id: x.empId, name: x.name, dept: x.dept || "-", role: "member" });
   });
 
   // 직원 필터 (전체 포함) — 출퇴근을 입력한 기록만 표시
@@ -3274,6 +3284,8 @@ async function renderAttendAdmin() {
       .map(([k, label]) => `<span class="att-note ${k}">${agg[k].h ? `${label} ${fmtH(agg[k].h)}h (${agg[k].n}회)` : `${label} ${agg[k].n}회`}</span>`)
       .join("");
     const open = admAttEmp === p.id || admOpenIds.has(p.id);
+    // 매니저는 자신과 같거나 낮은 권한(매니저·일반)의 기록만 편집할 수 있다.
+    const readOnly = !canEditAttOf(p.role);
     const detail = `
       <table class="data att-table adm-detail">
         <thead><tr><th>날짜</th><th>예정</th><th>출근</th><th>퇴근</th><th class="num">실근무(h)</th><th>비고</th><th>메모</th>${readOnly ? "" : "<th></th>"}</tr></thead>
@@ -3308,6 +3320,8 @@ async function renderAttendAdmin() {
   const empOptions = [...people.values()]
     .sort((a, b) => a.name.localeCompare(b.name, "ko"))
     .map((p) => `<option value="${p.id}" ${admAttEmp === p.id ? "selected" : ""}>${esc(p.name)} (${esc(p.dept)})</option>`).join("");
+  // 선택한 직원을 대신해 출퇴근을 직접 입력할 수 있는지 (매니저는 매니저·일반 권한까지만)
+  const canAddForSel = !!admAttEmp && canEditAttOf(people.get(admAttEmp)?.role);
 
   $("#adm-body").innerHTML = `
     <div class="card">
@@ -3322,10 +3336,10 @@ async function renderAttendAdmin() {
           <option value="" ${!admAttEmp ? "selected" : ""}>전체 직원</option>
           ${empOptions}
         </select>
-        ${admAttEmp && isAdmin()
+        ${canAddForSel
           ? `<button type="button" class="btn btn-primary btn-sm" id="adm-add">+ 출퇴근 입력</button>`
           : ""}
-        <span class="adm-filter-note">${admAttEmp && isAdmin()
+        <span class="adm-filter-note">${canAddForSel
           ? "직원을 대신해 출퇴근을 직접 기록할 수 있습니다."
           : "출퇴근을 입력한 기록만 표시됩니다."}</span>
       </div>
@@ -3334,7 +3348,7 @@ async function renderAttendAdmin() {
         <tbody>${rowsHtml}</tbody>
       </table></div>
       <div class="mini-note">직원을 클릭하면 일별 이력이 펼쳐집니다. 메모는 입력 후 Enter로 저장됩니다.</div>`
-      : `<div class="empty">${mm}월${admAttEmp ? " 해당 직원의" : ""} 출퇴근 입력 기록이 없습니다.${admAttEmp && isAdmin() ? " [+ 출퇴근 입력]으로 직접 기록할 수 있습니다." : ""}</div>`}
+      : `<div class="empty">${mm}월${admAttEmp ? " 해당 직원의" : ""} 출퇴근 입력 기록이 없습니다.${canAddForSel ? " [+ 출퇴근 입력]으로 직접 기록할 수 있습니다." : ""}</div>`}
     </div>`;
 
   $("#adm-emp").onchange = (ev) => { admAttEmp = ev.target.value; renderAttendAdmin(); };
@@ -3511,7 +3525,9 @@ async function renderLeaveAdmin() {
   for (const e of emps) {
     if (lvMap[e.id]) lvMap[e.id] = await maybeResetLeave(e.id, lvMap[e.id]);
   }
+  // 결재는 신청자가 지정한 결재자에게만 올라간다 — 본인 앞으로 온 건만 노출.
   const reqs = reqSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    .filter((r) => r.approver === me.name)
     .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
   const pastCycles = emps.flatMap((e) => ((lvMap[e.id] || {}).history || [])
     .map((h) => ({ name: e.name, dept: e.dept, ...h })))
@@ -3519,18 +3535,19 @@ async function renderLeaveAdmin() {
 
   $("#lva-body").innerHTML = `
     <div class="card">
-      <div class="card-title"><div>승인 대기 신청 <span class="badge warn">${reqs.length}건</span></div></div>
+      <div class="card-title"><div>내 결재 대기 <span class="badge warn">${reqs.length}건</span>
+        <div class="ct-desc">나를 결재자로 지정한 신청만 표시됩니다.</div></div></div>
       ${reqs.length ? `<div class="table-wrap"><table class="data pay-table">
-        <thead><tr><th>직원</th><th>신청일시</th><th>기간</th><th>유형</th><th>결재자</th><th class="num">일수</th>${isAdmin() ? "<th></th>" : ""}</tr></thead>
+        <thead><tr><th>직원</th><th>신청일시</th><th>기간</th><th>유형</th><th>결재자</th><th class="num">일수</th><th></th></tr></thead>
         <tbody>${reqs.map((r) => `<tr>
           <td><b>${esc(r.name)}</b></td><td>${fmtTs(r.createdAt)}</td><td>${fmtPeriod(r.date, r.endDate)}</td><td>${esc(r.type)}</td>
           <td>${esc(r.approver || "-")}</td>
           <td class="num">${r.days}일</td>
-          ${isAdmin() ? `<td style="white-space:nowrap">
+          <td style="white-space:nowrap">
             <button class="btn btn-primary btn-sm" data-approve="${r.id}">승인</button>
-            <button class="btn btn-danger btn-sm" data-reject="${r.id}">반려</button></td>` : ""}
+            <button class="btn btn-danger btn-sm" data-reject="${r.id}">반려</button></td>
         </tr>`).join("")}</tbody></table></div>`
-        : `<div class="empty">대기 중인 신청이 없습니다.</div>`}
+        : `<div class="empty">나에게 올라온 대기 중인 신청이 없습니다.</div>`}
     </div>
     <div class="card">
       <div class="card-title"><div>전 직원 연차 현황<div class="ct-desc">직원을 클릭하면 등록된 연차 사용 이력이 펼쳐집니다.</div></div></div>
@@ -3613,6 +3630,10 @@ async function renderLeaveAdmin() {
   if (isAdmin()) {
     $("#lv-use").onclick = openLeaveUseModal;
     $("#lv-alloc").onclick = openLeaveAllocModal;
+  }
+
+  // 결재 승인/반려 — 나를 결재자로 지정한 신청만 목록에 있으므로 권한 추가 확인 불필요
+  {
     $("#lva-body").querySelectorAll("[data-approve]").forEach((b) => {
       b.onclick = async () => {
         if (b.disabled) return;
@@ -3917,7 +3938,7 @@ async function openNoticeModal(notice) {
 
 /* ───────── 직원 관리 (admin) ───────── */
 async function renderEmployees() {
-  if (!isAdmin()) return navigate("home");
+  if (!canManageOps()) return navigate("home");
   const main = $("#main");
   main.innerHTML = pageHead("ADMIN", "직원 관리",
     "직원 등록·수정, 부서 배정, 권한(역할) 조정, 비밀번호 초기화를 할 수 있습니다.",
@@ -4049,9 +4070,9 @@ function openEmployeeModal(emp) {
         <label class="field"><span class="field-label">역할 (권한)</span>
           <select id="ef-role">
             <option value="member" ${emp?.role === "member" ? "selected" : ""}>일반</option>
+            <option value="manager" ${emp?.role === "manager" ? "selected" : ""}>매니저 (급여·근태 일부 관리)</option>
             <option value="executive" ${emp?.role === "executive" ? "selected" : ""}>임원 열람</option>
-            <option value="manager" ${emp?.role === "manager" ? "selected" : ""}>매니저 (급여관리 일부·근태/연차 조회)</option>
-            <option value="special" ${emp?.role === "special" ? "selected" : ""}>특수관리자 (사내 시스템·급여관리)</option>
+            <option value="special" ${emp?.role === "special" ? "selected" : ""}>특수관리자 (권한 모니터링 외 전체)</option>
             <option value="admin" ${emp?.role === "admin" ? "selected" : ""}>총괄 관리자</option>
           </select></label>
       </div>
