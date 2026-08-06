@@ -2800,7 +2800,7 @@ async function renderAttRecord() {
        아래 기록 날짜를 <b>${esc(openElsewhere.date)}</b>로 바꿔 퇴근을 먼저 기록해 주세요.
        <button type="button" class="btn btn-ghost btn-sm alert-act" id="rec-goto-open">${esc(openElsewhere.date)}로 이동</button>`
     : stage === "done"
-      ? `<b>${esc(recDate)}</b> 출퇴근이 모두 기록되었습니다. 수정이 필요하면 경영지원본부에 요청하세요.`
+      ? `<b>${esc(recDate)}</b> 출퇴근이 모두 기록되었습니다. 수정이 필요하면 담당자에게 요청하세요.`
       : "";
 
   /* 단계별 입력 패널 (해당 단계의 시간 입력 + 버튼만 노출) */
