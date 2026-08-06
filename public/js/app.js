@@ -3924,8 +3924,33 @@ async function openLeaveUseModal() {
       </div>
     </form>`);
   $("#lu-cancel").onclick = closeModal;
-  bindCalField("lu-date", (v) => { if (v && calVal("lu-end") < v) calSet("lu-end", v); });
-  bindCalField("lu-end");
+  bindCalField("lu-date", (v) => {
+    // 반차는 종료일을 시작일에 고정, 그 외에는 종료일이 시작일보다 빠르지 않게 맞춘다
+    if (v && (isHalfUse() || calVal("lu-end") < v)) calSet("lu-end", v);
+    luAutoDays();
+  });
+  bindCalField("lu-end", luAutoDays);
+
+  // 유형이 '반차'면 일수를 0.5로 고정하고 종료일·일수 입력을 잠근다
+  function isHalfUse() { return $("#lu-type").value === "반차"; }
+  function luAutoDays() {
+    if (isHalfUse()) { $("#lu-days").value = 0.5; return; }
+    const s = calVal("lu-date"), e = calVal("lu-end") || s;
+    if (!s || !e || e < s) return;
+    $("#lu-days").value = Math.round((new Date(e + "T00:00:00Z") - new Date(s + "T00:00:00Z")) / 86400000) + 1;
+  }
+  function luSyncType() {
+    const half = isHalfUse();
+    const daysInput = $("#lu-days");
+    $("#lu-end").disabled = half;
+    daysInput.readOnly = half;
+    daysInput.classList.toggle("locked", half);
+    if (half) calSet("lu-end", calVal("lu-date"));
+    luAutoDays();
+  }
+  $("#lu-type").onchange = luSyncType;
+  luSyncType();
+
   $("#lvu-form").onsubmit = async (ev) => {
     ev.preventDefault();
     const sb = ev.target.querySelector('[type="submit"]');
@@ -3933,10 +3958,12 @@ async function openLeaveUseModal() {
     sb.disabled = true;
     const empId = $("#lu-emp").value;
     const emp = emps.find((e) => e.id === empId);
+    const half = isHalfUse();
+    const start = calVal("lu-date");
     const rec = {
-      date: calVal("lu-date"),
-      endDate: calVal("lu-end") || calVal("lu-date"),
-      days: Number($("#lu-days").value),
+      date: start,
+      endDate: half ? start : (calVal("lu-end") || start),
+      days: half ? 0.5 : Number($("#lu-days").value),
       type: $("#lu-type").value
     };
     const ref = db.collection(COL.leaves).doc(empId);
