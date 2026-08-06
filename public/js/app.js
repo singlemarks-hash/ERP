@@ -2902,14 +2902,12 @@ async function renderAttRecord() {
       toast(`미래 시각(${t})으로는 퇴근을 기록할 수 없습니다. 현재 ${hmNowKST()}`);
       return;
     }
-    const shiftOfDay = shifts.find((s) => s.date === workDate && s.empId === me.id);
-    const wh = workedHours({ ...myRec, date: workDate, outAt: t, outDate: outDateEff }, shiftOfDay);
     openOutConfirmModal({
       time: t,
       workDate,
       outDateEff,
       inAt: myRec.inAt,
-      workedH: wh,
+      shift: shifts.find((s) => s.date === workDate && s.empId === me.id),
       onConfirm: async () => {
         await db.collection(COL.attendance).doc(myRec.id)
           .set({ outAt: t, outDate: outDateEff }, { merge: true });
@@ -3059,6 +3057,34 @@ function bindAttReqSection() {
   };
 }
 
+/* 분 → 사람이 읽는 근무 길이: 60분 미만은 분만, 그 이상은 "n시간 n분" (0 이하는 0분) */
+function durLabelKo(mins) {
+  const m = Math.max(0, Math.round(mins));
+  if (m < 60) return `${m}분`;
+  const h = Math.floor(m / 60), r = m % 60;
+  return r ? `${h}시간 ${r}분` : `${h}시간`;
+}
+/* 확인 모달용 편차 태그 — 특이사항 칩과 같은 규칙(10분 유예 · 가산 제외자)을 쓰되 라벨은 짧게 */
+function inDevChip(inAt, shift, name) {
+  if (!shift) return "";
+  const d = minOf(inAt) - minOf(shift.start);
+  if (d > ATT_GRACE_MIN) return `<span class="att-note late">지각 ${d}분</span>`;
+  if (-d > ATT_GRACE_MIN && !isOtExempt(name)) return `<span class="att-note earlyin">조기출근 ${-d}분</span>`;
+  return "";
+}
+function outDevChip(outAt, outDate, workDate, shift, name) {
+  if (!shift) return "";
+  const outM = minOf(outAt) + (outDate > workDate ? 1440 : 0);
+  const endM = minOf(shift.end) + (shiftOvernight(shift) ? 1440 : 0);
+  const d = outM - endM;
+  if (-d > ATT_GRACE_MIN) return `<span class="att-note earlyout">조기퇴근 ${-d}분</span>`;
+  if (d > ATT_GRACE_MIN && !isOtExempt(name)) return `<span class="att-note over">연장 ${d}분</span>`;
+  return "";
+}
+const schedLabel = (shift) => shift
+  ? `${esc(shift.start)} ~ ${esc(shiftEndLabel(shift))}`
+  : `<span class="ioc-none">미등록</span>`;
+
 /* 출근 확인 모달: 시각·날짜·예정 근무를 보여주고 [등록]을 눌러야 기록 (오클릭 방지) */
 function openInConfirmModal({ time, workDate, shift, onConfirm }) {
   const p = dateParts(workDate);
@@ -3071,9 +3097,9 @@ function openInConfirmModal({ time, workDate, shift, onConfirm }) {
       <div class="ioc-ampm in">(${kAmPmLabel(time)})</div>
       <div class="ioc-date">${p.y}년 ${p.m}월 ${p.d}일 (${"일월화수목금토"[p.dow]}) 근무</div>
       <div class="ioc-worked">
-        <div class="iocw-row"><span>예정 근무</span>
-          <b>${shift ? `${esc(shift.start)} ~ ${esc(shiftEndLabel(shift))}` : `<span class="ioc-none">미등록</span>`}</b></div>
-        <div class="iocw-row total"><span>출근 시간</span><b>${esc(time)}</b></div>
+        <div class="iocw-row"><span>예정 근무</span><b>${schedLabel(shift)}</b></div>
+        <div class="iocw-row total"><span>출근 시간</span>
+          <b>${inDevChip(time, shift, me.name)}${esc(time)}</b></div>
       </div>
       <p class="ioc-q">위 시간으로 출근을 등록할까요?</p>
       <div class="ioc-actions">
@@ -3091,8 +3117,10 @@ function openInConfirmModal({ time, workDate, shift, onConfirm }) {
 }
 
 /* 퇴근 확인 모달: 시각·날짜·총 근무시간을 크게 보여주고 확정 (오입력 방지) */
-function openOutConfirmModal({ time, workDate, outDateEff, inAt, workedH, onConfirm }) {
+function openOutConfirmModal({ time, workDate, outDateEff, inAt, shift, onConfirm }) {
   const p = dateParts(workDate);
+  // 총 근무는 실제 출퇴근 시각을 그대로 대조한 길이 (n시간 n분)
+  const spanMin = (minOf(time) + (outDateEff > workDate ? 1440 : 0)) - minOf(inAt);
   openModal(`
     <div class="ioc">
       <div class="ioc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg></div>
@@ -3102,9 +3130,11 @@ function openOutConfirmModal({ time, workDate, outDateEff, inAt, workedH, onConf
       <div class="ioc-ampm">(${kAmPmLabel(time)})</div>
       <div class="ioc-date">${p.y}년 ${p.m}월 ${p.d}일 (${"일월화수목금토"[p.dow]}) 근무${outDateEff !== workDate ? " · 익일 퇴근" : ""}</div>
       <div class="ioc-worked">
-        <div class="iocw-row"><span>출근</span><b>${esc(workDate)} ${esc(inAt)}</b></div>
-        <div class="iocw-row"><span>퇴근</span><b>${esc(outDateEff)} ${esc(time)}</b></div>
-        <div class="iocw-row total"><span>총 근무</span><b>${fmtH(workedH ?? 0)}시간</b></div>
+        <div class="iocw-row"><span>예정 근무</span><b>${schedLabel(shift)}</b></div>
+        <div class="iocw-row"><span>출근 시간</span><b>${esc(inAt)}</b></div>
+        <div class="iocw-row"><span>퇴근 시간</span>
+          <b>${outDevChip(time, outDateEff, workDate, shift, me.name)}${outDateEff !== workDate ? "익일 " : ""}${esc(time)}</b></div>
+        <div class="iocw-row total"><span>총 근무</span><b>${durLabelKo(spanMin)}</b></div>
       </div>
       <p class="ioc-q">위 시간이 맞습니까?</p>
       <div class="ioc-actions">
