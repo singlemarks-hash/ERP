@@ -24,6 +24,12 @@ function approverOptions() {
   return usable.length ? usable : [APPROVER_EXEC].filter((n) => n !== me.name);
 }
 
+/* 근태 결재(추가근무·근무변경) 결재자 — 권민호(기본) / 안은비 중 선택.
+   본인이 본인 결재를 올릴 수 없으므로 후보에서 제외한다. */
+const ATT_APPROVERS = ["권민호", "안은비"];
+function attApproverOptions() { return ATT_APPROVERS.filter((n) => n !== me.name); }
+const ATT_REQ_LABEL = { overtime: "추가근무", change: "근무변경" };
+
 /* 일정 종류별 색상 (휴가=빨강, 행사=그린, 기타=오렌지, 휴무=자주) */
 const SC_KINDS = { "휴가": "red", "행사": "green", "기타": "orange", "휴무": "purple" };
 
@@ -393,27 +399,41 @@ function renderSidebar() {
     b.onclick = () => { navigate(b.dataset.view); closeSidebar(); };
   });
   updateLeaveAlarm();
+  updateAttApprovalAlarm();
 }
 
-/* 휴가 결재 대기 알람 — 나를 결재자로 지정한 신청이 있으면 연차관리 탭에 빨간 점 표시 */
+/* 나를 결재자로 지정한 대기 건 수만큼 해당 관리자 메뉴에 빨간 점 표시 */
+function setNavDot(view, count, label) {
+  const btn = document.querySelector(`.nav-item[data-view="${view}"]`);
+  if (!btn) return;
+  let dot = btn.querySelector(".nav-dot");
+  if (count > 0) {
+    if (!dot) {
+      dot = document.createElement("span");
+      dot.className = "nav-dot";
+      btn.appendChild(dot);
+    }
+    dot.title = `${label} ${count}건`;
+  } else if (dot) {
+    dot.remove();
+  }
+}
+
+/* 휴가 결재 대기 알람 — 연차관리 탭 */
 async function updateLeaveAlarm() {
   if (!me) return;
-  const btn = document.querySelector('.nav-item[data-view="leaveadmin"]');
-  if (!btn) return;
   try {
     const snap = await db.collection(COL.leaveRequests).where("status", "==", "대기").get();
-    const mine = snap.docs.filter((d) => d.data().approver === me.name).length;
-    let dot = btn.querySelector(".nav-dot");
-    if (mine > 0) {
-      if (!dot) {
-        dot = document.createElement("span");
-        dot.className = "nav-dot";
-        btn.appendChild(dot);
-      }
-      dot.title = `내 결재 대기 ${mine}건`;
-    } else if (dot) {
-      dot.remove();
-    }
+    setNavDot("leaveadmin", snap.docs.filter((d) => d.data().approver === me.name).length, "내 결재 대기");
+  } catch (e) { /* 무시 */ }
+}
+
+/* 근태 결재(추가근무·근무변경) 대기 알람 — 근태관리 탭 */
+async function updateAttApprovalAlarm() {
+  if (!me) return;
+  try {
+    const snap = await db.collection(COL.attRequests).where("status", "==", "대기").get();
+    setNavDot("attendadmin", snap.docs.filter((d) => d.data().approver === me.name).length, "내 결재 대기");
   } catch (e) { /* 무시 */ }
 }
 
@@ -2694,12 +2714,17 @@ async function renderAttRecord() {
   const recDate = attRecDate;
   const isTodayMode = recDate === today;
 
-  const [shiftSnap, attSnap, wnSnap, recSnap] = await Promise.all([
+  const [shiftSnap, attSnap, wnSnap, recSnap, reqSnap] = await Promise.all([
     db.collection(COL.shifts).where("date", "in", [yesterday, today]).get(),
     db.collection(COL.attendance).where("date", "in", [yesterday, today]).get(),
     db.collection(COL.workNotices).get(),
-    db.collection(COL.attendance).doc(`${me.id}_${recDate}`).get()
+    db.collection(COL.attendance).doc(`${me.id}_${recDate}`).get(),
+    db.collection(COL.attRequests).where("empId", "==", me.id).get()
   ]);
+  // 내가 올린 근태 결재 신청 (최신 10건)
+  const myReqs = reqSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    .filter((r) => r.empId === me.id)
+    .sort((a, b) => tsSec(b.createdAt) - tsSec(a.createdAt)).slice(0, 10);
   const shifts = shiftSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((s) => s.date === today || s.date === yesterday);
   const atts = attSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((a) => a.date === today || a.date === yesterday);
   // 실시간 미퇴근 이월(어제 출근 후 미퇴근)은 오늘 기록 모드에서만 우선 처리 대상
@@ -2813,7 +2838,8 @@ async function renderAttRecord() {
         <thead><tr><th>근무자명</th><th>예정</th><th>출근</th><th>퇴근</th></tr></thead>
         <tbody>${statusBody}</tbody>
       </table></div>` : `<div class="empty">오늘 근무 예정자가 없습니다. [근무 캘린더]에서 일정을 등록하세요.</div>`}
-    </div>`;
+    </div>
+    ${attReqSectionHtml(myReqs)}`;
 
   body.querySelectorAll("[data-wnack]").forEach((b) => {
     b.onclick = async () => {
@@ -2832,6 +2858,8 @@ async function renderAttRecord() {
   if (todayBtn) todayBtn.onclick = () => { attRecDate = today; renderAttend(); };
   const gotoOpen = $("#rec-goto-open");
   if (gotoOpen) gotoOpen.onclick = () => { attRecDate = openElsewhere.date; renderAttend(); };
+
+  bindAttReqSection();
 
   const inBtn = $("#att-in");
   if (inBtn) inBtn.onclick = async () => {
@@ -2882,6 +2910,137 @@ async function renderAttRecord() {
         renderAttend();
       }
     });
+  };
+}
+
+/* ── 근태 결재 (추가근무 · 근무변경) ────────────────────────────────
+   직원이 결재자를 지정해 신청하면 결재자의 [근태관리] 최상단 '내 결재 대기'에 뜬다.
+   근무변경은 승인 시 신청자 부서 전체 공지로 자동 게시된다. */
+const ATT_REQ_STATUS_BADGE = { "대기": "warn", "승인": "ok", "반려": "rej" };
+
+function attReqSectionHtml(myReqs) {
+  const approvers = attApproverOptions();
+  return `
+    <div class="card" id="atreq-card">
+      <div class="card-title"><div>근태 결재 신청
+        <div class="ct-desc">추가근무·근무변경은 결재자 승인 후 반영됩니다.</div></div></div>
+      ${approvers.length ? `
+      <div class="atreq-form">
+        <div class="atreq-tabs">
+          <button type="button" class="atreq-tab on" data-atrtype="overtime">추가근무</button>
+          <button type="button" class="atreq-tab" data-atrtype="change">근무변경</button>
+        </div>
+        <label class="field"><span class="field-label">결재자</span>
+          <select id="atr-approver">${approvers.map((n) => `<option>${esc(n)}</option>`).join("")}</select></label>
+
+        <div id="atr-overtime">
+          <div class="field"><span class="field-label">추가근무 날짜</span>
+            <button type="button" class="cal-input" id="atr-date"><span id="atr-date-label">${dateLabelKo(todayKST())}</span>${CAL_ICON}</button></div>
+          <div class="grid-2">
+            <div class="field"><span class="field-label">시작</span>
+              <div class="io-time"><select id="atr-sh">${hourOpts("18")}</select><b>:</b><select id="atr-sm">${minOpts("00")}</select></div></div>
+            <div class="field"><span class="field-label">종료 <em class="sf-hint">(시작보다 빠르면 익일)</em></span>
+              <div class="io-time"><select id="atr-eh">${hourOpts("20")}</select><b>:</b><select id="atr-em">${minOpts("00")}</select></div></div>
+          </div>
+          <div class="atr-preview" id="atr-preview"></div>
+        </div>
+
+        <div id="atr-change" class="hidden">
+          <label class="field"><span class="field-label">근무 변경 내용</span>
+            <textarea id="atr-text" class="wn-input" rows="4" maxlength="500" placeholder="예시:
+8월 17일 18:00~22:00 근무자 변동 (기존: 홍길동, 변경: 김아무개)
+8월 18일 김아무개 근무시간 변경 (기존: 16:00~22:00, 변경: 18:00~24:00)"></textarea></label>
+          <div class="mini-note">승인되면 ${esc(me.dept)} 전원에게 공지로 자동 게시됩니다.</div>
+        </div>
+
+        <button type="button" class="btn btn-primary btn-block" id="atr-submit" style="margin-top:12px">결재 요청</button>
+      </div>`
+      : `<div class="empty">지정 가능한 결재자가 없습니다.</div>`}
+
+      ${myReqs.length ? `<div class="table-wrap" style="margin-top:16px"><table class="data att-table">
+        <thead><tr><th>구분</th><th>내용</th><th>결재자</th><th>신청일</th><th>상태</th></tr></thead>
+        <tbody>${myReqs.map((r) => `<tr>
+          <td><b>${ATT_REQ_LABEL[r.type] || "-"}</b></td>
+          <td class="atr-sum">${esc(attReqSummary(r))}</td>
+          <td>${esc(r.approver || "-")}</td>
+          <td>${fmtTs(r.createdAt)}</td>
+          <td><span class="badge ${ATT_REQ_STATUS_BADGE[r.status] || ""}">${esc(r.status || "대기")}</span></td>
+        </tr>`).join("")}</tbody>
+      </table></div>` : ""}
+    </div>`;
+}
+
+/* 신청 내용 한 줄 요약 (목록용) */
+function attReqSummary(r) {
+  if (r.type === "overtime") {
+    return `${r.date} ${r.start}~${r.nextDay ? "익일 " : ""}${r.end} (총 ${fmtH(r.hours || 0)}시간)`;
+  }
+  return (r.text || "").replace(/\s+/g, " ").slice(0, 60);
+}
+
+/* 근태 결재 신청 폼 이벤트 바인딩 (renderAttRecord에서 호출) */
+function bindAttReqSection() {
+  const card = $("#atreq-card");
+  if (!card || !$("#atr-submit")) return;
+  let type = "overtime";
+  let selDate = todayKST();
+
+  const otMins = () => {
+    let d = minOf(`${$("#atr-eh").value}:${$("#atr-em").value}`) - minOf(`${$("#atr-sh").value}:${$("#atr-sm").value}`);
+    if (d <= 0) d += 1440;   // 자정을 넘긴 추가근무
+    return d;
+  };
+  const updatePreview = () => {
+    const pv = $("#atr-preview");
+    if (!pv) return;
+    const start = `${$("#atr-sh").value}:${$("#atr-sm").value}`;
+    const end = `${$("#atr-eh").value}:${$("#atr-em").value}`;
+    const mins = otMins();
+    pv.innerHTML = `${esc(start)} ~ ${minOf(end) <= minOf(start) ? "익일 " : ""}${esc(end)}
+      → 총 <b>${fmtH(blockHours(mins))}시간</b> 추가 근무`;
+  };
+  ["atr-sh", "atr-sm", "atr-eh", "atr-em"].forEach((id) => { $("#" + id).onchange = updatePreview; });
+  updatePreview();
+
+  card.querySelectorAll("[data-atrtype]").forEach((b) => {
+    b.onclick = () => {
+      type = b.dataset.atrtype;
+      card.querySelectorAll("[data-atrtype]").forEach((x) => x.classList.toggle("on", x === b));
+      $("#atr-overtime").classList.toggle("hidden", type !== "overtime");
+      $("#atr-change").classList.toggle("hidden", type !== "change");
+    };
+  });
+
+  $("#atr-date").onclick = () => openDatePicker($("#atr-date"), selDate, (v) => {
+    if (!v) return;
+    selDate = v;
+    $("#atr-date-label").textContent = dateLabelKo(v);
+  });
+
+  $("#atr-submit").onclick = async () => {
+    const btn = $("#atr-submit");
+    if (btn.disabled) return;
+    const base = {
+      type, empId: me.id, name: me.name, dept: me.dept,
+      approver: $("#atr-approver").value, status: "대기",
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    let data;
+    if (type === "overtime") {
+      const start = `${$("#atr-sh").value}:${$("#atr-sm").value}`;
+      const end = `${$("#atr-eh").value}:${$("#atr-em").value}`;
+      if (start === end) { toast("시작과 종료 시간이 같습니다."); return; }
+      const mins = otMins();
+      data = { ...base, date: selDate, start, end, nextDay: minOf(end) <= minOf(start), mins, hours: blockHours(mins) };
+    } else {
+      const text = $("#atr-text").value.trim();
+      if (!text) { toast("근무 변경 내용을 입력하세요."); return; }
+      data = { ...base, text };
+    }
+    btn.disabled = true;
+    await db.collection(COL.attRequests).add(data);
+    toast(`${base.approver}님에게 ${ATT_REQ_LABEL[type]} 결재를 요청했습니다.`);
+    renderAttend();
   };
 }
 
@@ -3261,11 +3420,16 @@ async function renderAttendAdmin() {
   main.innerHTML = pageHead("ADMIN", "근태관리", "전 직원의 출퇴근·근무 이력을 한눈에 확인하고 기록별 메모를 남깁니다.") +
     `<div id="adm-body"><div class="empty">불러오는 중...</div></div>`;
 
-  const [shiftSnap, attSnap, emps] = await Promise.all([
+  const [shiftSnap, attSnap, emps, arSnap] = await Promise.all([
     db.collection(COL.shifts).where("date", ">=", `${admAttYm}-01`).where("date", "<=", `${admAttYm}-31`).get(),
     db.collection(COL.attendance).where("date", ">=", `${admAttYm}-01`).where("date", "<=", `${admAttYm}-31`).get(),
-    loadActiveEmployees()
+    loadActiveEmployees(),
+    db.collection(COL.attRequests).where("status", "==", "대기").get()
   ]);
+  // 나를 결재자로 지정한 근태 결재 신청만 (월 필터와 무관하게 항상 표시)
+  const myApprovals = arSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    .filter((r) => r.status === "대기" && r.approver === me.name)
+    .sort((a, b) => tsSec(a.createdAt) - tsSec(b.createdAt));
   const shifts = shiftSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((s) => (s.date || "").startsWith(admAttYm));
   const atts = attSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((a) => (a.date || "").startsWith(admAttYm));
 
@@ -3338,6 +3502,22 @@ async function renderAttendAdmin() {
 
   $("#adm-body").innerHTML = `
     <div class="card">
+      <div class="card-title"><div>내 결재 대기 <span class="badge warn">${myApprovals.length}건</span>
+        <div class="ct-desc">나를 결재자로 지정한 추가근무·근무변경 신청만 표시됩니다.</div></div></div>
+      ${myApprovals.length ? `<div class="table-wrap"><table class="data pay-table">
+        <thead><tr><th>구분</th><th>신청자</th><th>내용</th><th>신청일시</th><th></th></tr></thead>
+        <tbody>${myApprovals.map((r) => `<tr>
+          <td><span class="badge ${r.type === "overtime" ? "admin" : "manager"}">${ATT_REQ_LABEL[r.type] || "-"}</span></td>
+          <td><b>${esc(r.name)}</b><span class="atr-dept">${esc(r.dept || "-")}</span></td>
+          <td class="atr-sum">${esc(attReqSummary(r))}</td>
+          <td>${fmtTs(r.createdAt)}</td>
+          <td style="white-space:nowrap">
+            <button class="btn btn-primary btn-sm" data-arok="${r.id}">승인</button>
+            <button class="btn btn-danger btn-sm" data-arno="${r.id}">반려</button></td>
+        </tr>`).join("")}</tbody></table></div>`
+        : `<div class="empty">나에게 올라온 결재 대기 건이 없습니다.</div>`}
+    </div>
+    <div class="card">
       <div class="sc-cal-head">
         <button type="button" class="cal-nav" id="adm-prev">&lsaquo;</button>
         <b class="sc-cal-title">${yy}년 ${mm}월</b>
@@ -3363,6 +3543,48 @@ async function renderAttendAdmin() {
       <div class="mini-note">직원을 클릭하면 일별 이력이 펼쳐집니다. 메모는 입력 후 Enter로 저장됩니다.</div>`
       : `<div class="empty">${mm}월${admAttEmp ? " 해당 직원의" : ""} 출퇴근 입력 기록이 없습니다.${canAddForSel ? " [+ 출퇴근 입력]으로 직접 기록할 수 있습니다." : ""}</div>`}
     </div>`;
+
+  // 근태 결재 승인 / 반려
+  $("#adm-body").querySelectorAll("[data-arok]").forEach((b) => {
+    b.onclick = async () => {
+      if (b.disabled) return;
+      b.disabled = true;
+      const r = myApprovals.find((x) => x.id === b.dataset.arok);
+      const cur = await db.collection(COL.attRequests).doc(r.id).get();
+      if (!cur.exists || cur.data().status !== "대기") { toast("이미 처리된 신청입니다."); renderAttendAdmin(); return; }
+      await db.collection(COL.attRequests).doc(r.id).update({
+        status: "승인", decidedBy: me.name, decidedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      // 근무변경은 승인 즉시 신청자 부서 전체에 공지로 자동 게시된다.
+      if (r.type === "change") {
+        await db.collection(COL.notices).add({
+          title: `근무 변경 안내 (${r.name})`,
+          body: r.text || "",
+          scope: "dept", depts: [r.dept], targetIds: [],
+          authorId: me.id, authorName: me.name,
+          ackIds: [me.id],   // 결재자 본인은 이미 확인한 것으로 처리
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        toast(`승인 완료 — ${r.dept} 전원에게 공지로 게시했습니다.`);
+      } else {
+        toast(`${r.name}님의 추가근무(${fmtH(r.hours || 0)}시간)를 승인했습니다.`);
+      }
+      updateAttApprovalAlarm();
+      renderAttendAdmin();
+    };
+  });
+  $("#adm-body").querySelectorAll("[data-arno]").forEach((b) => {
+    b.onclick = async () => {
+      const r = myApprovals.find((x) => x.id === b.dataset.arno);
+      if (!confirm(`${r.name}님의 ${ATT_REQ_LABEL[r.type]} 신청을 반려할까요?\n\n${attReqSummary(r)}`)) return;
+      await db.collection(COL.attRequests).doc(r.id).update({
+        status: "반려", decidedBy: me.name, decidedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      toast("반려했습니다.");
+      updateAttApprovalAlarm();
+      renderAttendAdmin();
+    };
+  });
 
   $("#adm-emp").onchange = (ev) => { admAttEmp = ev.target.value; renderAttendAdmin(); };
   const addBtn = $("#adm-add");

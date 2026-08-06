@@ -849,6 +849,41 @@ table.data td.url-cell a { display: block; overflow: hidden; text-overflow: elli
 .notice-card .nt-meta { font-size: 0.76rem; color: var(--ink-soft); }
 .notice-card.open { animation: detail-open 0.28s ease; }
 
+/* 근태 결재 신청 (추가근무 · 근무변경) */
+.atreq-form { max-width: 520px; }
+.atreq-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+.atreq-tab {
+  flex: 1;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.atreq-tab.on { border-color: var(--blue); background: var(--blue-soft); color: var(--blue-deep); }
+.atr-preview {
+  margin-top: 10px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: var(--blue-soft);
+  color: var(--blue-deep);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+.atr-preview b { font-size: 1.02rem; font-weight: 800; }
+.atr-sum {
+  font-size: 0.86rem;
+  color: var(--ink-soft);
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.atr-dept { display: block; font-size: 0.74rem; color: var(--ink-faint); }
+
 /* 지난 공지 보기 — 프레임/배경 없는 텍스트 버튼 */
 .nt-past-row { text-align: center; margin: 2px 0 6px; }
 .nt-past-btn {

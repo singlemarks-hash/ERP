@@ -24,5 +24,6 @@ const COL = {
   schedules: "schedules", // 전사 일정 (휴무/행사/기타)
   shifts: "shifts",           // 근무 일정 (근무 캘린더)
   attendance: "attendance",   // 출퇴근 기록 (문서 id: empId_YYYY-MM-DD)
-  workNotices: "workNotices"  // 근무 변경 알림 (사업부별 게시, ackIds로 개인 확인)
+  workNotices: "workNotices", // 근무 변경 알림 (사업부별 게시, ackIds로 개인 확인)
+  attRequests: "attRequests"  // 근태 결재 (추가근무·근무변경 신청 → 결재자 승인)
 };
