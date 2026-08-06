@@ -314,6 +314,7 @@ table.data td.url-cell a { display: block; overflow: hidden; text-overflow: elli
 .badge.admin { background: var(--blue-soft); color: var(--blue-deep); }
 .badge.executive { background: var(--purple-soft); color: var(--purple); }
 .badge.special { background: var(--amber-soft); color: var(--amber); }
+.badge.manager { background: var(--green-soft); color: var(--green); }
 .badge.member { background: #f2f4f6; color: var(--ink-soft); }
 .badge.dept { background: #f2f4f6; color: var(--ink-soft); }
 .badge.ok { background: var(--green-soft); color: var(--green); }
