@@ -3547,15 +3547,17 @@ async function renderAttHistory() {
   allDates.forEach((d) => attNotes(attBy[d], shiftBy[d], reqOfDate(d))
     .filter((n) => n.approved)
     .forEach((n) => { agg[n.k].n++; agg[n.k].h += n.h || 0; }));
-  // 인정된 가산(조기출근+연장+야간) 합계
-  const extraH = agg.earlyin.h + agg.over.h + agg.night.h;
-  const extraN = agg.earlyin.n + agg.over.n + agg.night.n;
+  // 인정된 가산(조기출근+연장+야간) 합계 — 종류가 둘 이상일 때만 별도로 보여준다
+  // (한 종류뿐이면 그 칩과 값이 같아 중복 표기가 된다)
+  const extraKinds = ["earlyin", "over", "night"].filter((k) => agg[k].h > 0);
+  const extraH = extraKinds.reduce((s, k) => s + agg[k].h, 0);
+  const extraN = extraKinds.reduce((s, k) => s + agg[k].n, 0);
   // 0값 항목은 표기하지 않음 · 시간이 있는 항목은 "Xh (n회)" 형식
   const chipLabel = (a, label) => a.h ? `${label} ${fmtH(a.h)}h (${a.n}회)` : `${label} ${a.n}회`;
   const summaryChips = [
     ["late", "지각"], ["earlyin", "조기출근"], ["earlyout", "조기퇴근"], ["over", "연장"], ["night", "야간근무"]
   ].filter(([k]) => agg[k].n > 0).map(([k, label]) => `<span class="att-note ${k}">${chipLabel(agg[k], label)}</span>`)
-    .concat(extraH > 0 ? [`<span class="att-note over">인정 합계 ${fmtH(extraH)}h (${extraN}회)</span>`] : [])
+    .concat(extraKinds.length > 1 ? [`<span class="att-note over">인정 합계 ${fmtH(extraH)}h (${extraN}회)</span>`] : [])
     .join("");
 
   body.innerHTML = `
