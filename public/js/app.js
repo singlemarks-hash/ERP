@@ -622,18 +622,19 @@ async function renderHomeNotices() {
 function openPastNoticesModal(past) {
   openModal(`
     <h3>지난 공지</h3>
-    <p class="modal-desc">확인함을 누른 공지 ${past.length}건입니다. 게시자가 철회한 공지는 표시되지 않습니다.</p>
+    <p class="modal-desc">확인함을 누른 공지 ${past.length}건입니다. 제목을 누르면 내용이 펼쳐집니다.</p>
     <div class="nt-past-list">
       ${past.map((n) => `
-        <div class="nt-past-item">
-          <div class="nt-head">
+        <details class="nt-past-item">
+          <summary class="nt-past-sum">
             <span class="nt-badge">공지</span>
             <b class="nt-title">${esc(n.title)}</b>
-            <span class="nt-scope">${noticeScopeLabel(n)}</span>
-          </div>
+            <span class="nt-past-date">${fmtTs(n.createdAt)}</span>
+            <span class="nt-past-arrow">⌄</span>
+          </summary>
           <div class="nt-body">${linkify(n.body || "")}</div>
-          <div class="nt-meta">${esc(n.authorName || "")} · ${fmtTs(n.createdAt)}</div>
-        </div>`).join("")}
+          <div class="nt-meta">${esc(n.authorName || "")} · ${noticeScopeLabel(n)}</div>
+        </details>`).join("")}
     </div>
     <div class="modal-actions"><button type="button" class="btn btn-ghost" id="ntp-close">닫기</button></div>`);
   $("#ntp-close").onclick = closeModal;
@@ -2659,14 +2660,20 @@ function nightHours(att) {
   const mins = overlap(0, 360) + overlap(NIGHT_START_MIN, NIGHT_END_MIN);
   return blockHours(mins);
 }
+/* 조기출근·연장근무 가산 제외 대상 (직책상 해당되지 않는 직원)
+   — 지각·조기퇴근·야간근무 표기는 그대로 유지된다. */
+const OT_EXEMPT_NAMES = ["권민호"];
+function isOtExempt(name) { return OT_EXEMPT_NAMES.includes(String(name || "").trim()); }
+
 /* 특이사항 (지각/조기출근/조기퇴근/연장/야간근무) — 시간(h)이 있는 항목은 급여 가산 대상 */
 function attNotes(att, shift) {
   const notes = [];
   if (!att || !att.inAt) return notes;
+  const exempt = isOtExempt(att.name || shift?.name);
   if (shift) {
     const dIn = minOf(att.inAt) - minOf(shift.start);
     if (dIn > ATT_GRACE_MIN) notes.push({ k: "late", label: `지각 ${dIn}분` });
-    else if (-dIn > ATT_GRACE_MIN) {
+    else if (-dIn > ATT_GRACE_MIN && !exempt) {
       const h = otHours(-dIn);
       notes.push({ k: "earlyin", label: `조기출근 ${-dIn}분 (+${fmtH(h)}h)`, h });
     }
@@ -2675,7 +2682,7 @@ function attNotes(att, shift) {
       const endM = minOf(shift.end) + (shiftOvernight(shift) ? 1440 : 0);
       const dOut = outM - endM;
       if (-dOut > ATT_GRACE_MIN) notes.push({ k: "earlyout", label: `조기퇴근 ${-dOut}분` });
-      else if (dOut > ATT_GRACE_MIN) {
+      else if (dOut > ATT_GRACE_MIN && !exempt) {
         const h = otHours(dOut);
         notes.push({ k: "over", label: `연장 ${dOut}분 (+${fmtH(h)}h)`, h });
       }

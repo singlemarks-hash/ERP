@@ -898,11 +898,32 @@ table.data td.url-cell a { display: block; overflow: hidden; text-overflow: elli
   text-underline-offset: 3px;
 }
 .nt-past-btn:hover { color: var(--blue-deep); }
-.nt-past-list { display: flex; flex-direction: column; gap: 14px; max-height: 55vh; overflow-y: auto; }
-.nt-past-item { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
-.nt-past-item .nt-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.nt-past-item .nt-body { margin-top: 8px; font-size: 0.9rem; line-height: 1.6; white-space: pre-wrap; }
-.nt-past-item .nt-meta { margin-top: 8px; font-size: 0.74rem; color: var(--ink-soft); }
+.nt-past-list { display: flex; flex-direction: column; gap: 8px; max-height: 55vh; overflow-y: auto; }
+.nt-past-item { border: 1px solid var(--line); border-radius: 12px; }
+.nt-past-sum {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
+}
+.nt-past-sum::-webkit-details-marker { display: none; }
+.nt-past-sum:hover { background: #f8f9fa; border-radius: 12px; }
+.nt-past-sum .nt-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.94rem;
+}
+.nt-past-date { font-size: 0.74rem; color: var(--ink-faint); white-space: nowrap; }
+.nt-past-arrow { color: var(--ink-faint); font-size: 0.9rem; transition: transform 0.2s; }
+.nt-past-item[open] .nt-past-sum { border-radius: 12px 12px 0 0; border-bottom: 1px solid var(--line); }
+.nt-past-item[open] .nt-past-arrow { transform: rotate(180deg); }
+.nt-past-item .nt-body { padding: 12px 14px 0; font-size: 0.9rem; line-height: 1.6; white-space: pre-wrap; }
+.nt-past-item .nt-meta { padding: 8px 14px 12px; font-size: 0.74rem; color: var(--ink-soft); }
 
 /* 공지 확인 인원 수 버튼 + 이름 목록 */
 .nt-ack-count {
