@@ -10,7 +10,6 @@
       ]
     },
     {
-      "//": "HTML·스크립트·스타일은 매번 서버에 확인 후 사용한다. no-cache는 '캐시 금지'가 아니라 '쓰기 전 재검증'이라, 바뀐 게 없으면 304로 빠르게 끝난다. 이게 없으면 모바일 브라우저가 예전 app.js를 계속 써서 화면이 서로 달라진다.",
       "source": "/(.*\\.(html|js|css))",
       "headers": [
         { "key": "Cache-Control", "value": "no-cache, must-revalidate" }
