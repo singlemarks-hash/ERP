@@ -3286,13 +3286,11 @@ async function renderAttendAdmin() {
       </table>`;
     return `<tr class="ph-click" data-admtoggle="${p.id}">
         <td><b>${esc(p.name)}</b></td><td>${esc(p.dept)}</td>
-        <td class="num">${new Set(pShifts.map((s) => s.date)).size}일</td>
-        <td class="num">${fmtH(schedH)}h</td>
-        <td class="num">${pAtts.length}일</td>
-        <td class="num"><b class="c-green">${fmtH(workedH)}h</b></td>
+        <td class="num">${new Set(pShifts.map((s) => s.date)).size}일 / <b class="c-green">${pAtts.length}일</b></td>
+        <td class="num">${fmtH(schedH)}h / <b class="c-green">${fmtH(workedH)}h</b></td>
         <td>${noteSummary || "-"}</td>
       </tr>
-      <tr class="ph-detail-tr ${open ? "" : "hidden"}" data-admdetail="${p.id}"><td colspan="7"><div class="ph-detail ph-anim">${detail}</div></td></tr>`;
+      <tr class="ph-detail-tr ${open ? "" : "hidden"}" data-admdetail="${p.id}"><td colspan="5"><div class="ph-detail ph-anim">${detail}</div></td></tr>`;
   }).join("");
 
   // 필터 드롭다운 목록: 이번 달 출퇴근 입력이 있는 직원 + 재직 직원
@@ -3321,7 +3319,7 @@ async function renderAttendAdmin() {
           : "출퇴근을 입력한 기록만 표시됩니다."}</span>
       </div>
       ${rowsHtml.trim() ? `<div class="table-wrap"><table class="data att-table">
-        <thead><tr><th>이름</th><th>소속</th><th class="num">예정일</th><th class="num">예정시간</th><th class="num">근무일</th><th class="num">실근무</th><th>특이사항</th></tr></thead>
+        <thead><tr><th>이름</th><th>소속</th><th class="num">근무일 (예정/완료)</th><th class="num">근무시간 (예정/완료)</th><th>특이사항</th></tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table></div>
       <div class="mini-note">직원을 클릭하면 일별 이력이 펼쳐집니다. 메모는 입력 후 Enter로 저장됩니다.</div>`
