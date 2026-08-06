@@ -2664,7 +2664,8 @@ function blockHours(mins) {
   if (mins <= 0) return 0;
   const blocks = Math.ceil(mins / 10);
   const whole = Math.floor(blocks / 6), rem = blocks % 6;
-  return whole + (rem ? OT_TABLE[rem - 1] : 0);
+  // 소수 둘째 자리로 맞춰 부동소수점 오차(1 + 0.84 = 1.8399…)가 합계에 누적되지 않게 한다
+  return Math.round((whole + (rem ? OT_TABLE[rem - 1] : 0)) * 100) / 100;
 }
 /* 추가근무(조기출근·연장) 인정: 10분은 '유예 기준선'일 뿐 차감하지 않는다.
    10분 이하는 0, 10분을 넘기면 전체 시간을 10분 블록으로 인정
@@ -2673,22 +2674,18 @@ function otHours(mins) {
   return mins <= ATT_GRACE_MIN ? 0 : blockHours(mins);
 }
 /* 야간근무(22:00~06:00) 가산: 시간대 안에서는 1분 초과부터 10분 블록 인정.
-   단 야간 가산은 결재 없이 자동으로 붙는 유일한 항목이라, 잠깐 찍고 나가는 기록에
-   수당이 붙지 않도록 '그날 실근무가 최소 1시간 이상'일 때만 인정한다. */
+   결재 없이 자동으로 붙는 유일한 항목이라 두 가지를 반드시 걷어낸다.
+     1) 휴게시간 — 쉬는 시간까지 야간 근무로 쳐주면 안 된다.
+     2) 아직 결재 승인되지 않은 초과분 — 그 시간이 근무로 인정될지도 정해지지
+        않았는데 야간수당만 먼저 확정해줄 수 없다 (연장 칩과 같은 기준을 따른다).
+   그래서 실제 시계 시간이 아니라 '인정된 구간(effIn~effOut, 휴게 차감)'만 넘긴다. */
 const NIGHT_START_MIN = 22 * 60, NIGHT_END_MIN = 30 * 60; // 당일 22:00(1320) ~ 익일 06:00(1800), 자정 기준 분
 const NIGHT_MIN_WORK_MIN = 60;
-function nightHours(att, shift) {
-  if (!att?.inAt || !att?.outAt) return 0;
-  if ((workedNetMin(att, shift) || 0) < NIGHT_MIN_WORK_MIN) return 0;
-  const inMin = minOf(att.inAt);
-  // 출근 날짜와 퇴근 날짜를 엄격히 비교 (workedHours와 동일 규칙) —
-  // 같은 날 역전·동일 시각 기록을 24시간 근무로 오인하지 않도록 한다.
-  let span = minOf(att.outAt) - inMin;
-  if ((att.outDate || att.date) > att.date) span += 1440;
-  if (span <= 0) return 0;
-  const outMin = inMin + span;
-  const overlap = (lo, hi) => Math.max(0, Math.min(outMin, hi) - Math.max(inMin, lo));
-  const mins = overlap(0, 360) + overlap(NIGHT_START_MIN, NIGHT_END_MIN);
+function nightHours(effIn, effOut, breakMin) {
+  if (effOut <= effIn) return 0;
+  const overlap = (lo, hi) => Math.max(0, Math.min(effOut, hi) - Math.max(effIn, lo));
+  const mins = Math.max(0, overlap(0, 360) + overlap(NIGHT_START_MIN, NIGHT_END_MIN) - breakMin);
+  if (effOut - effIn - breakMin < NIGHT_MIN_WORK_MIN) return 0;
   return blockHours(mins);
 }
 /* 조기출근·연장근무 가산 제외 여부 — 출퇴근 기록에 저장된 값을 우선한다.
@@ -2714,25 +2711,37 @@ function attNotes(att, shift, reqOf) {
   // 승인된 추가근무 분을 조기출근 → 연장 순으로 배분
   let left = Number(att.otApprovedMin || 0);
   const take = (mins) => { const t = Math.min(left, mins); left -= t; return t; };
-  /* 조기출근·연장 칩 — 승인 전에는 가산 0 + 무채색 */
+  /* 조기출근·연장 칩 — 승인 전에는 가산 0 + 무채색. okMin에 승인된 분을 담아 돌려준다. */
   const otNote = (k, kind, mins) => {
-    const h = otHours(take(mins));
+    const okMin = take(mins);
+    const h = otHours(okMin);
     const st = reqOf ? reqOf(kind) : null;
-    if (h) return { k, kind, mins, h, approved: true, label: `${kind} ${mins}분 (가산 ${fmtH(h)}h)` };
-    if (st === "대기") return { k, kind, mins, h: 0, label: `${kind} ${mins}분 (결재 대기)` };
-    if (st === "반려") return { k, kind, mins, h: 0, label: `${kind} ${mins}분 (반려)` };
-    return { k, kind, mins, h: 0, canReq: true, label: `${kind} ${mins}분` };
+    if (h) return { k, kind, mins, okMin, h, approved: true, label: `${kind} ${mins}분 (가산 ${fmtH(h)}h)` };
+    if (st === "대기") return { k, kind, mins, okMin: 0, h: 0, label: `${kind} ${mins}분 (결재 대기)` };
+    if (st === "반려") return { k, kind, mins, okMin: 0, h: 0, label: `${kind} ${mins}분 (반려)` };
+    return { k, kind, mins, okMin: 0, h: 0, canReq: true, label: `${kind} ${mins}분` };
   };
+  // 야간 가산은 '인정된 근무 구간'에만 붙는다 — 예정 근무 + 승인된 조기출근·연장까지만.
+  let effIn = minOf(att.inAt);
+  let effOut = att.outAt ? minOf(att.outAt) + ((att.outDate || att.date) > att.date ? 1440 : 0) : effIn;
   if (shift) {
-    const dIn = minOf(att.inAt) - minOf(shift.start);
+    const schedStart = minOf(shift.start);
+    const schedEnd = minOf(shift.end) + (shiftOvernight(shift) ? 1440 : 0);
+    const dIn = effIn - schedStart;
     if (dIn > ATT_GRACE_MIN) notes.push({ k: "late", approved: true, label: `지각 ${dIn}분` });
-    else if (-dIn > ATT_GRACE_MIN && !exempt) notes.push(otNote("earlyin", "조기출근", -dIn));
+    else if (-dIn > ATT_GRACE_MIN && !exempt) {
+      const n = otNote("earlyin", "조기출근", -dIn);
+      notes.push(n);
+      effIn = schedStart - n.okMin;      // 승인된 조기출근만 인정 구간에 포함
+    } else if (dIn <= 0) effIn = schedStart;  // 유예 이내 조기 출근은 예정 시각으로 스냅
     if (att.outAt) {
-      let outM = minOf(att.outAt) + (att.outDate && att.outDate > att.date ? 1440 : 0);
-      const endM = minOf(shift.end) + (shiftOvernight(shift) ? 1440 : 0);
-      const dOut = outM - endM;
+      const dOut = effOut - schedEnd;
       if (-dOut > ATT_GRACE_MIN) notes.push({ k: "earlyout", approved: true, label: `조기퇴근 ${-dOut}분` });
-      else if (dOut > ATT_GRACE_MIN && !exempt) notes.push(otNote("over", "연장", dOut));
+      else if (dOut > ATT_GRACE_MIN && !exempt) {
+        const n = otNote("over", "연장", dOut);
+        notes.push(n);
+        effOut = schedEnd + n.okMin;     // 승인된 연장만 인정 구간에 포함
+      } else if (dOut >= 0) effOut = schedEnd;  // 유예 이내 초과 퇴근은 예정 시각으로 스냅
     }
   }
   // 예정 근무 외 시간대에 승인된 추가근무(직접 신청 건 등)
@@ -2741,7 +2750,7 @@ function attNotes(att, shift, reqOf) {
     if (h > 0) notes.push({ k: "over", h, approved: true, label: `추가근무 ${left}분 (가산 ${fmtH(h)}h)` });
   }
   if (att.outAt) {
-    const nh = nightHours(att, shift);
+    const nh = nightHours(effIn, effOut, breakApplied(att, shift) ? 60 : 0);
     if (nh > 0) notes.push({ k: "night", h: nh, approved: true, label: `야간근무 (가산 ${fmtH(nh)}h)` });
   }
   return notes;
