@@ -1860,7 +1860,9 @@ tr.att-carry td { background: #fff9db; }
 
   /* 줄바꿈 방지: 텍스트 축소 + nowrap */
   .btn { white-space: nowrap; }
-  body { word-break: keep-all; }
+  /* keep-all은 한글 단어가 중간에 끊기는 것을 막지만, 띄어쓰기 없이 길게 이어진
+     문장은 한 덩어리로 취급돼 화면 밖으로 뻗어나간다. 넘칠 때만 강제로 끊는다. */
+  body { word-break: keep-all; overflow-wrap: break-word; }
   .card-title { flex-wrap: wrap; }
   .card-title > div:first-child { flex: 1 1 auto; min-width: 0; }
   .card-title .btn-sm { padding: 6px 9px; font-size: 0.76rem; }
