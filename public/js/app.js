@@ -2902,12 +2902,14 @@ async function renderAttRecord() {
       toast(`미래 시각(${t})으로는 퇴근을 기록할 수 없습니다. 현재 ${hmNowKST()}`);
       return;
     }
+    const shiftOfDay = shifts.find((s) => s.date === workDate && s.empId === me.id);
     openOutConfirmModal({
       time: t,
       workDate,
       outDateEff,
       inAt: myRec.inAt,
-      shift: shifts.find((s) => s.date === workDate && s.empId === me.id),
+      shift: shiftOfDay,
+      breakIncl: breakApplied(myRec, shiftOfDay),
       onConfirm: async () => {
         await db.collection(COL.attendance).doc(myRec.id)
           .set({ outAt: t, outDate: outDateEff }, { merge: true });
@@ -3117,10 +3119,11 @@ function openInConfirmModal({ time, workDate, shift, onConfirm }) {
 }
 
 /* 퇴근 확인 모달: 시각·날짜·총 근무시간을 크게 보여주고 확정 (오입력 방지) */
-function openOutConfirmModal({ time, workDate, outDateEff, inAt, shift, onConfirm }) {
+function openOutConfirmModal({ time, workDate, outDateEff, inAt, shift, breakIncl, onConfirm }) {
   const p = dateParts(workDate);
-  // 총 근무는 실제 출퇴근 시각을 그대로 대조한 길이 (n시간 n분)
+  // 총 근무는 실제 출퇴근 시각을 대조한 길이 (n시간 n분) — 휴게 포함이면 1시간 차감
   const spanMin = (minOf(time) + (outDateEff > workDate ? 1440 : 0)) - minOf(inAt);
+  const netMin = Math.max(0, spanMin - (breakIncl ? 60 : 0));
   openModal(`
     <div class="ioc">
       <div class="ioc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg></div>
@@ -3134,7 +3137,8 @@ function openOutConfirmModal({ time, workDate, outDateEff, inAt, shift, onConfir
         <div class="iocw-row"><span>출근 시간</span><b>${esc(inAt)}</b></div>
         <div class="iocw-row"><span>퇴근 시간</span>
           <b>${outDevChip(time, outDateEff, workDate, shift, me.name)}${outDateEff !== workDate ? "익일 " : ""}${esc(time)}</b></div>
-        <div class="iocw-row total"><span>총 근무</span><b>${durLabelKo(spanMin)}</b></div>
+        <div class="iocw-row total"><span>총 근무</span>
+          <b>${breakIncl ? REST_BADGE : ""}${durLabelKo(netMin)}</b></div>
       </div>
       <p class="ioc-q">위 시간이 맞습니까?</p>
       <div class="ioc-actions">

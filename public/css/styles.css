@@ -1556,8 +1556,9 @@ tr.ph-row-open td { background: var(--blue-soft); }
 .iocw-row:last-child { border-bottom: none; }
 .iocw-row b { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
 .iocw-row.total b { font-size: 1.02rem; font-weight: 800; }
-/* 시간 값 왼쪽에 붙는 지각·조기출근·연장·조기퇴근 태그 */
-.iocw-row b .att-note { margin: 0 7px 0 0; vertical-align: middle; font-size: 0.7rem; }
+/* 시간 값 왼쪽에 붙는 지각·조기출근·연장·조기퇴근·휴게포함 태그 */
+.iocw-row b .att-note,
+.iocw-row b .rest-badge { margin: 0 7px 0 0; vertical-align: middle; font-size: 0.7rem; }
 
 /* 단기알바 배지 */
 .temp-badge {
