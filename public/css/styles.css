@@ -1533,10 +1533,14 @@ tr.ph-row-open td { background: var(--blue-soft); }
   margin: 0 auto 12px;
 }
 .ioc-icon svg { width: 26px; height: 26px; }
+/* 출근 확인 모달은 초록 계열 (퇴근=빨강과 구분) */
+.ioc-icon.in { background: var(--green-soft); color: var(--green); }
+.ioc-none { color: var(--ink-faint); font-weight: 600; }
 .ioc h3 { margin-bottom: 14px; }
 .ioc-sub { font-size: 0.86rem; color: var(--ink-soft); }
 .ioc-time { font-size: 2.6rem; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin: 2px 0; }
 .ioc-ampm { font-size: 1.05rem; font-weight: 800; color: var(--red); margin-bottom: 8px; }
+.ioc-ampm.in { color: var(--green); }
 .ioc-date { font-size: 0.9rem; color: var(--ink-soft); }
 .ioc-worked {
   margin: 14px 0 0;
@@ -1612,6 +1616,8 @@ tr.ph-row-open td { background: var(--blue-soft); }
 .ioc-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
 .ioc-confirm { background: var(--red); color: #fff; font-weight: 800; }
 .ioc-confirm:hover { background: #d63a49; }
+.ioc-confirm.in { background: var(--green); }
+.ioc-confirm.in:hover { background: #18904f; }
 
 .att-table th, .att-table td { white-space: nowrap; }
 .att-mono { font-variant-numeric: tabular-nums; }

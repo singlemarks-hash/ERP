@@ -2862,7 +2862,7 @@ async function renderAttRecord() {
   bindAttReqSection();
 
   const inBtn = $("#att-in");
-  if (inBtn) inBtn.onclick = async () => {
+  if (inBtn) inBtn.onclick = () => {
     if (inBtn.disabled) return;
     const t = timeSelVal("ai");
     // 미래 시각 출근 차단 (오늘 기록 기준, 한국시간)
@@ -2870,11 +2870,19 @@ async function renderAttRecord() {
       toast(`미래 시각(${t})으로는 출근을 기록할 수 없습니다. 현재 ${hmNowKST()}`);
       return;
     }
-    inBtn.disabled = true;
-    await db.collection(COL.attendance).doc(myRec.id)
-      .set({ empId: me.id, name: me.name, dept: me.dept, date: recDate, inAt: t }, { merge: true });
-    toast(`${recDate} 출근 ${t} 기록 완료`);
-    renderAttend();
+    // 실수로 눌렀을 때를 대비해 확인 모달을 거쳐 [등록]까지 눌러야 기록된다
+    openInConfirmModal({
+      time: t,
+      workDate: recDate,
+      shift: shifts.find((s) => s.date === recDate && s.empId === me.id),
+      onConfirm: async () => {
+        await db.collection(COL.attendance).doc(myRec.id)
+          .set({ empId: me.id, name: me.name, dept: me.dept, date: recDate, inAt: t }, { merge: true });
+        closeModal();
+        toast(`${recDate} 출근 ${t} 기록 완료`);
+        renderAttend();
+      }
+    });
   };
 
   const outBtn = $("#att-out");
@@ -3048,6 +3056,37 @@ function bindAttReqSection() {
     await db.collection(COL.attRequests).add(data);
     toast(`${base.approver}님에게 ${ATT_REQ_LABEL[type]} 결재를 요청했습니다.`);
     renderAttend();
+  };
+}
+
+/* 출근 확인 모달: 시각·날짜·예정 근무를 보여주고 [등록]을 눌러야 기록 (오클릭 방지) */
+function openInConfirmModal({ time, workDate, shift, onConfirm }) {
+  const p = dateParts(workDate);
+  openModal(`
+    <div class="ioc">
+      <div class="ioc-icon in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+      <h3>출근 시간 확인</h3>
+      <p class="ioc-sub">${esc(me.name)}님의 출근 시간</p>
+      <div class="ioc-time">${esc(time)}</div>
+      <div class="ioc-ampm in">(${kAmPmLabel(time)})</div>
+      <div class="ioc-date">${p.y}년 ${p.m}월 ${p.d}일 (${"일월화수목금토"[p.dow]}) 근무</div>
+      <div class="ioc-worked">
+        <div class="iocw-row"><span>예정 근무</span>
+          <b>${shift ? `${esc(shift.start)} ~ ${esc(shiftEndLabel(shift))}` : `<span class="ioc-none">미등록</span>`}</b></div>
+        <div class="iocw-row total"><span>출근 시간</span><b>${esc(time)}</b></div>
+      </div>
+      <p class="ioc-q">위 시간으로 출근을 등록할까요?</p>
+      <div class="ioc-actions">
+        <button type="button" class="btn btn-ghost" id="ioc-cancel">취소</button>
+        <button type="button" class="btn ioc-confirm in" id="ioc-ok">등록</button>
+      </div>
+    </div>`);
+  $("#ioc-cancel").onclick = closeModal;
+  $("#ioc-ok").onclick = () => {
+    const b = $("#ioc-ok");
+    if (b.disabled) return;
+    b.disabled = true;
+    onConfirm();
   };
 }
 
