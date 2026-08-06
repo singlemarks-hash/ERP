@@ -384,7 +384,7 @@ function renderSidebar() {
     `<button class="nav-item" data-view="${i.id}">${ICONS[i.ico]}${i.label}</button>`).join("");
   const adminItems = [];
   if (canManageOps()) adminItems.push({ id: "systems", ico: "grid", label: "사내 시스템" });
-  if (canManageOps() || isManager()) adminItems.push({ id: "paymanage", ico: "ledger", label: "급여관리" });
+  if (canManageOps()) adminItems.push({ id: "paymanage", ico: "ledger", label: "급여관리" });
   if (isAdmin() || isSpecial() || isManager()) adminItems.push({ id: "attendadmin", ico: "clock", label: "근태관리" });
   if (isAdmin() || isSpecial() || isManager() || me.role === "executive") adminItems.push({ id: "leaveadmin", ico: "leave", label: "연차관리" });
   if (canManageOps()) adminItems.push({ id: "employees", ico: "employees", label: "직원 관리" });
@@ -1490,19 +1490,15 @@ let pmEmps = [];
 function ymNow() { return ymNowKST(); }
 
 async function renderPayroll() {
-  if (!canManageOps() && !isManager()) return navigate("payhistory");
+  if (!canManageOps()) return navigate("payhistory");
   if (!pmYear) pmYear = kstNow().getUTCFullYear();
   const main = $("#main");
   main.innerHTML = pageHead("ADMIN", "급여관리",
-    isManager()
-      ? "일반권한 직원을 선택해 월별 급여를 기록하거나, 기록을 종합 조회합니다. 정기 급여일은 매월 10일 · 15일입니다."
-      : "직원을 선택해 월별 급여를 기록하거나, 전체 직원 기록을 종합 조회합니다. 정기 급여일은 매월 10일 · 15일입니다.") +
+    "직원을 선택해 월별 급여를 기록하거나, 전체 직원 기록을 종합 조회합니다. 정기 급여일은 매월 10일 · 15일입니다.") +
     `<div id="pm-body"><div class="empty">불러오는 중...</div></div>`;
 
   const empSnap = await db.collection(COL.employees).where("status", "==", "재직").get();
-  let emps = sortByGrade(empSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-  // 매니저는 일반권한(member) 직원의 급여만 열람·수정할 수 있다.
-  if (isManager()) emps = emps.filter((e) => e.role === "member");
+  const emps = sortByGrade(empSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
   pmEmps = emps;
   if (!emps.length) {
     $("#pm-body").innerHTML = `<div class="empty">재직 직원이 없습니다. [직원 관리]에서 먼저 직원을 등록하세요.</div>`;
@@ -1878,11 +1874,6 @@ async function renderPayHistoryAdmin(emp) {
     emp ? ((r) => r.empId === emp.id || r.name === emp.name) : null);
   if (pmMonth) records = records.filter((r) => Number(r.ym.slice(5, 7)) === pmMonth);
   if (isAll && pmDept) records = records.filter((r) => deptOf(r) === pmDept);
-  // 매니저는 일반권한 직원의 기록만 종합 조회할 수 있다.
-  if (isAll && isManager()) {
-    const memberIds = new Set(pmEmps.map((e) => e.id));
-    records = records.filter((r) => memberIds.has(r.empId));
-  }
 
   const sumNet = records.reduce((s, r) => s + r.net, 0);
   const sumPay = records.reduce((s, r) => s + r.payTotal, 0);
@@ -4326,7 +4317,7 @@ function openEmployeeModal(emp) {
         <label class="field"><span class="field-label">역할 (권한)</span>
           <select id="ef-role">
             <option value="member" ${emp?.role === "member" ? "selected" : ""}>일반</option>
-            <option value="manager" ${emp?.role === "manager" ? "selected" : ""}>매니저 (급여·근태 일부 관리)</option>
+            <option value="manager" ${emp?.role === "manager" ? "selected" : ""}>매니저 (근태관리·연차 조회)</option>
             <option value="executive" ${emp?.role === "executive" ? "selected" : ""}>임원 열람</option>
             <option value="special" ${emp?.role === "special" ? "selected" : ""}>특수관리자 (권한 모니터링 외 전체)</option>
             <option value="admin" ${emp?.role === "admin" ? "selected" : ""}>총괄 관리자</option>
