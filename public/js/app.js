@@ -341,7 +341,15 @@ function enterApp() {
   $("#login-screen").classList.add("hidden");
   $("#app-shell").classList.remove("hidden");
   renderSidebar();
-  navigate("home");
+  // 새로고침·주소 직접 입력 시 해시에 담긴 화면으로 복원한다 (없으면 홈)
+  const start = parseHash();
+  navigate(start.view, start.sub, true);
+  // 브라우저 뒤로/앞으로 가기 대응 — 이미 그 화면이면 다시 그리지 않는다
+  window.onhashchange = () => {
+    const { view, sub } = parseHash();
+    if (view === currentView && (view !== "attend" || !sub || sub === attTab)) return;
+    navigate(view, sub, true);
+  };
 
   $("#logout-btn").onclick = async () => {
     localStorage.removeItem(SESSION_KEY);
@@ -485,23 +493,44 @@ function openMyInfoModal() {
   $("#mi-close").onclick = closeModal;
 }
 
-function navigate(view) {
+/* ── 화면 라우팅 ────────────────────────────────────────────────────
+   보고 있는 화면을 URL 해시에 남겨, 새로고침해도 그 화면이 그대로 유지된다.
+   근태기록처럼 하위 탭이 있는 화면은 "#attend/calendar" 형태로 함께 담는다. */
+const VIEW_RENDER = {
+  home: () => renderHome(),
+  schedule: () => renderSchedule(),
+  attend: () => renderAttend(),
+  attendadmin: () => renderAttendAdmin(),
+  payhistory: () => renderPayHistory(),
+  paymanage: () => renderPayroll(),
+  leave: () => renderLeave(),
+  leaveadmin: () => renderLeaveAdmin(),
+  settings: () => renderSettings(),
+  systems: () => renderSystems(),
+  employees: () => renderEmployees(),
+  monitor: () => renderMonitor()
+};
+const ATT_TABS = ["record", "calendar", "history"];
+const viewHash = () => currentView + (currentView === "attend" ? `/${attTab}` : "");
+/* 해시 → { view, sub } (알 수 없는 값은 기본 화면으로) */
+function parseHash() {
+  const [v, sub] = decodeURIComponent(location.hash.replace(/^#/, "")).split("/");
+  return {
+    view: VIEW_RENDER[v] ? v : "home",
+    sub: ATT_TABS.includes(sub) ? sub : null
+  };
+}
+/* replace=true 면 히스토리에 새 기록을 남기지 않는다 (권한 없어 되돌릴 때 등) */
+function navigate(view, sub, replace) {
   currentView = view;
+  if (view === "attend" && sub) attTab = sub;
   document.querySelectorAll(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
-  const render = {
-    home: renderHome,
-    schedule: renderSchedule,
-    attend: renderAttend,
-    attendadmin: renderAttendAdmin,
-    payhistory: renderPayHistory,
-    paymanage: renderPayroll,
-    leave: renderLeave,
-    leaveadmin: renderLeaveAdmin,
-    settings: renderSettings,
-    systems: renderSystems,
-    employees: renderEmployees,
-    monitor: renderMonitor
-  }[view];
+  const h = "#" + viewHash();
+  if (location.hash !== h) {
+    if (replace) history.replaceState(null, "", h);
+    else location.hash = h;   // 뒤로가기로 이전 화면에 돌아갈 수 있도록 기록을 남긴다
+  }
+  const render = VIEW_RENDER[view];
   if (render) render();
 }
 
@@ -1112,7 +1141,7 @@ async function renderHome() {
 
 /* ───────── 사내 시스템 (관리자: 버튼 등록 + 계정별 권한 부여) ───────── */
 async function renderSystems() {
-  if (!canManageOps()) return navigate("home");
+  if (!canManageOps()) return navigate("home", null, true);
   const main = $("#main");
   main.innerHTML = pageHead("SYSTEMS", "사내 시스템",
     "회사에서 사용하는 사이트 버튼을 등록하고, 계정별로 사용 권한을 부여합니다. 권한이 부여된 직원의 홈에 버튼이 자동으로 나타납니다.",
@@ -1515,7 +1544,7 @@ let pmEmps = [];
 function ymNow() { return ymNowKST(); }
 
 async function renderPayroll() {
-  if (!canManageOps()) return navigate("payhistory");
+  if (!canManageOps()) return navigate("payhistory", null, true);
   if (!pmYear) pmYear = kstNow().getUTCFullYear();
   const main = $("#main");
   main.innerHTML = pageHead("ADMIN", "급여관리",
@@ -2776,7 +2805,8 @@ async function renderAttend() {
     </div>
     <div id="att-body"><div class="empty">불러오는 중...</div></div>`;
   main.querySelectorAll("[data-atab]").forEach((b) => {
-    b.onclick = () => { attTab = b.dataset.atab; renderAttend(); };
+    // 하위 탭도 해시에 남겨 새로고침 시 같은 탭으로 돌아오게 한다
+    b.onclick = () => navigate("attend", b.dataset.atab);
   });
   if (attTab === "record") await renderAttRecord();
   else if (attTab === "calendar") await renderAttCalendar();
@@ -3628,7 +3658,7 @@ async function renderAttHistory() {
 let admOpenIds = new Set();
 let admAttEmp = ""; // "" = 전체 직원
 async function renderAttendAdmin() {
-  if (!canEditShifts() && !isManager()) return navigate("home");
+  if (!canEditShifts() && !isManager()) return navigate("home", null, true);
   const main = $("#main");
   if (!admAttYm) admAttYm = ymNowKST();
   const [yy, mm] = admAttYm.split("-").map(Number);
@@ -3970,7 +4000,7 @@ function openAttEditModal(emp, date, att, shiftOf = () => null) {
 
 /* ───────── 연차관리 (관리자 메뉴) ───────── */
 async function renderLeaveAdmin() {
-  if (!isAdmin() && !isSpecial() && !isManager() && me.role !== "executive") return navigate("leave");
+  if (!isAdmin() && !isSpecial() && !isManager() && me.role !== "executive") return navigate("leave", null, true);
   const main = $("#main");
   main.innerHTML = pageHead("ADMIN", "연차관리",
     "휴가 신청 승인과 전 직원 연차 현황을 관리합니다.",
@@ -4454,7 +4484,7 @@ async function openNoticeModal(notice) {
 
 /* ───────── 직원 관리 (admin) ───────── */
 async function renderEmployees() {
-  if (!canManageOps()) return navigate("home");
+  if (!canManageOps()) return navigate("home", null, true);
   const main = $("#main");
   main.innerHTML = pageHead("ADMIN", "직원 관리",
     "직원 등록·수정, 부서 배정, 권한(역할) 조정, 비밀번호 초기화를 할 수 있습니다.",
@@ -4651,7 +4681,7 @@ function openEmployeeModal(emp) {
 
 /* ───────── 권한 모니터링 (admin) ───────── */
 async function renderMonitor() {
-  if (!isAdmin()) return navigate("home");
+  if (!isAdmin()) return navigate("home", null, true);
   const main = $("#main");
   main.innerHTML = pageHead("ADMIN", "권한 모니터링",
     "직원별 권한 부여 현황을 총괄 확인합니다.") + `<div id="mon-body">불러오는 중...</div>`;
