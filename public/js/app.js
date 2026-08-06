@@ -2936,33 +2936,37 @@ function attReqSectionHtml(myReqs) {
       ${approvers.length ? `
       <div class="atreq-form">
         <div class="atreq-tabs">
-          <button type="button" class="atreq-tab on" data-atrtype="overtime">추가근무</button>
+          <button type="button" class="atreq-tab" data-atrtype="overtime">추가근무</button>
           <button type="button" class="atreq-tab" data-atrtype="change">근무변경</button>
         </div>
-        <label class="field"><span class="field-label">결재자</span>
-          <select id="atr-approver">${approvers.map((n) => `<option>${esc(n)}</option>`).join("")}</select></label>
+        <div class="atr-pick" id="atr-pick">신청할 항목을 선택하세요.</div>
 
-        <div id="atr-overtime">
-          <div class="field"><span class="field-label">추가근무 날짜</span>
-            <button type="button" class="cal-input" id="atr-date"><span id="atr-date-label">${dateLabelKo(todayKST())}</span>${CAL_ICON}</button></div>
-          <div class="grid-2">
-            <div class="field"><span class="field-label">시작</span>
-              <div class="io-time"><select id="atr-sh">${hourOpts("18")}</select><b>:</b><select id="atr-sm">${minOpts("00")}</select></div></div>
-            <div class="field"><span class="field-label">종료 <em class="sf-hint">(시작보다 빠르면 익일)</em></span>
-              <div class="io-time"><select id="atr-eh">${hourOpts("20")}</select><b>:</b><select id="atr-em">${minOpts("00")}</select></div></div>
+        <div id="atr-body" class="hidden">
+          <label class="field"><span class="field-label">결재자</span>
+            <select id="atr-approver">${approvers.map((n) => `<option>${esc(n)}</option>`).join("")}</select></label>
+
+          <div id="atr-overtime" class="hidden">
+            <div class="field"><span class="field-label">추가근무 날짜</span>
+              <button type="button" class="cal-input" id="atr-date"><span id="atr-date-label">${dateLabelKo(todayKST())}</span>${CAL_ICON}</button></div>
+            <div class="grid-2">
+              <div class="field"><span class="field-label">시작</span>
+                <div class="io-time"><select id="atr-sh">${hourOpts("18")}</select><b>:</b><select id="atr-sm">${minOpts("00")}</select></div></div>
+              <div class="field"><span class="field-label">종료 <em class="sf-hint">(시작보다 빠르면 익일)</em></span>
+                <div class="io-time"><select id="atr-eh">${hourOpts("20")}</select><b>:</b><select id="atr-em">${minOpts("00")}</select></div></div>
+            </div>
+            <div class="atr-preview" id="atr-preview"></div>
           </div>
-          <div class="atr-preview" id="atr-preview"></div>
-        </div>
 
-        <div id="atr-change" class="hidden">
-          <label class="field"><span class="field-label">근무 변경 내용</span>
-            <textarea id="atr-text" class="wn-input" rows="4" maxlength="500" placeholder="예시:
+          <div id="atr-change" class="hidden">
+            <label class="field"><span class="field-label">근무 변경 내용</span>
+              <textarea id="atr-text" class="wn-input" rows="4" maxlength="500" placeholder="예시:
 8월 17일 18:00~22:00 근무자 변동 (기존: 홍길동, 변경: 김아무개)
 8월 18일 김아무개 근무시간 변경 (기존: 16:00~22:00, 변경: 18:00~24:00)"></textarea></label>
-          <div class="mini-note">승인되면 ${esc(me.dept)} 전원에게 공지로 자동 게시됩니다.</div>
-        </div>
+            <div class="mini-note">승인되면 ${esc(me.dept)} 전원에게 공지로 자동 게시됩니다.</div>
+          </div>
 
-        <button type="button" class="btn btn-primary btn-block" id="atr-submit" style="margin-top:12px">결재 요청</button>
+          <button type="button" class="btn btn-primary btn-block" id="atr-submit" style="margin-top:12px">결재 요청</button>
+        </div>
       </div>`
       : `<div class="empty">지정 가능한 결재자가 없습니다.</div>`}
 
@@ -2991,7 +2995,7 @@ function attReqSummary(r) {
 function bindAttReqSection() {
   const card = $("#atreq-card");
   if (!card || !$("#atr-submit")) return;
-  let type = "overtime";
+  let type = null;   // 항목을 고르기 전에는 입력 폼을 숨긴다
   let selDate = todayKST();
 
   const otMins = () => {
@@ -3015,6 +3019,8 @@ function bindAttReqSection() {
     b.onclick = () => {
       type = b.dataset.atrtype;
       card.querySelectorAll("[data-atrtype]").forEach((x) => x.classList.toggle("on", x === b));
+      $("#atr-pick").classList.add("hidden");
+      $("#atr-body").classList.remove("hidden");
       $("#atr-overtime").classList.toggle("hidden", type !== "overtime");
       $("#atr-change").classList.toggle("hidden", type !== "change");
     };
@@ -3029,6 +3035,7 @@ function bindAttReqSection() {
   $("#atr-submit").onclick = async () => {
     const btn = $("#atr-submit");
     if (btn.disabled) return;
+    if (!type) { toast("추가근무 또는 근무변경을 먼저 선택하세요."); return; }
     const base = {
       type, empId: me.id, name: me.name, dept: me.dept,
       approver: $("#atr-approver").value, status: "대기",
