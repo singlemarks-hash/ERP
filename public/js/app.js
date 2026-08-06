@@ -2701,7 +2701,7 @@ function isOtExempt(att) {
 
 /* 특이사항 (지각/조기출근/조기퇴근/연장/야간근무)
    조기출근·연장은 '감지'와 '가산'을 분리한다 — 결재로 승인된 분(otApprovedMin)만 가산(h)에 반영.
-   승인 전에는 감지된 '분'과 (결재 대기)를, 승인 후에는 인정된 시간만 'n h'로 표기한다.
+   승인 전에는 '(결재 대기)', 승인 후에는 '(가산 n h)'로 표기한다 (감지된 분은 항상 함께 표시).
    h 값은 급여 가산 대상 시간이며, 실근무 시간에 이미 포함된 시간을 다시 더하는 값이 아니다. */
 function attNotes(att, shift) {
   const notes = [];
@@ -2717,7 +2717,7 @@ function attNotes(att, shift) {
     else if (-dIn > ATT_GRACE_MIN && !exempt) {
       const ok = take(-dIn);
       const h = otHours(ok);
-      notes.push({ k: "earlyin", h, label: h ? `조기출근 ${fmtH(h)}h` : `조기출근 ${-dIn}분 (결재 대기)` });
+      notes.push({ k: "earlyin", h, label: h ? `조기출근 ${-dIn}분 (가산 ${fmtH(h)}h)` : `조기출근 ${-dIn}분 (결재 대기)` });
     }
     if (att.outAt) {
       let outM = minOf(att.outAt) + (att.outDate && att.outDate > att.date ? 1440 : 0);
@@ -2727,18 +2727,18 @@ function attNotes(att, shift) {
       else if (dOut > ATT_GRACE_MIN && !exempt) {
         const ok = take(dOut);
         const h = otHours(ok);
-        notes.push({ k: "over", h, label: h ? `연장 ${fmtH(h)}h` : `연장 ${dOut}분 (결재 대기)` });
+        notes.push({ k: "over", h, label: h ? `연장 ${dOut}분 (가산 ${fmtH(h)}h)` : `연장 ${dOut}분 (결재 대기)` });
       }
     }
   }
   // 예정 근무 외 시간대에 승인된 추가근무(직접 신청 건 등)
   if (left > 0) {
     const h = otHours(left);
-    if (h > 0) notes.push({ k: "over", label: `추가근무 ${fmtH(h)}h`, h });
+    if (h > 0) notes.push({ k: "over", label: `추가근무 ${left}분 (가산 ${fmtH(h)}h)`, h });
   }
   if (att.outAt) {
     const nh = nightHours(att, shift);
-    if (nh > 0) notes.push({ k: "night", label: `야간근무 ${fmtH(nh)}h`, h: nh });
+    if (nh > 0) notes.push({ k: "night", label: `야간근무 (가산 ${fmtH(nh)}h)`, h: nh });
   }
   return notes;
 }
