@@ -2636,7 +2636,8 @@ function breakApplied(att, shift) {
    같은 날인데 퇴근이 출근보다 빠르면 잘못된 기록으로 보고 0을 반환한다.
    예정 근무(shift)가 있으면 실제 출/퇴근이 예정 시각의 ±10분(유예) 이내일 때
    예정 시각으로 스냅한다 — 유예 내 오차가 블록 환산으로 부풀려지는 것을 방지. */
-function workedHours(att, shift) {
+/* 실근무 '분' — 블록 환산 전의 실제 근무 길이 (휴게 차감 반영) */
+function workedNetMin(att, shift) {
   if (!att?.inAt || !att?.outAt) return null;
   let inMin = minOf(att.inAt);
   let outAbs = minOf(att.outAt) + ((att.outDate || att.date) > att.date ? 1440 : 0);
@@ -2648,7 +2649,11 @@ function workedHours(att, shift) {
   }
   const span = outAbs - inMin;
   if (span < 0) return 0;
-  return blockHours(Math.max(0, span - (breakApplied(att, shift) ? 60 : 0)));
+  return Math.max(0, span - (breakApplied(att, shift) ? 60 : 0));
+}
+function workedHours(att, shift) {
+  const m = workedNetMin(att, shift);
+  return m === null ? null : blockHours(m);
 }
 /* 출퇴근 정책: 예정 시간 전후 10분까지는 정상 처리(무시). */
 const ATT_GRACE_MIN = 10;
@@ -2667,10 +2672,14 @@ function blockHours(mins) {
 function otHours(mins) {
   return mins <= ATT_GRACE_MIN ? 0 : blockHours(mins);
 }
-/* 야간근무(22:00~06:00) 가산: 유예 없이 1분 초과부터 바로 10분 블록 인정 */
+/* 야간근무(22:00~06:00) 가산: 시간대 안에서는 1분 초과부터 10분 블록 인정.
+   단 야간 가산은 결재 없이 자동으로 붙는 유일한 항목이라, 잠깐 찍고 나가는 기록에
+   수당이 붙지 않도록 '그날 실근무가 최소 1시간 이상'일 때만 인정한다. */
 const NIGHT_START_MIN = 22 * 60, NIGHT_END_MIN = 30 * 60; // 당일 22:00(1320) ~ 익일 06:00(1800), 자정 기준 분
-function nightHours(att) {
+const NIGHT_MIN_WORK_MIN = 60;
+function nightHours(att, shift) {
   if (!att?.inAt || !att?.outAt) return 0;
+  if ((workedNetMin(att, shift) || 0) < NIGHT_MIN_WORK_MIN) return 0;
   const inMin = minOf(att.inAt);
   // 출근 날짜와 퇴근 날짜를 엄격히 비교 (workedHours와 동일 규칙) —
   // 같은 날 역전·동일 시각 기록을 24시간 근무로 오인하지 않도록 한다.
@@ -2727,7 +2736,7 @@ function attNotes(att, shift) {
     if (h > 0) notes.push({ k: "over", label: `추가근무 ${left}분 (가산 ${fmtH(h)}h)`, h });
   }
   if (att.outAt) {
-    const nh = nightHours(att);
+    const nh = nightHours(att, shift);
     if (nh > 0) notes.push({ k: "night", label: `야간근무 (가산 ${fmtH(nh)}h)`, h: nh });
   }
   return notes;
@@ -3490,7 +3499,7 @@ async function renderAttHistory() {
     agg[n.k].n++;
     agg[n.k].h += n.h || 0;
   }));
-  // 인정 추가근무(조기출근+연장+야간) 합계
+  // 승인·인정된 가산(조기출근+연장+야간) 합계 — 결재 대기분(h=0)은 합계에 잡히지 않는다
   const extraH = agg.earlyin.h + agg.over.h + agg.night.h;
   const extraN = agg.earlyin.n + agg.over.n + agg.night.n;
   // 0값 항목은 표기하지 않음 · 시간이 있는 항목은 "Xh (n회)" 형식
@@ -3498,7 +3507,7 @@ async function renderAttHistory() {
   const summaryChips = [
     ["late", "지각"], ["earlyin", "조기출근"], ["earlyout", "조기퇴근"], ["over", "연장"], ["night", "야간근무"]
   ].filter(([k]) => agg[k].n > 0).map(([k, label]) => `<span class="att-note ${k}">${chipLabel(agg[k], label)}</span>`)
-    .concat(extraN ? [`<span class="att-note over">추가근무 합계 ${fmtH(extraH)}h (${extraN}회)</span>`] : [])
+    .concat(extraH > 0 ? [`<span class="att-note over">가산 합계 ${fmtH(extraH)}h (${extraN}회)</span>`] : [])
     .join("");
 
   body.innerHTML = `
@@ -3517,7 +3526,8 @@ async function renderAttHistory() {
         <div><span>실 근무시간</span><b class="c-green">${fmtH(workedH)}h</b></div>
       </div>
       ${summaryChips ? `<div class="att-notecnt">${summaryChips}</div>` : ""}
-      <div class="mini-note">출퇴근 등록 시 예정 시간 전후 10분까지 정상으로 처리됩니다.</div>
+      <div class="mini-note">출퇴근 등록 시 예정 시간 전후 10분까지 정상으로 처리됩니다.
+        야간근무 가산(22:00~06:00)은 그날 실근무가 1시간 이상일 때만 인정됩니다.</div>
       ${allDates.length ? `<div class="table-wrap"><table class="data att-table">
         <thead><tr><th>날짜</th><th>예정</th><th>출근</th><th>퇴근</th><th class="num">예정(h)</th><th class="num">실근무(h)</th><th>비고</th></tr></thead>
         <tbody>${allDates.map((d) => {
