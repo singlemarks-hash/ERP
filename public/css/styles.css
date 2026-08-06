@@ -849,6 +849,42 @@ table.data td.url-cell a { display: block; overflow: hidden; text-overflow: elli
 .notice-card .nt-meta { font-size: 0.76rem; color: var(--ink-soft); }
 .notice-card.open { animation: detail-open 0.28s ease; }
 
+/* 지난 공지 보기 — 프레임/배경 없는 텍스트 버튼 */
+.nt-past-row { text-align: center; margin: 2px 0 6px; }
+.nt-past-btn {
+  background: none;
+  border: none;
+  padding: 6px 10px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.nt-past-btn:hover { color: var(--blue-deep); }
+.nt-past-list { display: flex; flex-direction: column; gap: 14px; max-height: 55vh; overflow-y: auto; }
+.nt-past-item { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.nt-past-item .nt-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.nt-past-item .nt-body { margin-top: 8px; font-size: 0.9rem; line-height: 1.6; white-space: pre-wrap; }
+.nt-past-item .nt-meta { margin-top: 8px; font-size: 0.74rem; color: var(--ink-soft); }
+
+/* 공지 확인 인원 수 버튼 + 이름 목록 */
+.nt-ack-count {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--blue-deep);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.nt-ack-list { list-style: none; padding: 0; margin: 0; max-height: 45vh; overflow-y: auto; }
+.nt-ack-list li { padding: 8px 4px; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+.nt-ack-list li:last-child { border-bottom: none; }
+
 /* 공지 범위 선택 */
 .nt-scope-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .nt-radio {

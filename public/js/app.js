@@ -553,8 +553,6 @@ function noticeScopeLabel(n) {
   if (n.scope === "dept") return `부서 공지 · ${(n.depts || []).join(", ")}`;
   return "개별 공지";
 }
-const noticeExpanded = new Set(); // 확인함 이후 다시 펼친 공지 (세션 한정)
-
 async function renderHomeNotices() {
   const area = document.getElementById("home-notices");
   if (!area) return;
@@ -567,43 +565,58 @@ async function renderHomeNotices() {
       return tb - ta;
     });
 
-  area.innerHTML = notices.map((n) => {
-    const acked = (n.ackIds || []).includes(me.id);
-    const open = !acked || noticeExpanded.has(n.id);
-    return `
-    <div class="notice-card ${open ? "open" : ""}" data-nid="${n.id}">
-      <div class="nt-head" ${acked ? `data-nt-toggle="${n.id}"` : ""}>
+  // 확인함을 누른 공지는 홈에서 사라지고 [지난 공지 보기]로만 다시 볼 수 있다.
+  const fresh = notices.filter((n) => !(n.ackIds || []).includes(me.id));
+  const past = notices.filter((n) => (n.ackIds || []).includes(me.id));
+
+  area.innerHTML = fresh.map((n) => `
+    <div class="notice-card open" data-nid="${n.id}">
+      <div class="nt-head">
         <span class="nt-ico">📢</span>
         <span class="nt-badge">공지</span>
         <b class="nt-title">${esc(n.title)}</b>
         <span class="nt-scope">${noticeScopeLabel(n)}</span>
-        ${acked ? `<span class="badge ok">확인함</span><span class="nt-arrow">${open ? "⌃" : "⌄"}</span>` : ""}
       </div>
-      ${open ? `
       <div class="nt-body">${linkify(n.body || "")}</div>
       <div class="nt-foot">
         <span class="nt-meta">${esc(n.authorName || "")} · ${fmtTs(n.createdAt)}</span>
-        ${!acked ? `<button class="btn btn-primary btn-sm" data-nt-ack="${n.id}">확인함</button>` : ""}
-      </div>` : ""}
-    </div>`;
-  }).join("");
+        <button class="btn btn-primary btn-sm" data-nt-ack="${n.id}">확인함</button>
+      </div>
+    </div>`).join("") +
+    (past.length ? `<div class="nt-past-row"><button type="button" class="nt-past-btn" id="nt-past">지난 공지 보기 (${past.length})</button></div>` : "");
 
   area.querySelectorAll("[data-nt-ack]").forEach((b) => {
     b.onclick = async () => {
       await db.collection(COL.notices).doc(b.dataset.ntAck).update({
         ackIds: firebase.firestore.FieldValue.arrayUnion(me.id)
       });
-      noticeExpanded.delete(b.dataset.ntAck);
       renderHomeNotices();
     };
   });
-  area.querySelectorAll("[data-nt-toggle]").forEach((h) => {
-    h.onclick = () => {
-      const id = h.dataset.ntToggle;
-      if (noticeExpanded.has(id)) noticeExpanded.delete(id); else noticeExpanded.add(id);
-      renderHomeNotices();
-    };
-  });
+  const pastBtn = $("#nt-past");
+  if (pastBtn) pastBtn.onclick = () => openPastNoticesModal(past);
+}
+
+/* 지난 공지 보기 — 내가 확인함을 누른 공지 목록.
+   공지 문서 자체에서 매번 다시 읽으므로, 게시자가 공지를 철회(삭제)하면 여기서도 자동으로 사라진다. */
+function openPastNoticesModal(past) {
+  openModal(`
+    <h3>지난 공지</h3>
+    <p class="modal-desc">확인함을 누른 공지 ${past.length}건입니다. 게시자가 철회한 공지는 표시되지 않습니다.</p>
+    <div class="nt-past-list">
+      ${past.map((n) => `
+        <div class="nt-past-item">
+          <div class="nt-head">
+            <span class="nt-badge">공지</span>
+            <b class="nt-title">${esc(n.title)}</b>
+            <span class="nt-scope">${noticeScopeLabel(n)}</span>
+          </div>
+          <div class="nt-body">${linkify(n.body || "")}</div>
+          <div class="nt-meta">${esc(n.authorName || "")} · ${fmtTs(n.createdAt)}</div>
+        </div>`).join("")}
+    </div>
+    <div class="modal-actions"><button type="button" class="btn btn-ghost" id="ntp-close">닫기</button></div>`);
+  $("#ntp-close").onclick = closeModal;
 }
 
 function recentMonths(n) {
@@ -3811,7 +3824,12 @@ async function renderSettings() {
 async function renderMyNotices() {
   const list = document.getElementById("nt-list");
   if (!list) return;
-  const snap = await db.collection(COL.notices).get();
+  const [snap, empSnap] = await Promise.all([
+    db.collection(COL.notices).get(),
+    db.collection(COL.employees).get()
+  ]);
+  const empBy = {};
+  empSnap.docs.forEach((d) => { empBy[d.id] = d.data(); });
   const notices = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
     .filter((n) => isAdmin() || n.authorId === me.id)
     .sort((a, b) => {
@@ -3827,7 +3845,9 @@ async function renderMyNotices() {
       <td>${noticeScopeLabel(n)}</td>
       <td>${esc(n.authorName || "-")}</td>
       <td>${fmtTs(n.createdAt)}</td>
-      <td class="num">${(n.ackIds || []).length}명</td>
+      <td class="num">${(n.ackIds || []).length
+        ? `<button type="button" class="nt-ack-count" data-ntacks="${n.id}" title="확인한 사람 보기">${(n.ackIds || []).length}명</button>`
+        : "0명"}</td>
       <td style="white-space:nowrap">
         <button class="icon-btn" data-ntedit="${n.id}" title="수정"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.8 2.8 0 0 1 4 4L8 20l-5 1 1-5L17 3Z"/></svg></button>
         <button class="icon-btn danger" data-ntdel="${n.id}" title="철회(삭제)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/><path d="M10 11v6M14 11v6"/></svg></button>
@@ -3835,6 +3855,22 @@ async function renderMyNotices() {
     </tr>`).join("")}</tbody></table></div>`
     : `<div class="empty">등록한 공지가 없습니다. [공지사항 등록하기]로 첫 공지를 게시하세요.</div>`;
 
+  // 확인 인원 수 클릭 → 확인한 사람 이름 목록
+  list.querySelectorAll("[data-ntacks]").forEach((b) => {
+    b.onclick = () => {
+      const n = notices.find((x) => x.id === b.dataset.ntacks);
+      const names = (n.ackIds || []).map((id) => {
+        const e = empBy[id];
+        return e ? `${e.name} (${e.dept || "-"})` : "(퇴사/삭제된 계정)";
+      });
+      openModal(`
+        <h3>"${esc(n.title)}" 확인 현황</h3>
+        <p class="modal-desc">확인함을 누른 사람 ${names.length}명입니다.</p>
+        <ul class="nt-ack-list">${names.map((nm) => `<li>${esc(nm)}</li>`).join("")}</ul>
+        <div class="modal-actions"><button type="button" class="btn btn-ghost" id="nta-close">닫기</button></div>`);
+      $("#nta-close").onclick = closeModal;
+    };
+  });
   list.querySelectorAll("[data-ntedit]").forEach((b) => {
     b.onclick = () => {
       const n = notices.find((x) => x.id === b.dataset.ntedit);
