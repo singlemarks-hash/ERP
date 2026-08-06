@@ -1638,6 +1638,11 @@ tr.att-carry td { background: #fff9db; }
   margin: 1px 2px 1px 0;
   white-space: nowrap;
 }
+/* 결재 승인 전 추가근무 — 무채색으로 흐리게 (아직 인정되지 않은 항목) */
+.att-note.pending { background: #f2f4f6; color: var(--ink-faint); }
+button.att-note { border: none; font-family: inherit; cursor: pointer; }
+button.att-note.req { border: 1px dashed #ced4da; }
+button.att-note.req:hover { background: var(--blue-soft); color: var(--blue-deep); border-color: var(--blue); }
 .att-note.late, .att-note.earlyout { background: var(--red-soft); color: var(--red); }
 .att-note.earlyin { background: var(--blue-soft); color: var(--blue-deep); }
 .att-note.over { background: #e6f4ec; color: var(--green); }

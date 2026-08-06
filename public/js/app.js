@@ -2701,48 +2701,62 @@ function isOtExempt(att) {
 
 /* 특이사항 (지각/조기출근/조기퇴근/연장/야간근무)
    조기출근·연장은 '감지'와 '가산'을 분리한다 — 결재로 승인된 분(otApprovedMin)만 가산(h)에 반영.
-   승인 전에는 '(결재 대기)', 승인 후에는 '(가산 n h)'로 표기한다 (감지된 분은 항상 함께 표시).
-   h 값은 급여 가산 대상 시간이며, 실근무 시간에 이미 포함된 시간을 다시 더하는 값이 아니다. */
-function attNotes(att, shift) {
+   결재는 본인이 [근무 이력]에서 태그를 눌러 직접 올린다 (자동 요청 없음).
+     미신청  조기출근 30분 · 결재 요청   (무채색, 클릭 가능)
+     대기중  조기출근 30분 (결재 대기)   (무채색)
+     승인됨  조기출근 30분 (가산 0.5h)   (색상)
+   h 값은 급여 가산 대상 시간이며, 실근무 시간에 이미 포함된 시간을 다시 더하는 값이 아니다.
+   reqOf(kind) → 해당 날짜·종류로 올라간 결재 상태("대기"/"승인"/"반려") 또는 undefined */
+function attNotes(att, shift, reqOf) {
   const notes = [];
   if (!att || !att.inAt) return notes;
   const exempt = isOtExempt(att);
-  const approvedMin = Number(att.otApprovedMin || 0);
   // 승인된 추가근무 분을 조기출근 → 연장 순으로 배분
-  let left = approvedMin;
+  let left = Number(att.otApprovedMin || 0);
   const take = (mins) => { const t = Math.min(left, mins); left -= t; return t; };
+  /* 조기출근·연장 칩 — 승인 전에는 가산 0 + 무채색 */
+  const otNote = (k, kind, mins) => {
+    const h = otHours(take(mins));
+    const st = reqOf ? reqOf(kind) : null;
+    if (h) return { k, kind, mins, h, approved: true, label: `${kind} ${mins}분 (가산 ${fmtH(h)}h)` };
+    if (st === "대기") return { k, kind, mins, h: 0, label: `${kind} ${mins}분 (결재 대기)` };
+    if (st === "반려") return { k, kind, mins, h: 0, label: `${kind} ${mins}분 (반려)` };
+    return { k, kind, mins, h: 0, canReq: true, label: `${kind} ${mins}분` };
+  };
   if (shift) {
     const dIn = minOf(att.inAt) - minOf(shift.start);
-    if (dIn > ATT_GRACE_MIN) notes.push({ k: "late", label: `지각 ${dIn}분` });
-    else if (-dIn > ATT_GRACE_MIN && !exempt) {
-      const ok = take(-dIn);
-      const h = otHours(ok);
-      notes.push({ k: "earlyin", h, label: h ? `조기출근 ${-dIn}분 (가산 ${fmtH(h)}h)` : `조기출근 ${-dIn}분 (결재 대기)` });
-    }
+    if (dIn > ATT_GRACE_MIN) notes.push({ k: "late", approved: true, label: `지각 ${dIn}분` });
+    else if (-dIn > ATT_GRACE_MIN && !exempt) notes.push(otNote("earlyin", "조기출근", -dIn));
     if (att.outAt) {
       let outM = minOf(att.outAt) + (att.outDate && att.outDate > att.date ? 1440 : 0);
       const endM = minOf(shift.end) + (shiftOvernight(shift) ? 1440 : 0);
       const dOut = outM - endM;
-      if (-dOut > ATT_GRACE_MIN) notes.push({ k: "earlyout", label: `조기퇴근 ${-dOut}분` });
-      else if (dOut > ATT_GRACE_MIN && !exempt) {
-        const ok = take(dOut);
-        const h = otHours(ok);
-        notes.push({ k: "over", h, label: h ? `연장 ${dOut}분 (가산 ${fmtH(h)}h)` : `연장 ${dOut}분 (결재 대기)` });
-      }
+      if (-dOut > ATT_GRACE_MIN) notes.push({ k: "earlyout", approved: true, label: `조기퇴근 ${-dOut}분` });
+      else if (dOut > ATT_GRACE_MIN && !exempt) notes.push(otNote("over", "연장", dOut));
     }
   }
   // 예정 근무 외 시간대에 승인된 추가근무(직접 신청 건 등)
   if (left > 0) {
     const h = otHours(left);
-    if (h > 0) notes.push({ k: "over", label: `추가근무 ${left}분 (가산 ${fmtH(h)}h)`, h });
+    if (h > 0) notes.push({ k: "over", h, approved: true, label: `추가근무 ${left}분 (가산 ${fmtH(h)}h)` });
   }
   if (att.outAt) {
     const nh = nightHours(att, shift);
-    if (nh > 0) notes.push({ k: "night", label: `야간근무 (가산 ${fmtH(nh)}h)`, h: nh });
+    if (nh > 0) notes.push({ k: "night", h: nh, approved: true, label: `야간근무 (가산 ${fmtH(nh)}h)` });
   }
   return notes;
 }
-const noteChips = (notes) => notes.map((n) => `<span class="att-note ${n.k}">${n.label}</span>`).join("");
+/* 특이사항 칩 — 승인되지 않은 추가근무는 무채색으로 흐리게 표시한다.
+   date를 넘기면 미신청 건이 결재 요청 버튼이 된다 (본인 근무 이력에서만 사용). */
+const noteChips = (notes, date) => notes.map((n) => {
+  const cls = `att-note ${n.approved ? n.k : "pending"}`;
+  if (n.canReq) {
+    return date
+      ? `<button type="button" class="${cls} req" data-otreq="${date}|${n.kind}|${n.mins}">${n.label} · 결재 요청</button>`
+      : `<span class="${cls}">${n.label} (미신청)</span>`;
+  }
+  return `<span class="${cls}">${n.label}</span>`;
+}).join("");
 
 async function renderAttend() {
   const main = $("#main");
@@ -2922,9 +2936,6 @@ async function renderAttRecord() {
         }, { merge: true });
         closeModal();
         toast(`${recDate} 출근 ${t} 기록 완료`);
-        // 예정보다 일찍 출근했으면 그만큼만 자동으로 결재 요청
-        const dIn = inDevMin(t, shiftOfDay);
-        await autoOtRequest({ date: recDate, mins: -dIn, start: t, end: shiftOfDay?.start, kind: "조기출근", shift: shiftOfDay, emps });
         renderAttend();
       }
     });
@@ -2960,38 +2971,63 @@ async function renderAttRecord() {
           .set({ outAt: t, outDate: outDateEff }, { merge: true });
         closeModal();
         toast(`${workDate} 퇴근 ${t} 기록 완료`);
-        // 예정보다 늦게 퇴근했으면 그만큼만 자동으로 결재 요청
-        const dOut = outDevMin(t, outDateEff, workDate, shiftOfDay);
-        await autoOtRequest({ date: workDate, mins: dOut, start: shiftOfDay?.end, end: t, kind: "연장", shift: shiftOfDay, emps });
         renderAttend();
       }
     });
   };
 }
 
-/* 예정 근무를 벗어난 만큼(조기출근·연장)을 자동으로 추가근무 결재에 올린다.
-   승인된 분(otApprovedMin)만 급여 가산 대상이 되므로, 자동 감지분도 반드시 결재를 거친다. */
-async function autoOtRequest({ date, mins, start, end, kind, shift, emps }) {
-  if (!shift || !start || !end) return;                 // 예정 근무가 없으면 대상 아님
-  if (mins <= ATT_GRACE_MIN || isOtExemptEmp(me)) return; // 유예 이내이거나 가산 제외자
-  // 같은 날·같은 종류로 이미 올라간 건이 있으면 중복 생성하지 않는다
-  const dup = await db.collection(COL.attRequests)
-    .where("empId", "==", me.id).where("date", "==", date).get();
-  if (dup.docs.some((d) => {
-    const r = d.data();
-    return r.type === "overtime" && r.otKind === kind && r.status !== "반려";
-  })) return;
-  const approver = approverCandidates(emps)[0];
-  if (!approver) return;
-  await db.collection(COL.attRequests).add({
-    type: "overtime", otKind: kind, auto: true,
-    empId: me.id, name: me.name, dept: me.dept,
-    approverId: approver.id, approver: approver.name,
-    status: "대기", date, start, end, nextDay: false,
-    mins, hours: blockHours(mins),
-    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-  });
-  toast(`${kind} ${mins}분이 감지되어 ${approver.name}님에게 결재 요청했습니다.`);
+/* 근무 이력의 조기출근·연장 태그를 눌러 그 건만 결재에 올린다.
+   결재자를 고르는 확인 모달을 거치며, 승인된 분(otApprovedMin)만 급여 가산 대상이 된다. */
+function openOtRequestModal({ date, kind, mins, shift, emps, onDone }) {
+  const approvers = approverCandidates(emps);
+  if (!approvers.length) { toast("지정 가능한 결재자가 없습니다."); return; }
+  const range = kind === "조기출근"
+    ? `${shift ? esc(shift.start) : "?"} 이전 ${mins}분`
+    : `${shift ? esc(shiftEndLabel(shift)) : "?"} 이후 ${mins}분`;
+  openModal(`
+    <h3>${kind} 결재 요청</h3>
+    <p class="modal-desc">${esc(dateLabelKo(date))}의 ${kind} <b>${mins}분</b>을 결재에 올립니다.</p>
+    <div class="ioc-worked" style="margin-bottom:14px">
+      <div class="iocw-row"><span>예정 근무</span><b>${schedLabel(shift)}</b></div>
+      <div class="iocw-row"><span>${kind} 구간</span><b>${range}</b></div>
+      <div class="iocw-row total"><span>인정 예정</span><b>${fmtH(blockHours(mins))}h</b></div>
+    </div>
+    <label class="field"><span class="field-label">결재자</span>
+      <select id="otr-appr">${approverOptionHtml(emps)}</select></label>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" id="otr-cancel">취소</button>
+      <button type="button" class="btn btn-primary" id="otr-ok">결재 요청</button>
+    </div>`);
+  $("#otr-cancel").onclick = closeModal;
+  $("#otr-ok").onclick = async () => {
+    const btn = $("#otr-ok");
+    if (btn.disabled) return;
+    btn.disabled = true;
+    // 같은 날·같은 종류로 이미 올라간 건이 있으면 중복 생성하지 않는다
+    const dup = await db.collection(COL.attRequests)
+      .where("empId", "==", me.id).where("date", "==", date).get();
+    if (dup.docs.some((d) => {
+      const r = d.data();
+      return r.empId === me.id && r.date === date
+        && r.type === "overtime" && r.otKind === kind && r.status !== "반려";
+    })) { toast("이미 결재에 올라간 건입니다."); closeModal(); onDone(); return; }
+    const sel = $("#otr-appr");
+    await db.collection(COL.attRequests).add({
+      type: "overtime", otKind: kind,
+      empId: me.id, name: me.name, dept: me.dept,
+      approverId: sel.value,
+      approver: sel.options[sel.selectedIndex].text.replace(" (본인 승인)", ""),
+      status: "대기", date,
+      start: kind === "조기출근" ? "" : (shift?.end || ""),
+      end: kind === "조기출근" ? (shift?.start || "") : "",
+      mins, hours: blockHours(mins),
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    closeModal();
+    toast(`${date} ${kind} ${mins}분을 ${sel.options[sel.selectedIndex].text.replace(" (본인 승인)", "")}님에게 결재 요청했습니다.`);
+    onDone();
+  };
 }
 
 /* ── 근태 결재 (추가근무 · 근무변경) ────────────────────────────────
@@ -3479,10 +3515,21 @@ async function renderAttHistory() {
   const body = $("#att-body");
   if (!atHistYm) atHistYm = ymNowKST();
   const [yy, mm] = atHistYm.split("-").map(Number);
-  const [shiftSnap, attSnap] = await Promise.all([
+  const [shiftSnap, attSnap, reqSnap, emps] = await Promise.all([
     db.collection(COL.shifts).where("date", ">=", `${atHistYm}-01`).where("date", "<=", `${atHistYm}-31`).get(),
-    db.collection(COL.attendance).where("date", ">=", `${atHistYm}-01`).where("date", "<=", `${atHistYm}-31`).get()
+    db.collection(COL.attendance).where("date", ">=", `${atHistYm}-01`).where("date", "<=", `${atHistYm}-31`).get(),
+    db.collection(COL.attRequests).where("empId", "==", me.id).get(),
+    loadActiveEmployees()
   ]);
+  // 날짜·종류별 결재 상태 (반려 건은 다시 요청할 수 있도록 덮어쓰지 않는다)
+  const reqSt = {};
+  reqSnap.docs.map((d) => d.data())
+    .filter((r) => r.empId === me.id && r.type === "overtime" && r.otKind)
+    .forEach((r) => {
+      const key = `${r.date}|${r.otKind}`;
+      if (reqSt[key] !== "승인" && (r.status === "승인" || reqSt[key] !== "대기")) reqSt[key] = r.status;
+    });
+  const reqOfDate = (d) => (kind) => reqSt[`${d}|${kind}`];
   const myShifts = shiftSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
     .filter((s) => s.empId === me.id && (s.date || "").startsWith(atHistYm));
   const myAtts = attSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
@@ -3495,12 +3542,12 @@ async function renderAttHistory() {
   const schedH = myShifts.reduce((s, x) => s + shiftHours(x), 0);
   const workedDays = myAtts.filter((a) => a.inAt).length;
   const workedH = allDates.reduce((sum, d) => sum + (workedHours(attBy[d], shiftBy[d]) || 0), 0);
+  // 요약에는 승인·확정된 항목만 집계한다 (미승인 추가근무는 상세 행에만 무채색으로 노출)
   const agg = { late: { n: 0, h: 0 }, earlyin: { n: 0, h: 0 }, earlyout: { n: 0, h: 0 }, over: { n: 0, h: 0 }, night: { n: 0, h: 0 } };
-  allDates.forEach((d) => attNotes(attBy[d], shiftBy[d]).forEach((n) => {
-    agg[n.k].n++;
-    agg[n.k].h += n.h || 0;
-  }));
-  // 승인·인정된 가산(조기출근+연장+야간) 합계 — 결재 대기분(h=0)은 합계에 잡히지 않는다
+  allDates.forEach((d) => attNotes(attBy[d], shiftBy[d], reqOfDate(d))
+    .filter((n) => n.approved)
+    .forEach((n) => { agg[n.k].n++; agg[n.k].h += n.h || 0; }));
+  // 인정된 가산(조기출근+연장+야간) 합계
   const extraH = agg.earlyin.h + agg.over.h + agg.night.h;
   const extraN = agg.earlyin.n + agg.over.n + agg.night.n;
   // 0값 항목은 표기하지 않음 · 시간이 있는 항목은 "Xh (n회)" 형식
@@ -3541,11 +3588,24 @@ async function renderAttHistory() {
             <td class="att-mono ${a?.outAt ? "c-red" : ""}">${a?.outAt || "-"}</td>
             <td class="num">${s ? fmtH(shiftHours(s)) : "-"}</td>
             <td class="num">${wh != null && breakApplied(a, s) ? REST_BADGE : ""}<b>${wh != null ? fmtH(wh) : "-"}</b></td>
-            <td>${noteChips(attNotes(a, s)) || "-"}</td>
+            <td>${noteChips(attNotes(a, s, reqOfDate(d)), d) || "-"}</td>
           </tr>`;
         }).join("")}</tbody>
-      </table></div>` : `<div class="empty">${mm}월 근무 기록이 없습니다.</div>`}
+      </table></div>
+      <div class="mini-note">조기출근·연장 태그를 누르면 그 건만 결재에 올릴 수 있습니다.
+        승인된 건만 위 요약과 급여 가산에 반영됩니다.</div>` : `<div class="empty">${mm}월 근무 기록이 없습니다.</div>`}
     </div>`;
+
+  // 태그 클릭 → 그 날짜·종류만 결재 요청
+  body.querySelectorAll("[data-otreq]").forEach((b) => {
+    b.onclick = () => {
+      const [date, kind, mins] = b.dataset.otreq.split("|");
+      openOtRequestModal({
+        date, kind, mins: Number(mins), shift: shiftBy[date], emps,
+        onDone: () => renderAttend()
+      });
+    };
+  });
 
   const shiftMonth = (n) => {
     let y = yy, m = mm + n;
@@ -3574,12 +3634,20 @@ async function renderAttendAdmin() {
     db.collection(COL.shifts).where("date", ">=", `${admAttYm}-01`).where("date", "<=", `${admAttYm}-31`).get(),
     db.collection(COL.attendance).where("date", ">=", `${admAttYm}-01`).where("date", "<=", `${admAttYm}-31`).get(),
     loadActiveEmployees(),
-    db.collection(COL.attRequests).where("status", "==", "대기").get()
+    db.collection(COL.attRequests).get()
   ]);
-  // 나를 결재자로 지정한 근태 결재 신청만 (월 필터와 무관하게 항상 표시)
-  const myApprovals = arSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+  const allReqs = arSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  // 나를 결재자로 지정한 대기 건 (월 필터와 무관하게 항상 표시)
+  const myApprovals = allReqs
     .filter((r) => r.status === "대기" && isMyApproval(r))
     .sort((a, b) => tsSec(a.createdAt) - tsSec(b.createdAt));
+  // 직원·날짜·종류별 결재 상태 (칩을 승인/대기/미신청으로 구분하기 위함)
+  const reqSt = {};
+  allReqs.filter((r) => r.type === "overtime" && r.otKind).forEach((r) => {
+    const key = `${r.empId}|${r.date}|${r.otKind}`;
+    if (reqSt[key] !== "승인" && (r.status === "승인" || reqSt[key] !== "대기")) reqSt[key] = r.status;
+  });
+  const reqOfFor = (empId, date) => (kind) => reqSt[`${empId}|${date}|${kind}`];
   const shifts = shiftSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((s) => (s.date || "").startsWith(admAttYm));
   const atts = attSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((a) => (a.date || "").startsWith(admAttYm));
 
@@ -3604,8 +3672,11 @@ async function renderAttendAdmin() {
     const dates = pAtts.map((a) => a.date).sort().reverse();
     const schedH = pShifts.reduce((s, x) => s + shiftHours(x), 0);
     const workedH = dates.reduce((sum, d) => sum + (workedHours(attBy[d], shiftBy[d]) || 0), 0);
+    // 제목행 요약에는 승인·확정된 항목만 집계 (미승인 추가근무는 상세 행에만 무채색으로 노출)
     const agg = { late: { n: 0, h: 0 }, earlyin: { n: 0, h: 0 }, earlyout: { n: 0, h: 0 }, over: { n: 0, h: 0 }, night: { n: 0, h: 0 } };
-    dates.forEach((d) => attNotes(attBy[d], shiftBy[d]).forEach((n) => { agg[n.k].n++; agg[n.k].h += n.h || 0; }));
+    dates.forEach((d) => attNotes(attBy[d], shiftBy[d], reqOfFor(p.id, d))
+      .filter((n) => n.approved)
+      .forEach((n) => { agg[n.k].n++; agg[n.k].h += n.h || 0; }));
     const noteSummary = [["late", "지각"], ["earlyin", "조기출근"], ["earlyout", "조기퇴근"], ["over", "연장"], ["night", "야간"]]
       .filter(([k]) => agg[k].n > 0)
       .map(([k, label]) => `<span class="att-note ${k}">${agg[k].h ? `${label} ${fmtH(agg[k].h)}h (${agg[k].n}회)` : `${label} ${agg[k].n}회`}</span>`)
@@ -3625,7 +3696,7 @@ async function renderAttendAdmin() {
             <td class="att-mono c-green">${a.inAt}</td>
             <td class="att-mono ${a.outAt ? "c-red" : ""}">${a.outAt || "-"}</td>
             <td class="num">${wh != null && breakApplied(a, s) ? REST_BADGE : ""}<b>${wh != null ? fmtH(wh) : "-"}</b></td>
-            <td>${noteChips(attNotes(a, s)) || "-"}</td>
+            <td>${noteChips(attNotes(a, s, reqOfFor(p.id, d))) || "-"}</td>
             <td class="adm-memo-td"><input class="adm-memo" data-memo="${p.id}|${d}" value="${esc(a.memo || "")}" placeholder="메모 입력 후 Enter" maxlength="100" ${readOnly ? "readonly" : ""} /></td>
             ${readOnly ? "" : `<td class="adm-acts">
               <button class="icon-btn" data-attedit="${p.id}|${d}" title="출퇴근 수정"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.8 2.8 0 0 1 4 4L8 20l-5 1 1-5L17 3Z"/></svg></button>
