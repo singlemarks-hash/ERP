@@ -2497,6 +2497,8 @@ let admAttYm = null;
 let attRecDate = null;   // 근태기록 탭에서 출퇴근을 기록/수정할 날짜 (기본: 오늘)
 
 function canEditShifts() { return isAdmin() || isSpecial(); }
+// 근태기록 > 근무 캘린더의 스케줄 추가·수정·삭제는 전 직원에게 열려 있다.
+function canEditShiftCal() { return !!me; }
 function minOf(t) { const [h, m] = String(t || "0:0").split(":").map(Number); return h * 60 + (m || 0); }
 function hm(mins) { return `${String(Math.floor(mins / 60) % 24).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`; }
 function shiftOvernight(s) { return minOf(s.end) <= minOf(s.start); }
@@ -2950,7 +2952,7 @@ async function renderAttCalendar() {
       </div>
       <div class="at-legend">
         ${monthEmps.map(([id, nm]) => `<span class="at-legend-item ${shiftColor(id)}">${String(id).startsWith("temp:") ? TEMP_BADGE : ""}${esc(nm)}</span>`).join("")}
-        <span class="at-legend-note">${REST_ICON} 휴게 1시간 차감 · 날짜를 누르면 상세${canEditShifts() ? "·등록" : ""} 화면이 열립니다</span>
+        <span class="at-legend-note">${REST_ICON} 휴게 1시간 차감 · 날짜를 누르면 상세${canEditShiftCal() ? "·등록" : ""} 화면이 열립니다</span>
       </div>
     </div>
     <div class="card">
@@ -2989,7 +2991,7 @@ async function renderAttCalendar() {
 
 /* 근무 일정 일별 모달: 목록 + (관리자) 추가/수정/삭제 */
 function openShiftDayModal(ds, emps) {
-  const canEdit = canEditShifts();
+  const canEdit = canEditShiftCal();
   let showForm = false;
   let editing = null; // 수정 중인 shift
 
