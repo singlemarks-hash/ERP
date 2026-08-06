@@ -2738,6 +2738,8 @@ async function renderAttRecord() {
   const myOpen = atts.find((a) => a.empId === me.id && a.inAt && !a.outAt) || null;
   // recDate에 대한 내 기록 (없으면 새로 만들 빈 문서로 취급)
   const myRec = { id: `${me.id}_${recDate}`, ...(recSnap.exists ? recSnap.data() : {}) };
+  // [레거시] 근무 캘린더의 '근무 변경 알림' 작성 기능은 근무변경 결재로 대체되어 제거됐다.
+  // 이미 게시된 알림은 각자 확인할 때까지 계속 노출한다 (새로 생기지는 않음).
   const notices = wnSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
     .filter((n) => n.dept === me.dept && !(n.ackIds || []).includes(me.id))
     .sort((a, b) => tsSec(b.createdAt) - tsSec(a.createdAt)).slice(0, 10);
@@ -3143,13 +3145,6 @@ async function renderAttCalendar() {
         ${monthEmps.map(([id, nm]) => `<span class="at-legend-item ${shiftColor(id)}">${String(id).startsWith("temp:") ? TEMP_BADGE : ""}${esc(nm)}</span>`).join("")}
         <span class="at-legend-note">${REST_ICON} 휴게 1시간 차감 · 날짜를 누르면 상세${canEditShiftCal() ? "·등록" : ""} 화면이 열립니다</span>
       </div>
-    </div>
-    <div class="card">
-      <div class="card-title"><div>근무 변경 알림<div class="ct-desc">근무 변동사항을 작성하면 ${esc(me.dept)} 전원의 [근태기록] 화면에 표시됩니다.</div></div></div>
-      <textarea id="wn-text" class="wn-input" placeholder="예시:
-2월 17일 18:00~22:00 근무자 변동 (기존: 홍길동, 변경: 김아무개)
-2월 18일 김아무개 근무시간 변경 (기존: 16:00~22:00, 변경: 18:00~24:00)"></textarea>
-      <div class="modal-actions" style="margin-top:12px"><button class="btn btn-primary" id="wn-submit">변경 알림 제출</button></div>
     </div>`;
 
   const shiftMonth = (n) => {
@@ -3165,17 +3160,6 @@ async function renderAttCalendar() {
   body.querySelectorAll("[data-atd]").forEach((b) => {
     b.onclick = () => openShiftDayModal(b.dataset.atd, emps);
   });
-  $("#wn-submit").onclick = async () => {
-    const text = $("#wn-text").value.trim();
-    if (!text) { toast("변동 내용을 입력하세요."); return; }
-    await db.collection(COL.workNotices).add({
-      text, dept: me.dept, authorId: me.id, authorName: me.name,
-      ackIds: [me.id],
-      createdAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
-    $("#wn-text").value = "";
-    toast(`${me.dept} 전원에게 근무 변경 알림을 게시했습니다.`);
-  };
 }
 
 /* 근무 일정 일별 모달: 목록 + (관리자) 추가/수정/삭제 */
