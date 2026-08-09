@@ -2040,22 +2040,26 @@ function printPayslip(emp, r) {
 <style>
   @page { size: A4; margin: 15mm 13mm; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: "Pretendard Variable", Pretendard, "Malgun Gothic", sans-serif; color: #26282c; font-size: 12px; line-height: 1.5; background: #eceef0; }
+  /* 배경색은 브라우저가 기본적으로 인쇄하지 않는다. 이 설정이 있어야 화면에서 본
+     회색 머리행·실수령액 강조가 인쇄물에도 그대로 나온다. */
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: "Pretendard Variable", Pretendard, "Malgun Gothic", sans-serif; color: #26282c; font-size: 12px; line-height: 1.5; background: #eceef0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .sheet { width: 210mm; max-width: 100%; margin: 0 auto; background: #fff; padding: 15mm 13mm; min-height: 297mm; }
   @media print { body { background: #fff; } .sheet { width: auto; min-height: auto; padding: 0; } .noprint { display: none; } }
-  h1 { text-align: center; font-size: 23px; font-weight: 800; margin: 4px 0 28px; letter-spacing: -0.02em; }
-  .head-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
-  .head-row b { font-size: 14px; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 24px; table-layout: fixed; }
-  th, td { border: 1px solid #26282c; padding: 9px 12px; font-size: 12px; word-break: break-all; }
+  h1 { text-align: center; font-size: 20px; font-weight: 800; margin: 0 0 14px; letter-spacing: -0.02em; }
+  .head-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
+  .head-row b { font-size: 13px; }
+  /* A4 한 장에 담기도록 행 높이·표 간격을 최소로 잡는다 (표가 페이지를 넘어 쪼개지지 않게 고정) */
+  table { width: 100%; border-collapse: collapse; margin-bottom: 13px; table-layout: fixed; page-break-inside: avoid; break-inside: avoid; }
+  th, td { border: 1px solid #26282c; padding: 5px 10px; font-size: 12px; word-break: break-all; }
   th { background: #f1f2f4; font-weight: 700; text-align: center; }
   td.label { background: #f1f2f4; font-weight: 700; text-align: center; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .center { text-align: center; }
-  .sec-title { text-align: center; font-size: 14px; font-weight: 800; margin: 0 0 10px; }
+  .sec-title { text-align: center; font-size: 13px; font-weight: 800; margin: 0 0 6px; }
   .total td { font-weight: 800; background: #f1f2f4; }
   .net td { font-weight: 800; background: #dfe5f5; font-size: 13px; }
-  .footer { text-align: center; color: #6b7684; margin-top: 34px; font-size: 12px; }
+  .footer { text-align: center; color: #6b7684; margin-top: 16px; font-size: 12px; }
   .noprint { text-align: center; padding: 14px 0; }
   .noprint button { padding: 10px 22px; font-size: 14px; border-radius: 8px; border: none; background: #3182f6; color: #fff; cursor: pointer; }
 </style></head><body>
