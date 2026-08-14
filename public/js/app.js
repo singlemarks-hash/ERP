@@ -159,6 +159,9 @@ function canEditAttOf(role) {
 async function boot() {
   firebase.initializeApp(FIREBASE_CONFIG);
   db = firebase.firestore();
+  // 일부 네트워크(프록시·통신사·iOS 사파리)에서 스트리밍 채널이 반쯤 죽어
+  // 읽기만 무한 대기하는 문제 완화 — 감지 시 롱폴링으로 자동 전환한다.
+  try { db.settings({ experimentalAutoDetectLongPolling: true, merge: true }); } catch (e) { /* 무시 */ }
   try {
     await firebase.auth().signInAnonymously();
   } catch (e) {
@@ -350,6 +353,16 @@ function enterApp() {
     if (view === currentView && (view !== "attend" || !sub || sub === attTab)) return;
     navigate(view, sub, true);
   };
+  // 탭을 1분 이상 벗어났다 돌아오면 화면을 새로 그린다 — 절전·백그라운드로
+  // 죽은 연결을 새 요청으로 되살리고, 그 사이 바뀐 데이터도 반영한다.
+  // (모달이 열려 있으면 입력 중일 수 있으므로 건드리지 않는다)
+  let hiddenAt = 0;
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) { hiddenAt = Date.now(); return; }
+    if (!me || Date.now() - hiddenAt < 60000) return;
+    if (!$("#modal-backdrop").classList.contains("hidden")) return;
+    navigate(currentView, null, true);
+  });
 
   $("#logout-btn").onclick = async () => {
     localStorage.removeItem(SESSION_KEY);
@@ -4792,4 +4805,44 @@ $("#modal-backdrop").addEventListener("click", (ev) => {
 document.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape") closeModal();
 });
+
+/* ── 화면 로딩 가드 ──────────────────────────────────────────────────
+   Firestore 스트리밍 연결이 반쯤 죽으면 저장은 되는데 재조회만 무한 대기해
+   "불러오는 중..."에서 화면이 멈춘다. 모든 화면 렌더 함수를 감싸,
+   5초 안에 안 끝나면 조용히 1회 재시도하고(새 요청이 죽은 연결을 깨운다),
+   그래도 안 되면 [다시 시도] 버튼을 보여준다. */
+const VIEW_LOAD_TIMEOUT_MS = 5000;
+let renderSeq = 0;
+function guardRender(name, fn) {
+  return async function (...args) {
+    const seq = ++renderSeq;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await Promise.race([
+          fn.apply(this, args),
+          new Promise((_, rej) => setTimeout(() => rej(new Error("화면 로딩 시간 초과")), VIEW_LOAD_TIMEOUT_MS))
+        ]);
+        return;
+      } catch (e) {
+        if (seq !== renderSeq) return;   // 그 사이 다른 화면으로 이동함 — 조용히 종료
+        if (attempt === 1) continue;     // 1회 자동 재시도
+        const main = $("#main");
+        if (main) main.innerHTML = `
+          <div class="empty" style="padding:60px 20px">
+            연결이 불안정해 화면을 불러오지 못했습니다.<br />
+            <button type="button" class="btn btn-primary btn-sm" id="view-retry" style="margin-top:14px">다시 시도</button>
+          </div>`;
+        const rb = $("#view-retry");
+        if (rb) rb.onclick = () => window[name](...args);
+        return;
+      }
+    }
+  };
+}
+["renderHome", "renderSchedule", "renderAttend", "renderAttendAdmin", "renderPayHistory",
+ "renderPayroll", "renderLeave", "renderLeaveAdmin", "renderSettings", "renderSystems",
+ "renderEmployees", "renderMonitor"].forEach((name) => {
+  if (typeof window[name] === "function") window[name] = guardRender(name, window[name]);
+});
+
 boot();
