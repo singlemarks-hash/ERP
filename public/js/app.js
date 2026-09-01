@@ -350,7 +350,7 @@ function enterApp() {
   // 브라우저 뒤로/앞으로 가기 대응 — 이미 그 화면이면 다시 그리지 않는다
   window.onhashchange = () => {
     const { view, sub } = parseHash();
-    if (view === currentView && (view !== "attend" || !sub || sub === attTab)) return;
+    if (view === currentView && (!sub || sub === subTabOf(view))) return;
     navigate(view, sub, true);
   };
   // 탭을 1분 이상 벗어났다 돌아오면 화면을 새로 그린다 — 절전·백그라운드로
@@ -387,6 +387,7 @@ const ICONS = {
   home: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9.5 21v-6h5v6"/></svg>',
   payroll: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M3 9h2M19 15h2"/></svg>',
   leave: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2Z"/></svg>',
+  okr: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>',
   settings: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z"/></svg>',
   employees: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.2 3.4-5 6.5-5s5.7 1.8 6.5 5"/><circle cx="17.5" cy="9.5" r="2.5"/><path d="M16.5 15.2c2.5.3 4.3 1.8 5 4.3"/></svg>',
   monitor: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5c0 4.6 3.2 8.4 7.5 10 4.3-1.6 7.5-5.4 7.5-10V6L12 3Z"/><path d="m9 12 2 2 4-4"/></svg>',
@@ -424,6 +425,7 @@ function renderSidebar() {
     { id: "schedule", ico: "calendar", label: "일정" },
     { id: "payhistory", ico: "payroll", label: "급여" },
     { id: "leave", ico: "leave", label: "휴가" },
+    { id: "okr", ico: "okr", label: "OKR" },
     { id: "settings", ico: "settings", label: "설정" }
   ];
   let html = items.map((i) =>
@@ -518,25 +520,33 @@ const VIEW_RENDER = {
   paymanage: () => renderPayroll(),
   leave: () => renderLeave(),
   leaveadmin: () => renderLeaveAdmin(),
+  okr: () => renderOkr(),
   settings: () => renderSettings(),
   systems: () => renderSystems(),
   employees: () => renderEmployees(),
   monitor: () => renderMonitor()
 };
 const ATT_TABS = ["record", "calendar", "history"];
-const viewHash = () => currentView + (currentView === "attend" ? `/${attTab}` : "");
+const OKR_TABS = ["mine", "dept", "status"];
+/* 하위 탭이 있는 화면의 현재 탭 값 (없으면 null) */
+function subTabOf(view) {
+  if (view === "attend") return attTab;
+  if (view === "okr") return okrTab;
+  return null;
+}
+const viewHash = () => currentView + (subTabOf(currentView) ? `/${subTabOf(currentView)}` : "");
 /* 해시 → { view, sub } (알 수 없는 값은 기본 화면으로) */
 function parseHash() {
   const [v, sub] = decodeURIComponent(location.hash.replace(/^#/, "")).split("/");
-  return {
-    view: VIEW_RENDER[v] ? v : "home",
-    sub: ATT_TABS.includes(sub) ? sub : null
-  };
+  const view = VIEW_RENDER[v] ? v : "home";
+  const valid = view === "attend" ? ATT_TABS : view === "okr" ? OKR_TABS : [];
+  return { view, sub: valid.includes(sub) ? sub : null };
 }
 /* replace=true 면 히스토리에 새 기록을 남기지 않는다 (권한 없어 되돌릴 때 등) */
 function navigate(view, sub, replace) {
   currentView = view;
   if (view === "attend" && sub) attTab = sub;
+  if (view === "okr" && sub) okrTab = sub;
   document.querySelectorAll(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   const h = "#" + viewHash();
   if (location.hash !== h) {
@@ -4798,6 +4808,452 @@ async function renderMonitor() {
   $("#mn-search").oninput = (ev) => { $("#mn-grant").innerHTML = ""; showResults(ev.target.value.trim()); };
 }
 
+/* ───────── OKR ──────────────────────────────────────────────────────
+   회사 최상위 O(비전, 정량화 없음) 아래로 부서장 → 매니저 → 개인 KR이
+   한 그루 트리로 이어진다. 모든 노드는 부모에게는 KR, 자식에게는 O.
+   - 회사 O를 제외한 모든 OKR은 정량화 필수 (목표 수치 + 단위)
+   - 고아 금지: 상위 OKR 연결 필수 (회사 O만 예외)
+   - 마감일은 상위 OKR 마감일 이내로만 설정 가능
+   - 진행률: 하위가 있으면 하위 평균, 없으면 현재/목표 (100% 상한) */
+let okrTab = "mine";   // mine | dept | status
+const OKR_UNITS = ["%", "개", "건", "원", "명"];
+const OKR_LEVEL_LABELS = ["회사", "부서", "팀", "개인"];
+
+/* 회사 최상위 O는 총괄 관리자와 대표(임원열람)만 만들고 고칠 수 있다 */
+function canEditCompanyOkr() { return isAdmin() || (me && me.role === "executive"); }
+/* 일반 OKR 편집: 담당자 본인 또는 관리자(총괄·특수). 회사 O는 위 규칙 적용 */
+function canEditOkr(o) {
+  if (!o.parentId) return canEditCompanyOkr();
+  return (me && o.ownerId === me.id) || canManageOps();
+}
+
+function buildOkrIndex(okrs) {
+  const byId = {};
+  const kids = {};
+  okrs.forEach((o) => { byId[o.id] = o; });
+  okrs.forEach((o) => {
+    const p = o.parentId && byId[o.parentId] ? o.parentId : null;
+    if (p) (kids[p] = kids[p] || []).push(o);
+  });
+  Object.values(kids).forEach((arr) => arr.sort((a, b) => (a.deadline || "").localeCompare(b.deadline || "") || (a.title || "").localeCompare(b.title || "")));
+  const roots = okrs.filter((o) => !o.parentId || !byId[o.parentId])
+    .sort((a, b) => (a.deadline || "").localeCompare(b.deadline || ""));
+
+  const depthCache = {};
+  function depthOf(id) {
+    if (id in depthCache) return depthCache[id];
+    let d = 0, cur = byId[id];
+    const seen = new Set([id]);
+    while (cur && cur.parentId && byId[cur.parentId] && !seen.has(cur.parentId)) {
+      seen.add(cur.parentId);
+      cur = byId[cur.parentId];
+      d++;
+    }
+    depthCache[id] = d;
+    return d;
+  }
+  const levelLabel = (id) => OKR_LEVEL_LABELS[Math.min(depthOf(id), OKR_LEVEL_LABELS.length - 1)];
+
+  const progCache = {};
+  function progressOf(id, seen) {
+    if (id in progCache) return progCache[id];
+    seen = seen || new Set();
+    if (seen.has(id)) return 0;   // 순환 방어 (정상 데이터에선 발생하지 않는다)
+    seen.add(id);
+    const o = byId[id];
+    if (!o) return 0;
+    const children = kids[id] || [];
+    let p;
+    if (children.length) {
+      p = children.reduce((s, k) => s + progressOf(k.id, seen), 0) / children.length;
+    } else if (Number(o.target) > 0) {
+      p = Math.min(100, Math.max(0, ((Number(o.current) || 0) / Number(o.target)) * 100));
+    } else {
+      p = 0;   // 자식 없는 회사 O (정량화 없음)
+    }
+    progCache[id] = p;
+    return p;
+  }
+  function descendantIds(id, set) {
+    set = set || new Set();
+    (kids[id] || []).forEach((k) => {
+      if (!set.has(k.id)) { set.add(k.id); descendantIds(k.id, set); }
+    });
+    return set;
+  }
+  return { byId, roots, childrenOf: (id) => kids[id] || [], depthOf, levelLabel, progressOf, descendantIds };
+}
+
+function okrDday(deadline) {
+  if (!deadline) return null;
+  const ms = new Date(deadline + "T00:00:00+09:00") - new Date(todayKST() + "T00:00:00+09:00");
+  return Math.round(ms / 86400000);
+}
+function okrDdayChip(o, prog) {
+  const d = okrDday(o.deadline);
+  if (d === null) return "";
+  if (d < 0 && prog < 100) return `<span class="badge warn">지연 D+${-d}</span>`;
+  if (d < 0) return `<span class="badge off">마감</span>`;
+  if (prog >= 100) return `<span class="badge ok">달성</span>`;
+  if (d <= 7) return `<span class="badge warn">D-${d}</span>`;
+  return `<span class="badge off">D-${d}</span>`;
+}
+function okrGoalText(o) {
+  if (!o.parentId) return "비전 (정량화 없음)";
+  return `${fmt(o.current || 0)} / ${fmt(o.target)}${esc(o.unit || "")}`;
+}
+
+async function loadOkrData() {
+  const [okrSnap, empSnap] = await Promise.all([
+    db.collection(COL.okrs).get(),
+    db.collection(COL.employees).where("status", "==", "재직").get()
+  ]);
+  return {
+    okrs: okrSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+    emps: empSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+  };
+}
+
+async function renderOkr() {
+  const main = $("#main");
+  main.innerHTML = pageHead("OKR", "OKR", "회사 목표(O)부터 부서·개인 KR까지 하나의 트리로 연결해 관리합니다.") + `
+    <div class="subtabs">
+      ${[["mine", "내 OKR"], ["dept", "부서 OKR"], ["status", "진행현황"]].map(([k, l]) =>
+        `<button class="subtab ${okrTab === k ? "on" : ""}" data-otab="${k}">${l}</button>`).join("")}
+    </div>
+    <div id="okr-body"><div class="empty">불러오는 중...</div></div>`;
+  main.querySelectorAll("[data-otab]").forEach((b) => {
+    b.onclick = () => navigate("okr", b.dataset.otab);
+  });
+  const { okrs, emps } = await loadOkrData();
+  const idx = buildOkrIndex(okrs);
+  if (okrTab === "mine") renderOkrMine(okrs, emps, idx);
+  else if (okrTab === "dept") renderOkrDept(okrs, emps, idx);
+  else renderOkrStatus(okrs, emps, idx);
+}
+
+/* 트리 표 한 줄 — 들여쓰기 + 레벨 배지 + 진행바 */
+function okrRowHtml(o, idx, opts) {
+  const prog = Math.round(idx.progressOf(o.id));
+  const depth = idx.depthOf(o.id);
+  const mine = me && o.ownerId === me.id;
+  return `
+    <div class="okr-row ${mine ? "okr-mine" : ""}" data-okr="${o.id}" style="--okr-depth:${Math.min(depth, 6)}">
+      <div class="okr-row-main">
+        <div class="okr-title-line">
+          <span class="badge dept okr-lv">${idx.levelLabel(o.id)}</span>
+          <b class="okr-title">${esc(o.title)}</b>
+          ${okrDdayChip(o, prog)}
+        </div>
+        <div class="okr-meta">
+          <span>${esc(o.ownerName || "-")}${o.dept ? ` · ${esc(o.dept)}` : ""}</span>
+          <span>${okrGoalText(o)}</span>
+          <span>~ ${esc(o.deadline || "-")}</span>
+        </div>
+      </div>
+      <div class="okr-prog">
+        <div class="bar"><i style="width:${prog}%"></i></div>
+        <span class="okr-pct">${prog}%</span>
+      </div>
+      ${opts && opts.actions ? `<div class="okr-actions">${opts.actions(o)}</div>` : ""}
+    </div>`;
+}
+
+function okrTreeHtml(idx, visibleIds, opts) {
+  const rows = [];
+  const walk = (o) => {
+    if (!visibleIds || visibleIds.has(o.id)) rows.push(okrRowHtml(o, idx, opts));
+    idx.childrenOf(o.id).forEach(walk);
+  };
+  idx.roots.forEach(walk);
+  return rows.length ? `<div class="okr-tree">${rows.join("")}</div>` : "";
+}
+
+/* 카드에 편집 버튼 묶음 (권한 있는 노드에만) */
+function okrActionBtns(o, idx) {
+  if (!canEditOkr(o)) return "";
+  const btns = [];
+  if (o.parentId) btns.push(`<button class="btn btn-ghost btn-sm" data-okr-prog="${o.id}">진행 입력</button>`);
+  btns.push(`<button class="btn btn-ghost btn-sm" data-okr-edit="${o.id}">수정</button>`);
+  btns.push(`<button class="btn btn-danger btn-sm" data-okr-del="${o.id}">삭제</button>`);
+  return btns.join("");
+}
+
+function bindOkrActions(scope, okrs, emps, idx) {
+  scope.querySelectorAll("[data-okr-prog]").forEach((b) => {
+    b.onclick = () => openOkrProgressModal(idx.byId[b.dataset.okrProg]);
+  });
+  scope.querySelectorAll("[data-okr-edit]").forEach((b) => {
+    b.onclick = () => openOkrModal(idx.byId[b.dataset.okrEdit], okrs, emps, idx);
+  });
+  scope.querySelectorAll("[data-okr-del]").forEach((b) => {
+    b.onclick = () => deleteOkr(idx.byId[b.dataset.okrDel], idx);
+  });
+}
+
+/* ── 내 OKR ── */
+function renderOkrMine(okrs, emps, idx) {
+  const body = $("#okr-body");
+  const mine = okrs.filter((o) => o.ownerId === me.id)
+    .sort((a, b) => (a.deadline || "").localeCompare(b.deadline || ""));
+  const actions = (o) => okrActionBtns(o, idx);
+  body.innerHTML = `
+    <div class="card">
+      <div class="card-title">내 OKR
+        <span class="ct-desc">내가 담당하는 목표입니다. 하위 OKR이 있으면 진행률은 하위 평균으로 자동 계산됩니다.</span>
+        <button class="btn btn-primary btn-sm" id="okr-add" style="margin-left:auto">OKR 추가</button>
+      </div>
+      ${mine.length
+        ? `<div class="okr-tree">${mine.map((o) => {
+            const parent = o.parentId ? idx.byId[o.parentId] : null;
+            return `<div class="okr-item">
+              ${parent ? `<div class="okr-parent-line">↳ 상위: <b>[${idx.levelLabel(parent.id)}] ${esc(parent.title)}</b></div>` : `<div class="okr-parent-line">회사 최상위 O</div>`}
+              ${okrRowHtml(o, idx, { actions })}
+            </div>`;
+          }).join("")}</div>`
+        : `<div class="empty">아직 내 OKR이 없습니다. [OKR 추가]로 상위 OKR에 연결된 목표를 만들어 보세요.</div>`}
+    </div>`;
+  $("#okr-add").onclick = () => openOkrModal(null, okrs, emps, idx);
+  bindOkrActions(body, okrs, emps, idx);
+}
+
+/* ── 부서 OKR — 우리 부서 노드 + 문맥용 상위 노드를 트리로 ── */
+function renderOkrDept(okrs, emps, idx) {
+  const body = $("#okr-body");
+  const depts = [...new Set(okrs.map((o) => o.dept).filter(Boolean))].sort();
+  if (!renderOkrDept._dept || !depts.includes(renderOkrDept._dept)) {
+    renderOkrDept._dept = depts.includes(me.dept) ? me.dept : (depts[0] || "");
+  }
+  const dept = renderOkrDept._dept;
+  // 해당 부서 노드 + 그 조상들(회사 O 포함)을 함께 보여 위계가 읽히게 한다
+  const visible = new Set();
+  okrs.filter((o) => o.dept === dept || !o.parentId).forEach((o) => {
+    let cur = o;
+    const seen = new Set();
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      visible.add(cur.id);
+      cur = cur.parentId ? idx.byId[cur.parentId] : null;
+    }
+  });
+  const actions = (o) => okrActionBtns(o, idx);
+  body.innerHTML = `
+    <div class="card">
+      <div class="card-title">부서 OKR
+        <span class="ct-desc">부서 목표와 그 상위 연결을 트리로 봅니다.</span>
+        ${depts.length ? `<select id="okr-dept-sel" class="okr-dept-sel" style="margin-left:auto">
+          ${depts.map((d) => `<option value="${esc(d)}" ${d === dept ? "selected" : ""}>${esc(d)}</option>`).join("")}
+        </select>` : ""}
+      </div>
+      ${okrTreeHtml(idx, visible, { actions }) || `<div class="empty">이 부서의 OKR이 아직 없습니다.</div>`}
+    </div>`;
+  const sel = $("#okr-dept-sel");
+  if (sel) sel.onchange = (ev) => { renderOkrDept._dept = ev.target.value; renderOkrDept(okrs, emps, idx); };
+  bindOkrActions(body, okrs, emps, idx);
+}
+
+/* ── 진행현황 — 전사 트리 + 요약 (전 직원 공개) ── */
+function renderOkrStatus(okrs, emps, idx) {
+  const body = $("#okr-body");
+  const companyProg = idx.roots.length
+    ? Math.round(idx.roots.reduce((s, r) => s + idx.progressOf(r.id), 0) / idx.roots.length) : 0;
+  const soon = okrs.filter((o) => {
+    const d = okrDday(o.deadline);
+    return d !== null && d >= 0 && d <= 7 && idx.progressOf(o.id) < 100;
+  }).length;
+  const late = okrs.filter((o) => {
+    const d = okrDday(o.deadline);
+    return d !== null && d < 0 && idx.progressOf(o.id) < 100;
+  }).length;
+  body.innerHTML = `
+    <div class="okr-stats">
+      <div class="card okr-stat"><div class="os-num">${companyProg}%</div><div class="os-label">회사 목표 진행률</div></div>
+      <div class="card okr-stat"><div class="os-num">${okrs.length}</div><div class="os-label">전체 OKR</div></div>
+      <div class="card okr-stat"><div class="os-num ${soon ? "warn" : ""}">${soon}</div><div class="os-label">마감 임박 (7일 이내)</div></div>
+      <div class="card okr-stat"><div class="os-num ${late ? "warn" : ""}">${late}</div><div class="os-label">지연</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">전사 진행현황
+        <span class="ct-desc">모든 OKR의 마감일과 진행률을 한눈에 봅니다.</span>
+        ${canEditCompanyOkr() && !idx.roots.length ? `<button class="btn btn-primary btn-sm" id="okr-add-root" style="margin-left:auto">회사 OKR 만들기</button>` : ""}
+      </div>
+      ${okrTreeHtml(idx, null) || `<div class="empty">등록된 OKR이 없습니다.${canEditCompanyOkr() ? " 회사 최상위 O부터 만들어 주세요." : ""}</div>`}
+    </div>`;
+  const rootBtn = $("#okr-add-root");
+  if (rootBtn) rootBtn.onclick = () => openOkrModal(null, okrs, emps, idx);
+}
+
+/* ── OKR 추가/수정 모달 ── */
+function openOkrModal(okr, okrs, emps, idx) {
+  const isEdit = !!okr;
+  const isRootEdit = isEdit && !okr.parentId;
+  // 부모 후보: 자기 자신·자기 자손 제외 (순환 방지)
+  const banned = isEdit ? idx.descendantIds(okr.id, new Set([okr.id])) : new Set();
+  const parentOpts = [];
+  const walk = (o) => {
+    if (!banned.has(o.id)) {
+      parentOpts.push(`<option value="${o.id}" ${isEdit && okr.parentId === o.id ? "selected" : ""}>
+        [${idx.levelLabel(o.id)}] ${esc(o.title)}${Number(o.target) > 0 ? ` — ${fmt(o.target)}${esc(o.unit || "")}` : ""}</option>`);
+    }
+    idx.childrenOf(o.id).forEach(walk);
+  };
+  idx.roots.forEach(walk);
+  const allowRoot = canEditCompanyOkr() && (isRootEdit || !isEdit);
+  const canPickOwner = canManageOps();
+  const ownerSel = canPickOwner
+    ? `<select id="of-owner">${emps.map((e) =>
+        `<option value="${e.id}" ${(isEdit ? okr.ownerId : me.id) === e.id ? "selected" : ""}>${esc(e.name)} (${esc(e.dept || "-")})</option>`).join("")}</select>`
+    : `<input value="${esc(isEdit ? (okr.ownerName || "") : me.name)}" disabled />`;
+
+  openModal(`
+    <h3>${isEdit ? "OKR 수정" : "OKR 추가"}</h3>
+    <p class="modal-desc">회사 O를 제외한 모든 OKR은 상위 OKR 연결과 정량 목표가 필요합니다.</p>
+    <form id="okr-form">
+      <label class="field"><span class="field-label">OKR 제목</span>
+        <input id="of-title" required maxlength="80" placeholder="예: 마케팅 ROAS 2,000% 달성" value="${esc(okr?.title || "")}" /></label>
+      <label class="field"><span class="field-label">상위 OKR 연결${allowRoot ? " (비우면 회사 최상위 O)" : ""}</span>
+        <select id="of-parent" ${allowRoot ? "" : "required"}>
+          ${allowRoot ? `<option value="" ${isRootEdit ? "selected" : ""}>(없음) — 회사 최상위 O</option>` : `<option value="" disabled ${isEdit ? "" : "selected"}>상위 OKR을 선택하세요</option>`}
+          ${parentOpts.join("")}
+        </select></label>
+      <label class="field"><span class="field-label">담당자</span>${ownerSel}</label>
+      <div class="grid-2" id="of-quant">
+        <label class="field"><span class="field-label">목표 수치</span>
+          <input id="of-target" type="number" min="1" step="any" value="${esc(okr?.target ?? "")}" /></label>
+        <label class="field"><span class="field-label">단위</span>
+          <select id="of-unit">${OKR_UNITS.map((u) => `<option ${okr?.unit === u ? "selected" : ""}>${u}</option>`).join("")}</select></label>
+      </div>
+      <label class="field"><span class="field-label">목표 마감일 <b style="color:var(--red,#f04452)">*</b></span>
+        <input id="of-deadline" type="date" required value="${esc(okr?.deadline || "")}" /></label>
+      <p class="modal-desc" id="of-hint"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost btn-sm" id="of-cancel">취소</button>
+        <button type="submit" class="btn btn-primary btn-sm">${isEdit ? "저장" : "OKR 추가"}</button>
+      </div>
+    </form>`);
+
+  const parentSel = $("#of-parent");
+  const syncQuant = () => {
+    const isRoot = !parentSel.value;
+    $("#of-quant").style.display = isRoot ? "none" : "";
+    const p = parentSel.value ? idx.byId[parentSel.value] : null;
+    $("#of-hint").textContent = p && p.deadline
+      ? `상위 OKR 마감일(${p.deadline}) 이내로만 설정할 수 있습니다.`
+      : (isRoot ? "회사 최상위 O는 비전이므로 정량 목표 없이 만듭니다." : "");
+    if (p && p.deadline) $("#of-deadline").max = p.deadline;
+    else $("#of-deadline").removeAttribute("max");
+  };
+  parentSel.onchange = syncQuant;
+  syncQuant();
+  $("#of-cancel").onclick = closeModal;
+
+  $("#okr-form").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const title = $("#of-title").value.trim();
+    const parentId = parentSel.value || null;
+    const deadline = $("#of-deadline").value;
+    if (!title) return toast("제목을 입력하세요.");
+    if (!parentId && !canEditCompanyOkr()) return toast("상위 OKR을 선택하세요. (회사 O는 총괄 관리자·대표만 만들 수 있습니다)");
+    if (!deadline) return toast("목표 마감일을 입력하세요.");
+    const parent = parentId ? idx.byId[parentId] : null;
+    if (parentId && !parent) return toast("상위 OKR을 찾을 수 없습니다. 새로고침 후 다시 시도하세요.");
+    if (parent && parent.deadline && deadline > parent.deadline) {
+      return toast(`마감일은 상위 OKR 마감일(${parent.deadline}) 이내여야 합니다.`);
+    }
+    // 이미 달린 하위 OKR들의 마감일보다 앞당길 수는 없다
+    if (isEdit) {
+      const childMax = idx.childrenOf(okr.id).reduce((m, k) => (k.deadline > m ? k.deadline : m), "");
+      if (childMax && deadline < childMax) {
+        return toast(`하위 OKR 마감일(${childMax})보다 앞당길 수 없습니다. 하위 마감일을 먼저 조정하세요.`);
+      }
+    }
+    let target = null, unit = null;
+    if (parentId) {
+      target = Number($("#of-target").value);
+      unit = $("#of-unit").value;
+      if (!(target > 0)) return toast("목표 수치를 입력하세요. (모든 OKR은 정량화되어야 합니다)");
+      if (!OKR_UNITS.includes(unit)) return toast("단위를 선택하세요.");
+    }
+    let ownerId = me.id, ownerName = me.name, dept = me.dept || "";
+    if (canManageOps()) {
+      const sel = $("#of-owner");
+      if (sel) {
+        const e = emps.find((x) => x.id === sel.value);
+        if (e) { ownerId = e.id; ownerName = e.name; dept = e.dept || ""; }
+      }
+    } else if (isEdit) {
+      ownerId = okr.ownerId; ownerName = okr.ownerName; dept = okr.dept || "";
+    }
+    const data = {
+      title, parentId, ownerId, ownerName, dept, deadline,
+      target: parentId ? target : null,
+      unit: parentId ? unit : null,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    try {
+      if (isEdit) {
+        await db.collection(COL.okrs).doc(okr.id).update(data);
+      } else {
+        data.current = 0;
+        data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+        await db.collection(COL.okrs).add(data);
+      }
+      closeModal();
+      toast(isEdit ? "OKR을 수정했습니다." : "OKR을 추가했습니다.");
+      renderOkr();
+    } catch (e) {
+      toast("저장에 실패했습니다. 잠시 후 다시 시도하세요.");
+    }
+  };
+}
+
+/* ── 진행 수치 입력 ── */
+function openOkrProgressModal(okr) {
+  const pct = Number(okr.target) > 0 ? Math.min(100, Math.round(((Number(okr.current) || 0) / Number(okr.target)) * 100)) : 0;
+  openModal(`
+    <h3>진행 입력</h3>
+    <p class="modal-desc"><b>${esc(okr.title)}</b> — 목표 ${fmt(okr.target)}${esc(okr.unit || "")} (현재 ${pct}%)</p>
+    <form id="okr-prog-form">
+      <label class="field"><span class="field-label">현재 달성 수치 (${esc(okr.unit || "")})</span>
+        <input id="op-cur" type="number" min="0" step="any" required value="${esc(okr.current ?? 0)}" /></label>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost btn-sm" id="op-cancel">취소</button>
+        <button type="submit" class="btn btn-primary btn-sm">저장</button>
+      </div>
+    </form>`);
+  $("#op-cancel").onclick = closeModal;
+  $("#okr-prog-form").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const cur = Number($("#op-cur").value);
+    if (!(cur >= 0)) return toast("0 이상의 수치를 입력하세요.");
+    try {
+      await db.collection(COL.okrs).doc(okr.id).update({
+        current: cur,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      closeModal();
+      toast("진행 수치를 저장했습니다.");
+      renderOkr();
+    } catch (e) {
+      toast("저장에 실패했습니다. 잠시 후 다시 시도하세요.");
+    }
+  };
+}
+
+async function deleteOkr(okr, idx) {
+  if (idx.childrenOf(okr.id).length) {
+    return toast("하위 OKR이 연결되어 있어 삭제할 수 없습니다. 하위 OKR을 먼저 정리하세요.");
+  }
+  if (!confirm(`'${okr.title}' OKR을 삭제할까요?`)) return;
+  try {
+    await db.collection(COL.okrs).doc(okr.id).delete();
+    toast("OKR을 삭제했습니다.");
+    renderOkr();
+  } catch (e) {
+    toast("삭제에 실패했습니다. 잠시 후 다시 시도하세요.");
+  }
+}
+
 /* ───────── 시작 ───────── */
 $("#modal-backdrop").addEventListener("click", (ev) => {
   if (ev.target === $("#modal-backdrop")) closeModal();
@@ -4841,7 +5297,7 @@ function guardRender(name, fn) {
 }
 ["renderHome", "renderSchedule", "renderAttend", "renderAttendAdmin", "renderPayHistory",
  "renderPayroll", "renderLeave", "renderLeaveAdmin", "renderSettings", "renderSystems",
- "renderEmployees", "renderMonitor"].forEach((name) => {
+ "renderEmployees", "renderMonitor", "renderOkr"].forEach((name) => {
   if (typeof window[name] === "function") window[name] = guardRender(name, window[name]);
 });
 

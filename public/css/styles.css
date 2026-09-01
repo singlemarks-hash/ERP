@@ -1899,3 +1899,41 @@ button.att-note.req:hover { background: var(--blue-soft); color: var(--blue-deep
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* ── OKR ── */
+.okr-tree { display: grid; gap: 0; }
+.okr-item { border-bottom: 1px solid var(--line); padding: 4px 0; }
+.okr-item:last-child { border-bottom: none; }
+.okr-parent-line { font-size: 0.78rem; color: var(--ink-faint); padding: 6px 2px 0; }
+.okr-parent-line b { color: var(--ink-soft); font-weight: 600; }
+.okr-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 11px 2px 11px calc(2px + var(--okr-depth, 0) * 22px);
+  border-bottom: 1px solid var(--line); min-width: 0;
+}
+.okr-tree > .okr-row:last-child, .okr-item .okr-row { border-bottom: none; }
+.okr-row.okr-mine { background: #f7f9fd; border-radius: 8px; }
+.okr-row-main { flex: 1; min-width: 0; }
+.okr-title-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.okr-title { font-size: 0.9rem; word-break: keep-all; overflow-wrap: break-word; }
+.okr-lv { flex-shrink: 0; }
+.okr-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.78rem; color: var(--ink-soft); margin-top: 4px; font-variant-numeric: tabular-nums; }
+.okr-prog { display: flex; align-items: center; gap: 8px; width: 160px; flex-shrink: 0; }
+.okr-prog .bar { flex: 1; }
+.okr-pct { font-size: 0.8rem; color: var(--ink-soft); font-variant-numeric: tabular-nums; width: 38px; text-align: right; }
+.okr-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.okr-dept-sel {
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
+  font-size: 0.84rem; background: #fff; color: var(--ink);
+}
+.okr-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+.okr-stat { margin-bottom: 0; text-align: center; padding: 18px 10px; }
+.os-num { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.os-num.warn { color: var(--amber); }
+.os-label { font-size: 0.78rem; color: var(--ink-soft); margin-top: 4px; }
+@media (max-width: 760px) {
+  .okr-stats { grid-template-columns: repeat(2, 1fr); }
+  .okr-row { flex-wrap: wrap; gap: 8px; padding-left: calc(2px + var(--okr-depth, 0) * 12px); }
+  .okr-prog { width: 100%; }
+  .okr-actions { width: 100%; justify-content: flex-end; }
+}
