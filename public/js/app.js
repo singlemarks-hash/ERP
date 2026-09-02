@@ -2176,7 +2176,7 @@ async function renderLeave() {
 
   const history = [
     ...records.map((r) => ({ ...r, status: "승인" })),
-    ...myReqs.filter((r) => r.status !== "승인").map((r) => ({ date: r.date, endDate: r.endDate, type: r.type, days: r.days, status: r.status }))
+    ...myReqs.filter((r) => r.status !== "승인").map((r) => ({ id: r.id, empId: r.empId, date: r.date, endDate: r.endDate, type: r.type, days: r.days, status: r.status }))
   ].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 8);
   const statusBadge = (s) => s === "승인" ? '<span class="badge ok">승인</span>'
     : s === "대기" ? '<span class="badge warn">대기</span>' : '<span class="badge rej">반려</span>';
@@ -2237,10 +2237,11 @@ async function renderLeave() {
       <div class="card">
         <div class="card-title"><div>연차 사용 내역 요약</div></div>
         ${history.length ? `<div class="table-wrap"><table class="data pay-table">
-          <thead><tr><th>기간</th><th>유형</th><th class="num">일수</th><th>상태</th></tr></thead>
+          <thead><tr><th>기간</th><th>유형</th><th class="num">일수</th><th>상태</th><th></th></tr></thead>
           <tbody>${history.map((r) => `<tr>
             <td>${fmtPeriod(r.date, r.endDate)}</td><td>${esc(r.type)}</td>
             <td class="num">${r.days}일</td><td>${statusBadge(r.status)}</td>
+            <td class="num">${r.id ? reqCancelBtn(r) : ""}</td>
           </tr>`).join("")}</tbody></table></div>`
           : `<div class="empty">아직 사용 내역이 없습니다.</div>`}
       </div>
@@ -2300,6 +2301,7 @@ async function renderLeave() {
     lrSync(); lrAutoDays();
   });
 
+  bindReqCancel($("#lv-body"), COL.leaveRequests, renderLeave);
   $("#lv-req-form").onsubmit = async (ev) => {
     ev.preventDefault();
     const lrType = $("#lr-type").value;
@@ -2982,6 +2984,7 @@ async function renderAttRecord() {
   if (gotoOpen) gotoOpen.onclick = () => { attRecDate = openElsewhere.date; renderAttend(); };
 
   bindAttReqSection();
+  bindReqCancel($("#att-body"), COL.attRequests, renderAttend);
 
   const inBtn = $("#att-in");
   if (inBtn) inBtn.onclick = () => {
@@ -3105,6 +3108,36 @@ function openOtRequestModal({ date, kind, mins, shift, emps, onDone }) {
    근무변경은 승인 시 신청자 부서 전체 공지로 자동 게시된다. */
 const ATT_REQ_STATUS_BADGE = { "대기": "warn", "승인": "ok", "반려": "rej" };
 
+/* 내가 올린 결재가 아직 '대기'면 신청자가 직접 취소할 수 있다 (실수로 눌렀을 때).
+   취소는 신청 문서를 삭제해 결재자 화면에서도 사라지게 한다. */
+function reqCancelBtn(r) {
+  return r.status === "대기" && r.empId === me.id
+    ? `<button type="button" class="btn btn-ghost btn-sm req-cancel" data-req-cancel="${r.id}">취소</button>` : "";
+}
+function bindReqCancel(scope, col, rerender) {
+  if (!scope) return;
+  scope.querySelectorAll("[data-req-cancel]").forEach((b) => {
+    b.onclick = async () => {
+      if (!confirm("이 결재 신청을 취소할까요? 결재자 목록에서도 사라집니다.")) return;
+      try {
+        const ref = db.collection(col).doc(b.dataset.reqCancel);
+        const snap = await ref.get();
+        if (!snap.exists) { toast("이미 처리되었거나 삭제된 신청입니다."); rerender(); return; }
+        const r = snap.data();
+        if (r.empId !== me.id) return toast("본인이 올린 신청만 취소할 수 있습니다.");
+        if (r.status !== "대기") { toast(`이미 ${r.status} 처리되어 취소할 수 없습니다.`); rerender(); return; }
+        await ref.delete();
+        toast("결재 신청을 취소했습니다.");
+        updateLeaveAlarm();
+        updateAttApprovalAlarm();
+        rerender();
+      } catch (e) {
+        toast("취소에 실패했습니다. 잠시 후 다시 시도하세요.");
+      }
+    };
+  });
+}
+
 function attReqSectionHtml(myReqs, emps) {
   const approvers = approverCandidates(emps);
   return `
@@ -3149,13 +3182,14 @@ function attReqSectionHtml(myReqs, emps) {
       : `<div class="empty">지정 가능한 결재자가 없습니다.</div>`}
 
       ${myReqs.length ? `<div class="table-wrap" style="margin-top:16px"><table class="data att-table">
-        <thead><tr><th>구분</th><th>내용</th><th>결재자</th><th>신청일</th><th>상태</th></tr></thead>
+        <thead><tr><th>구분</th><th>내용</th><th>결재자</th><th>신청일</th><th>상태</th><th></th></tr></thead>
         <tbody>${myReqs.map((r) => `<tr>
           <td><b>${ATT_REQ_LABEL[r.type] || "-"}</b></td>
           <td class="atr-sum">${esc(attReqSummary(r))}</td>
           <td>${esc(r.approver || "-")}</td>
           <td>${fmtTs(r.createdAt)}</td>
           <td><span class="badge ${ATT_REQ_STATUS_BADGE[r.status] || ""}">${esc(r.status || "대기")}</span></td>
+          <td class="num">${reqCancelBtn(r)}</td>
         </tr>`).join("")}</tbody>
       </table></div>` : ""}
     </div>`;
