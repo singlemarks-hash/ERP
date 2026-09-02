@@ -1997,3 +1997,57 @@ button.att-note.req:hover { background: var(--blue-soft); color: var(--blue-deep
 .ch-main { flex: 1; min-width: 0; }
 .ch-memo { font-size: 0.8rem; color: var(--ink-soft); margin-top: 2px; white-space: pre-wrap; word-break: keep-all; overflow-wrap: break-word; }
 .ch-when { font-size: 0.76rem; color: var(--ink-faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* OKR — 트리 노드/접기, KR 투두 리스트, 아이콘 버튼 */
+.field-hint { display: block; font-size: 0.76rem; color: var(--ink-faint); margin-top: 5px; }
+.okr-row .okr-actions, .okr-kr .okr-actions { width: 118px; justify-content: flex-end; }
+.btn-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 9px; border: 1px solid transparent;
+  background: #f2f4f6; color: var(--ink-soft); cursor: pointer; flex-shrink: 0;
+}
+.btn-icon svg { width: 16px; height: 16px; }
+.btn-icon.danger { background: var(--red-soft); color: var(--red); }
+.btn-icon.danger:hover { background: #fbdcdf; }
+.okr-toggle {
+  display: inline-flex; align-items: center; gap: 4px; padding: 5px 9px; border-radius: 8px;
+  border: 1px solid var(--line); background: #fff; color: var(--ink-soft); font-size: 0.76rem; cursor: pointer;
+  white-space: nowrap;
+}
+.okr-toggle:hover { background: #f2f4f6; }
+.okr-toggle .tg-arrow { display: inline-block; transition: transform 0.15s; }
+.okr-toggle.open .tg-arrow { transform: rotate(90deg); }
+.okr-children[hidden] { display: none; }
+.okr-krs {
+  margin: -4px 2px 12px calc(2px + var(--okr-depth, 0) * 26px + 26px);
+  padding: 4px 0 2px; display: grid; gap: 4px;
+}
+.okr-kr {
+  display: flex; align-items: center; gap: 12px; padding: 8px 12px;
+  border: 1px dashed var(--line); border-radius: 9px; background: #fff; font-size: 0.84rem; min-width: 0;
+}
+.kr-dot { width: 8px; height: 8px; border-radius: 99px; flex-shrink: 0; }
+.kr-title { flex: 1; min-width: 0; word-break: keep-all; overflow-wrap: break-word; }
+.kr-due { font-style: normal; font-size: 0.74rem; color: var(--ink-faint); margin-left: 4px; }
+.kr-num { font-size: 0.78rem; color: var(--ink-soft); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.okr-kr .okr-prog { width: 150px; }
+.kr-add-btn {
+  border: 1px dashed var(--line); background: transparent; color: var(--ink-soft); border-radius: 9px;
+  padding: 8px; font-size: 0.82rem; cursor: pointer; width: 100%;
+}
+.kr-add-btn:hover { background: #f7f8fa; color: var(--ink); }
+.kr-add-btn[hidden] { display: none; }
+.kr-add-form { background: #f7f8fa; border-radius: 10px; padding: 12px; display: grid; gap: 8px; }
+.kr-add-form[hidden] { display: none; }
+.kr-add-form input, .kr-add-form select {
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 0.86rem; background: #fff; width: 100%;
+}
+.kr-f-row { display: grid; grid-template-columns: 1fr 90px; gap: 8px; }
+.kr-f-due { font-size: 0.78rem; color: var(--ink-soft); display: grid; gap: 4px; }
+.kr-f-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.checkin-goal .cg-parent { font-size: 0.78rem; color: var(--ink-faint); margin-top: 2px; }
+@media (max-width: 760px) {
+  .okr-row .okr-actions, .okr-kr .okr-actions { width: 100%; }
+  .okr-krs { margin-left: calc(2px + var(--okr-depth, 0) * 14px + 12px); }
+  .okr-kr { flex-wrap: wrap; gap: 8px; }
+  .okr-kr .okr-prog { width: 100%; }
+}
