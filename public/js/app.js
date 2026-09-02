@@ -5311,7 +5311,7 @@ function renderOkrStatus(okrs, emps, idx) {
       </div>
       ${legendDepts.length ? `<div class="okr-legend">${legendDepts.map((d) =>
         `<span class="okr-legend-item"><i style="background:${OKR_DEPT_COLORS[d]}"></i>${esc(d)}</span>`).join("")}</div>` : ""}
-      ${okrTreeHtml(idx, null, { collapsible: true, krCollapsed: true }) || `<div class="empty">등록된 OKR이 없습니다.${canEditCompanyOkr() ? " 회사 최상위 O부터 만들어 주세요." : ""}</div>`}
+      ${okrTreeHtml(idx, null, { collapsible: true, krCollapsed: true, meTag: true }) || `<div class="empty">등록된 OKR이 없습니다.${canEditCompanyOkr() ? " 회사 최상위 O부터 만들어 주세요." : ""}</div>`}
     </div>`;
   const rootBtn = $("#okr-add-root");
   if (rootBtn) rootBtn.onclick = () => openOkrModal(okrs, emps, idx);
