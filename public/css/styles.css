@@ -2079,3 +2079,9 @@ button.att-note.req:hover { background: var(--blue-soft); color: var(--blue-deep
 .cal-link:disabled { opacity: 0.35; cursor: not-allowed; }
 .okr-orphans { margin-top: 14px; border-top: 1px dashed var(--line); padding-top: 10px; }
 .okr-sec-head.static { cursor: default; color: var(--amber); }
+/* OKR 개념 안내 + 삭제 아이콘 버튼은 빨간 아이콘만 (배경 없음) */
+.okr-intro { margin: -8px 0 18px; padding: 0 2px; display: grid; gap: 4px; font-size: 0.84rem; color: var(--ink-soft); line-height: 1.5; }
+.okr-intro b { color: var(--ink); }
+.oi-arrow { color: var(--ink-faint); margin: 0 4px; }
+.btn-icon.danger, .btn-icon.danger:hover { background: transparent; }
+.btn-icon.danger:hover { color: #d6303e; }

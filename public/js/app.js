@@ -5019,6 +5019,10 @@ async function loadOkrData() {
 async function renderOkr() {
   const main = $("#main");
   main.innerHTML = pageHead("OKR", "OKR", "회사 목표(O)부터 부서·개인 KR까지 하나의 트리로 연결해 관리합니다.") + `
+    <div class="okr-intro">
+      <div><b>Objective (O)</b> = 우리가 무엇을 달성할 것인가? <span class="oi-arrow">→</span> 방향·목표</div>
+      <div><b>Key Results (KR)</b> = 달성했다는 것을 어떤 숫자로 증명할 것인가? <span class="oi-arrow">→</span> 측정 가능한 정량 성과</div>
+    </div>
     <div id="okr-feed"></div>
     <div class="subtabs">
       ${[["mine", "내 OKR"], ["dept", "부서 OKR"], ["status", "진행현황"]].map(([k, l]) =>
