@@ -4809,19 +4809,33 @@ async function renderMonitor() {
 }
 
 /* ───────── OKR ──────────────────────────────────────────────────────
-   회사 최상위 O(비전, 정량화 없음) 아래로 부서장 → 매니저 → 개인 KR이
-   한 그루 트리로 이어진다. 모든 노드는 부모에게는 KR, 자식에게는 O.
+   회사 최상위 O(전사 목표, 정량화·담당자 없음) 아래로 부서장 → 매니저 →
+   개인 KR이 한 그루 트리로 이어진다. 모든 노드는 부모에게는 KR, 자식에게는 O.
    - 회사 O를 제외한 모든 OKR은 정량화 필수 (목표 수치 + 단위)
    - 고아 금지: 상위 OKR 연결 필수 (회사 O만 예외)
    - 마감일은 상위 OKR 마감일 이내로만 설정 가능
-   - 진행률: 하위가 있으면 하위 평균, 없으면 현재/목표 (100% 상한) */
-let okrTab = "mine";   // mine | dept | status
+   - 진행률: 하위가 있으면 하위 평균(각 하위는 100% 상한), 없으면 현재/목표
+     (본인 표시만 100% 초과 허용 — 상위 롤업에는 100%까지만 반영)
+   - 사이클: 총괄 관리자가 분기·연도 단위로 만들고 하나를 '진행중'으로 지정.
+     전 직원은 진행중 사이클만 보고, 총괄은 보관된 사이클도 조회할 수 있다.
+   - 생성 후 수정 불가(하위 정합성 보호) — 진행도 입력과 삭제만 가능 */
+let okrTab = "mine";          // mine | dept | status
+let okrViewCycleId = null;    // 총괄이 조회 중인 사이클
+let okrActiveCycleId = null;  // 진행중 사이클 (새 OKR이 담기는 곳)
+let okrReadonly = false;      // 보관된 사이클 조회 중이면 true
 const OKR_UNITS = ["%", "개", "건", "원", "명"];
 const OKR_LEVEL_LABELS = ["회사", "부서", "팀", "개인"];
+const OKR_DEPT_COLORS = {
+  "경영지원본부": "#f76707",
+  "오프라인사업부": "#1fa45b",
+  "대표": "#191f28",
+  "브랜딩디렉터": "#7048e8",
+  "온라인사업부": "#3182f6"
+};
 
-/* 회사 최상위 O는 총괄 관리자와 대표(임원열람)만 만들고 고칠 수 있다 */
+/* 회사 최상위 O는 총괄 관리자와 대표(임원열람)만 만들고 지울 수 있다 */
 function canEditCompanyOkr() { return isAdmin() || (me && me.role === "executive"); }
-/* 일반 OKR 편집: 담당자 본인 또는 관리자(총괄·특수). 회사 O는 위 규칙 적용 */
+/* 일반 OKR: 담당자 본인 또는 관리자(총괄·특수). 회사 O는 위 규칙 적용 */
 function canEditOkr(o) {
   if (!o.parentId) return canEditCompanyOkr();
   return (me && o.ownerId === me.id) || canManageOps();
@@ -4854,6 +4868,7 @@ function buildOkrIndex(okrs) {
   }
   const levelLabel = (id) => OKR_LEVEL_LABELS[Math.min(depthOf(id), OKR_LEVEL_LABELS.length - 1)];
 
+  /* 롤업용 진행률 — 항상 100% 상한 */
   const progCache = {};
   function progressOf(id, seen) {
     if (id in progCache) return progCache[id];
@@ -4869,10 +4884,17 @@ function buildOkrIndex(okrs) {
     } else if (Number(o.target) > 0) {
       p = Math.min(100, Math.max(0, ((Number(o.current) || 0) / Number(o.target)) * 100));
     } else {
-      p = 0;   // 자식 없는 회사 O (정량화 없음)
+      p = 0;   // 자식 없는 회사 O
     }
     progCache[id] = p;
     return p;
+  }
+  /* 표시용 진행률 — 말단 OKR은 초과 달성분(100% 초과)도 그대로 보여준다 */
+  function displayPctOf(id) {
+    const o = byId[id];
+    if (!o) return 0;
+    if ((kids[id] || []).length) return progressOf(id);
+    return Number(o.target) > 0 ? Math.max(0, ((Number(o.current) || 0) / Number(o.target)) * 100) : 0;
   }
   function descendantIds(id, set) {
     set = set || new Set();
@@ -4881,7 +4903,7 @@ function buildOkrIndex(okrs) {
     });
     return set;
   }
-  return { byId, roots, childrenOf: (id) => kids[id] || [], depthOf, levelLabel, progressOf, descendantIds };
+  return { byId, roots, childrenOf: (id) => kids[id] || [], depthOf, levelLabel, progressOf, displayPctOf, descendantIds };
 }
 
 function okrDday(deadline) {
@@ -4899,17 +4921,23 @@ function okrDdayChip(o, prog) {
   return `<span class="badge off">D-${d}</span>`;
 }
 function okrGoalText(o) {
-  if (!o.parentId) return "비전 (정량화 없음)";
+  if (!o.parentId) return "";
   return `${fmt(o.current || 0)} / ${fmt(o.target)}${esc(o.unit || "")}`;
+}
+/* 부서 식별 띠 색 — 회사 O는 블랙(대표 컬러) */
+function okrStripeColor(o) {
+  return OKR_DEPT_COLORS[o.parentId ? o.dept : "대표"] || "#d9dee3";
 }
 
 async function loadOkrData() {
-  const [okrSnap, empSnap] = await Promise.all([
+  const [okrSnap, cycleSnap, empSnap] = await Promise.all([
     db.collection(COL.okrs).get(),
+    db.collection(COL.okrCycles).get(),
     db.collection(COL.employees).where("status", "==", "재직").get()
   ]);
   return {
     okrs: okrSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+    cycles: cycleSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
     emps: empSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
   };
 }
@@ -4921,39 +4949,82 @@ async function renderOkr() {
       ${[["mine", "내 OKR"], ["dept", "부서 OKR"], ["status", "진행현황"]].map(([k, l]) =>
         `<button class="subtab ${okrTab === k ? "on" : ""}" data-otab="${k}">${l}</button>`).join("")}
     </div>
+    <div id="okr-cycle-bar"></div>
     <div id="okr-body"><div class="empty">불러오는 중...</div></div>`;
   main.querySelectorAll("[data-otab]").forEach((b) => {
     b.onclick = () => navigate("okr", b.dataset.otab);
   });
-  const { okrs, emps } = await loadOkrData();
+
+  const { okrs: allOkrs, cycles, emps } = await loadOkrData();
+  cycles.sort((a, b) => {
+    const ta = a.createdAt && a.createdAt.toDate ? a.createdAt.toDate().getTime() : 0;
+    const tb = b.createdAt && b.createdAt.toDate ? b.createdAt.toDate().getTime() : 0;
+    return tb - ta;
+  });
+  const active = cycles.find((c) => c.active) || null;
+  okrActiveCycleId = active ? active.id : null;
+  // 전 직원은 진행중 사이클만, 총괄은 보관된 사이클도 골라 볼 수 있다
+  if (!isAdmin()) okrViewCycleId = active ? active.id : null;
+  else if (!okrViewCycleId || !cycles.some((c) => c.id === okrViewCycleId)) {
+    okrViewCycleId = active ? active.id : (cycles[0] ? cycles[0].id : null);
+  }
+  okrReadonly = cycles.length > 0 && okrViewCycleId !== okrActiveCycleId;
+  const okrs = cycles.length ? allOkrs.filter((o) => (o.cycleId || null) === okrViewCycleId) : allOkrs;
+
+  const bar = $("#okr-cycle-bar");
+  if (isAdmin()) {
+    bar.innerHTML = `<div class="okr-cycle-bar">
+      <span class="ocb-label">사이클</span>
+      ${cycles.length
+        ? `<select id="okr-cycle-sel">${cycles.map((c) =>
+            `<option value="${c.id}" ${c.id === okrViewCycleId ? "selected" : ""}>${esc(c.name)}${c.active ? " (진행중)" : ""}</option>`).join("")}</select>`
+        : `<span class="ocb-none">아직 사이클이 없습니다 — 첫 사이클을 만들어 시작하세요.</span>`}
+      <button class="btn btn-ghost btn-sm" id="okr-cycle-manage">사이클 관리</button>
+      ${okrReadonly ? `<span class="badge off">보관됨 · 조회 전용</span>` : ""}
+    </div>`;
+    const sel = $("#okr-cycle-sel");
+    if (sel) sel.onchange = (ev) => { okrViewCycleId = ev.target.value; renderOkr(); };
+    $("#okr-cycle-manage").onclick = () => openOkrCycleModal(cycles, allOkrs);
+  } else if (cycles.length) {
+    bar.innerHTML = `<div class="okr-cycle-bar">
+      <span class="ocb-label">사이클</span><b class="ocb-name">${esc(active ? active.name : "-")}</b>
+    </div>`;
+  } else {
+    bar.innerHTML = "";
+  }
+
   const idx = buildOkrIndex(okrs);
   if (okrTab === "mine") renderOkrMine(okrs, emps, idx);
   else if (okrTab === "dept") renderOkrDept(okrs, emps, idx);
   else renderOkrStatus(okrs, emps, idx);
 }
 
-/* 트리 표 한 줄 — 들여쓰기 + 레벨 배지 + 진행바 */
+/* 트리 한 줄 — 부서 컬러 띠 + 위계 연결선 + 레벨 배지 + 진행바 */
 function okrRowHtml(o, idx, opts) {
-  const prog = Math.round(idx.progressOf(o.id));
   const depth = idx.depthOf(o.id);
+  const rolled = Math.round(idx.progressOf(o.id));   // 롤업(100% 상한) — 달성 판정용
+  const pct = Math.round(idx.displayPctOf(o.id));    // 표시용 — 말단은 초과분 그대로
+  const over = pct > 100;
   const mine = me && o.ownerId === me.id;
+  // flat: 내 OKR처럼 부모 행 없이 단독으로 보여줄 때 — 들여쓰기·연결선 생략
+  const layoutDepth = opts && opts.flat ? 0 : Math.min(depth, 6);
   return `
-    <div class="okr-row ${mine ? "okr-mine" : ""}" data-okr="${o.id}" style="--okr-depth:${Math.min(depth, 6)}">
+    <div class="okr-row ${mine ? "okr-mine" : ""} ${layoutDepth ? "okr-child" : ""}" data-okr="${o.id}"
+         style="--okr-depth:${layoutDepth};--okr-stripe:${okrStripeColor(o)}">
       <div class="okr-row-main">
         <div class="okr-title-line">
-          <span class="badge dept okr-lv">${idx.levelLabel(o.id)}</span>
+          <span class="badge okr-lv d${Math.min(depth, 3)}">${idx.levelLabel(o.id)}</span>
           <b class="okr-title">${esc(o.title)}</b>
-          ${okrDdayChip(o, prog)}
+          ${okrDdayChip(o, rolled)}
         </div>
         <div class="okr-meta">
-          <span>${esc(o.ownerName || "-")}${o.dept ? ` · ${esc(o.dept)}` : ""}</span>
-          <span>${okrGoalText(o)}</span>
+          ${o.parentId ? `<span>${esc(o.ownerName || "-")}${o.dept ? ` · ${esc(o.dept)}` : ""}</span><span>${okrGoalText(o)}</span>` : ""}
           <span>~ ${esc(o.deadline || "-")}</span>
         </div>
       </div>
       <div class="okr-prog">
-        <div class="bar"><i style="width:${prog}%"></i></div>
-        <span class="okr-pct">${prog}%</span>
+        <div class="bar ${over ? "over" : ""}"><i style="width:${Math.min(100, pct)}%"></i></div>
+        <span class="okr-pct ${over ? "over" : ""}">${pct}%</span>
       </div>
       ${opts && opts.actions ? `<div class="okr-actions">${opts.actions(o)}</div>` : ""}
     </div>`;
@@ -4969,12 +5040,11 @@ function okrTreeHtml(idx, visibleIds, opts) {
   return rows.length ? `<div class="okr-tree">${rows.join("")}</div>` : "";
 }
 
-/* 카드에 편집 버튼 묶음 (권한 있는 노드에만) */
+/* 줄에 붙는 버튼 — 생성 후 수정은 불가, 진행도 입력과 삭제만 (보관 사이클은 조회 전용) */
 function okrActionBtns(o, idx) {
-  if (!canEditOkr(o)) return "";
+  if (okrReadonly || !canEditOkr(o)) return "";
   const btns = [];
-  if (o.parentId) btns.push(`<button class="btn btn-ghost btn-sm" data-okr-prog="${o.id}">진행 입력</button>`);
-  btns.push(`<button class="btn btn-ghost btn-sm" data-okr-edit="${o.id}">수정</button>`);
+  if (o.parentId) btns.push(`<button class="btn btn-sm btn-okr-prog" data-okr-prog="${o.id}">진행도 입력</button>`);
   btns.push(`<button class="btn btn-danger btn-sm" data-okr-del="${o.id}">삭제</button>`);
   return btns.join("");
 }
@@ -4982,9 +5052,6 @@ function okrActionBtns(o, idx) {
 function bindOkrActions(scope, okrs, emps, idx) {
   scope.querySelectorAll("[data-okr-prog]").forEach((b) => {
     b.onclick = () => openOkrProgressModal(idx.byId[b.dataset.okrProg]);
-  });
-  scope.querySelectorAll("[data-okr-edit]").forEach((b) => {
-    b.onclick = () => openOkrModal(idx.byId[b.dataset.okrEdit], okrs, emps, idx);
   });
   scope.querySelectorAll("[data-okr-del]").forEach((b) => {
     b.onclick = () => deleteOkr(idx.byId[b.dataset.okrDel], idx);
@@ -5001,23 +5068,24 @@ function renderOkrMine(okrs, emps, idx) {
     <div class="card">
       <div class="card-title">내 OKR
         <span class="ct-desc">내가 담당하는 목표입니다. 하위 OKR이 있으면 진행률은 하위 평균으로 자동 계산됩니다.</span>
-        <button class="btn btn-primary btn-sm" id="okr-add" style="margin-left:auto">OKR 추가</button>
+        ${okrReadonly ? "" : `<button class="btn btn-primary btn-sm" id="okr-add" style="margin-left:auto">OKR 추가</button>`}
       </div>
       ${mine.length
         ? `<div class="okr-tree">${mine.map((o) => {
             const parent = o.parentId ? idx.byId[o.parentId] : null;
             return `<div class="okr-item">
-              ${parent ? `<div class="okr-parent-line">↳ 상위: <b>[${idx.levelLabel(parent.id)}] ${esc(parent.title)}</b></div>` : `<div class="okr-parent-line">회사 최상위 O</div>`}
-              ${okrRowHtml(o, idx, { actions })}
+              ${parent ? `<div class="okr-parent-line">↳ 상위: <b>[${idx.levelLabel(parent.id)}] ${esc(parent.title)}</b></div>` : ""}
+              ${okrRowHtml(o, idx, { actions, flat: true })}
             </div>`;
           }).join("")}</div>`
-        : `<div class="empty">아직 내 OKR이 없습니다. [OKR 추가]로 상위 OKR에 연결된 목표를 만들어 보세요.</div>`}
+        : `<div class="empty">아직 내 OKR이 없습니다.${okrReadonly ? "" : " [OKR 추가]로 상위 OKR에 연결된 목표를 만들어 보세요."}</div>`}
     </div>`;
-  $("#okr-add").onclick = () => openOkrModal(null, okrs, emps, idx);
+  const addBtn = $("#okr-add");
+  if (addBtn) addBtn.onclick = () => openOkrModal(okrs, emps, idx);
   bindOkrActions(body, okrs, emps, idx);
 }
 
-/* ── 부서 OKR — 우리 부서 노드 + 문맥용 상위 노드를 트리로 ── */
+/* ── 부서 OKR — 부서 노드 + 문맥용 상위 노드를 트리로 ── */
 function renderOkrDept(okrs, emps, idx) {
   const body = $("#okr-body");
   const depts = [...new Set(okrs.map((o) => o.dept).filter(Boolean))].sort();
@@ -5052,7 +5120,7 @@ function renderOkrDept(okrs, emps, idx) {
   bindOkrActions(body, okrs, emps, idx);
 }
 
-/* ── 진행현황 — 전사 트리 + 요약 (전 직원 공개) ── */
+/* ── 진행현황 — 전사 위계 트리 + 요약 (전 직원 공개) ── */
 function renderOkrStatus(okrs, emps, idx) {
   const body = $("#okr-body");
   const companyProg = idx.roots.length
@@ -5065,6 +5133,8 @@ function renderOkrStatus(okrs, emps, idx) {
     const d = okrDday(o.deadline);
     return d !== null && d < 0 && idx.progressOf(o.id) < 100;
   }).length;
+  const legendDepts = [...new Set(okrs.map((o) => o.parentId ? o.dept : "대표").filter(Boolean))]
+    .filter((d) => OKR_DEPT_COLORS[d]);
   body.innerHTML = `
     <div class="okr-stats">
       <div class="card okr-stat"><div class="os-num">${companyProg}%</div><div class="os-label">회사 목표 진행률</div></div>
@@ -5074,61 +5144,57 @@ function renderOkrStatus(okrs, emps, idx) {
     </div>
     <div class="card">
       <div class="card-title">전사 진행현황
-        <span class="ct-desc">모든 OKR의 마감일과 진행률을 한눈에 봅니다.</span>
-        ${canEditCompanyOkr() && !idx.roots.length ? `<button class="btn btn-primary btn-sm" id="okr-add-root" style="margin-left:auto">회사 OKR 만들기</button>` : ""}
+        <span class="ct-desc">모든 OKR의 마감일과 진행률을 위계 트리로 봅니다.</span>
+        ${canEditCompanyOkr() && !idx.roots.length && !okrReadonly ? `<button class="btn btn-primary btn-sm" id="okr-add-root" style="margin-left:auto">회사 OKR 만들기</button>` : ""}
       </div>
+      ${legendDepts.length ? `<div class="okr-legend">${legendDepts.map((d) =>
+        `<span class="okr-legend-item"><i style="background:${OKR_DEPT_COLORS[d]}"></i>${esc(d)}</span>`).join("")}</div>` : ""}
       ${okrTreeHtml(idx, null) || `<div class="empty">등록된 OKR이 없습니다.${canEditCompanyOkr() ? " 회사 최상위 O부터 만들어 주세요." : ""}</div>`}
     </div>`;
   const rootBtn = $("#okr-add-root");
-  if (rootBtn) rootBtn.onclick = () => openOkrModal(null, okrs, emps, idx);
+  if (rootBtn) rootBtn.onclick = () => openOkrModal(okrs, emps, idx);
 }
 
-/* ── OKR 추가/수정 모달 ── */
-function openOkrModal(okr, okrs, emps, idx) {
-  const isEdit = !!okr;
-  const isRootEdit = isEdit && !okr.parentId;
-  // 부모 후보: 자기 자신·자기 자손 제외 (순환 방지)
-  const banned = isEdit ? idx.descendantIds(okr.id, new Set([okr.id])) : new Set();
+/* ── OKR 추가 모달 (생성 후에는 수정 불가 — 신중히 만들도록 안내) ── */
+function openOkrModal(okrs, emps, idx) {
   const parentOpts = [];
   const walk = (o) => {
-    if (!banned.has(o.id)) {
-      parentOpts.push(`<option value="${o.id}" ${isEdit && okr.parentId === o.id ? "selected" : ""}>
-        [${idx.levelLabel(o.id)}] ${esc(o.title)}${Number(o.target) > 0 ? ` — ${fmt(o.target)}${esc(o.unit || "")}` : ""}</option>`);
-    }
+    parentOpts.push(`<option value="${o.id}">
+      [${idx.levelLabel(o.id)}] ${esc(o.title)}${Number(o.target) > 0 ? ` — ${fmt(o.target)}${esc(o.unit || "")}` : ""}</option>`);
     idx.childrenOf(o.id).forEach(walk);
   };
   idx.roots.forEach(walk);
-  const allowRoot = canEditCompanyOkr() && (isRootEdit || !isEdit);
+  const allowRoot = canEditCompanyOkr();
   const canPickOwner = canManageOps();
   const ownerSel = canPickOwner
     ? `<select id="of-owner">${emps.map((e) =>
-        `<option value="${e.id}" ${(isEdit ? okr.ownerId : me.id) === e.id ? "selected" : ""}>${esc(e.name)} (${esc(e.dept || "-")})</option>`).join("")}</select>`
-    : `<input value="${esc(isEdit ? (okr.ownerName || "") : me.name)}" disabled />`;
+        `<option value="${e.id}" ${me.id === e.id ? "selected" : ""}>${esc(e.name)} (${esc(e.dept || "-")})</option>`).join("")}</select>`
+    : `<input value="${esc(me.name)}" disabled />`;
 
   openModal(`
-    <h3>${isEdit ? "OKR 수정" : "OKR 추가"}</h3>
-    <p class="modal-desc">회사 O를 제외한 모든 OKR은 상위 OKR 연결과 정량 목표가 필요합니다.</p>
+    <h3>OKR 추가</h3>
+    <p class="modal-desc">한번 만든 OKR은 수정할 수 없습니다. 목표와 수치를 신중히 정해 주세요.</p>
     <form id="okr-form">
       <label class="field"><span class="field-label">OKR 제목</span>
-        <input id="of-title" required maxlength="80" placeholder="예: 마케팅 ROAS 2,000% 달성" value="${esc(okr?.title || "")}" /></label>
+        <input id="of-title" required maxlength="80" placeholder="예: 마케팅 ROAS 2,000% 달성" /></label>
       <label class="field"><span class="field-label">상위 OKR 연결${allowRoot ? " (비우면 회사 최상위 O)" : ""}</span>
         <select id="of-parent" ${allowRoot ? "" : "required"}>
-          ${allowRoot ? `<option value="" ${isRootEdit ? "selected" : ""}>(없음) — 회사 최상위 O</option>` : `<option value="" disabled ${isEdit ? "" : "selected"}>상위 OKR을 선택하세요</option>`}
+          ${allowRoot ? `<option value="">(없음) — 회사 최상위 O</option>` : `<option value="" disabled selected>상위 OKR을 선택하세요</option>`}
           ${parentOpts.join("")}
         </select></label>
-      <label class="field"><span class="field-label">담당자</span>${ownerSel}</label>
+      <div id="of-owner-wrap"><label class="field"><span class="field-label">담당자</span>${ownerSel}</label></div>
       <div class="grid-2" id="of-quant">
         <label class="field"><span class="field-label">목표 수치</span>
-          <input id="of-target" type="number" min="1" step="any" value="${esc(okr?.target ?? "")}" /></label>
+          <input id="of-target" type="number" min="1" step="any" /></label>
         <label class="field"><span class="field-label">단위</span>
-          <select id="of-unit">${OKR_UNITS.map((u) => `<option ${okr?.unit === u ? "selected" : ""}>${u}</option>`).join("")}</select></label>
+          <select id="of-unit">${OKR_UNITS.map((u) => `<option>${u}</option>`).join("")}</select></label>
       </div>
       <label class="field"><span class="field-label">목표 마감일 <b style="color:var(--red,#f04452)">*</b></span>
-        <input id="of-deadline" type="date" required value="${esc(okr?.deadline || "")}" /></label>
+        <input id="of-deadline" type="date" required /></label>
       <p class="modal-desc" id="of-hint"></p>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost btn-sm" id="of-cancel">취소</button>
-        <button type="submit" class="btn btn-primary btn-sm">${isEdit ? "저장" : "OKR 추가"}</button>
+        <button type="submit" class="btn btn-primary btn-sm">OKR 추가</button>
       </div>
     </form>`);
 
@@ -5136,10 +5202,11 @@ function openOkrModal(okr, okrs, emps, idx) {
   const syncQuant = () => {
     const isRoot = !parentSel.value;
     $("#of-quant").style.display = isRoot ? "none" : "";
+    $("#of-owner-wrap").style.display = isRoot ? "none" : "";   // 회사 O는 담당자 없이 전사 목표로 만든다
     const p = parentSel.value ? idx.byId[parentSel.value] : null;
     $("#of-hint").textContent = p && p.deadline
       ? `상위 OKR 마감일(${p.deadline}) 이내로만 설정할 수 있습니다.`
-      : (isRoot ? "회사 최상위 O는 비전이므로 정량 목표 없이 만듭니다." : "");
+      : (isRoot ? "회사 최상위 O는 정량 목표·담당자 없이 전사 목표로 만듭니다." : "");
     if (p && p.deadline) $("#of-deadline").max = p.deadline;
     else $("#of-deadline").removeAttribute("max");
   };
@@ -5160,13 +5227,6 @@ function openOkrModal(okr, okrs, emps, idx) {
     if (parent && parent.deadline && deadline > parent.deadline) {
       return toast(`마감일은 상위 OKR 마감일(${parent.deadline}) 이내여야 합니다.`);
     }
-    // 이미 달린 하위 OKR들의 마감일보다 앞당길 수는 없다
-    if (isEdit) {
-      const childMax = idx.childrenOf(okr.id).reduce((m, k) => (k.deadline > m ? k.deadline : m), "");
-      if (childMax && deadline < childMax) {
-        return toast(`하위 OKR 마감일(${childMax})보다 앞당길 수 없습니다. 하위 마감일을 먼저 조정하세요.`);
-      }
-    }
     let target = null, unit = null;
     if (parentId) {
       target = Number($("#of-target").value);
@@ -5174,32 +5234,29 @@ function openOkrModal(okr, okrs, emps, idx) {
       if (!(target > 0)) return toast("목표 수치를 입력하세요. (모든 OKR은 정량화되어야 합니다)");
       if (!OKR_UNITS.includes(unit)) return toast("단위를 선택하세요.");
     }
-    let ownerId = me.id, ownerName = me.name, dept = me.dept || "";
-    if (canManageOps()) {
-      const sel = $("#of-owner");
-      if (sel) {
-        const e = emps.find((x) => x.id === sel.value);
-        if (e) { ownerId = e.id; ownerName = e.name; dept = e.dept || ""; }
+    let ownerId = null, ownerName = "", dept = "";
+    if (parentId) {
+      ownerId = me.id; ownerName = me.name; dept = me.dept || "";
+      if (canManageOps()) {
+        const sel = $("#of-owner");
+        if (sel) {
+          const e = emps.find((x) => x.id === sel.value);
+          if (e) { ownerId = e.id; ownerName = e.name; dept = e.dept || ""; }
+        }
       }
-    } else if (isEdit) {
-      ownerId = okr.ownerId; ownerName = okr.ownerName; dept = okr.dept || "";
     }
-    const data = {
-      title, parentId, ownerId, ownerName, dept, deadline,
-      target: parentId ? target : null,
-      unit: parentId ? unit : null,
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    };
     try {
-      if (isEdit) {
-        await db.collection(COL.okrs).doc(okr.id).update(data);
-      } else {
-        data.current = 0;
-        data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
-        await db.collection(COL.okrs).add(data);
-      }
+      await db.collection(COL.okrs).add({
+        title, parentId, ownerId, ownerName, dept, deadline,
+        target: parentId ? target : null,
+        unit: parentId ? unit : null,
+        current: 0,
+        cycleId: okrActiveCycleId,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
       closeModal();
-      toast(isEdit ? "OKR을 수정했습니다." : "OKR을 추가했습니다.");
+      toast("OKR을 추가했습니다.");
       renderOkr();
     } catch (e) {
       toast("저장에 실패했습니다. 잠시 후 다시 시도하세요.");
@@ -5207,11 +5264,11 @@ function openOkrModal(okr, okrs, emps, idx) {
   };
 }
 
-/* ── 진행 수치 입력 ── */
+/* ── 진행도 입력 ── */
 function openOkrProgressModal(okr) {
-  const pct = Number(okr.target) > 0 ? Math.min(100, Math.round(((Number(okr.current) || 0) / Number(okr.target)) * 100)) : 0;
+  const pct = Number(okr.target) > 0 ? Math.round(((Number(okr.current) || 0) / Number(okr.target)) * 100) : 0;
   openModal(`
-    <h3>진행 입력</h3>
+    <h3>진행도 입력</h3>
     <p class="modal-desc"><b>${esc(okr.title)}</b> — 목표 ${fmt(okr.target)}${esc(okr.unit || "")} (현재 ${pct}%)</p>
     <form id="okr-prog-form">
       <label class="field"><span class="field-label">현재 달성 수치 (${esc(okr.unit || "")})</span>
@@ -5232,7 +5289,7 @@ function openOkrProgressModal(okr) {
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       });
       closeModal();
-      toast("진행 수치를 저장했습니다.");
+      toast("진행도를 저장했습니다.");
       renderOkr();
     } catch (e) {
       toast("저장에 실패했습니다. 잠시 후 다시 시도하세요.");
@@ -5252,6 +5309,97 @@ async function deleteOkr(okr, idx) {
   } catch (e) {
     toast("삭제에 실패했습니다. 잠시 후 다시 시도하세요.");
   }
+}
+
+/* ── 사이클 관리 (총괄 관리자) ── */
+function openOkrCycleModal(cycles, allOkrs) {
+  if (!isAdmin()) return;
+  const countOf = (cid) => allOkrs.filter((o) => (o.cycleId || null) === cid).length;
+  openModal(`
+    <h3>사이클 관리</h3>
+    <p class="modal-desc">분기·연도 단위로 사이클을 만들어 운영하세요. '진행중' 사이클만 전 직원에게 보이고, 나머지는 보관됩니다.</p>
+    <div class="cycle-list">
+      ${cycles.length ? cycles.map((c) => `
+        <div class="cycle-row">
+          <b>${esc(c.name)}</b>
+          <span class="cy-meta">OKR ${countOf(c.id)}개</span>
+          ${c.active
+            ? `<span class="badge ok">진행중</span>`
+            : `<button class="btn btn-ghost btn-sm" data-cy-act="${c.id}">진행중으로</button>`}
+          <button class="btn btn-danger btn-sm" data-cy-del="${c.id}">삭제</button>
+        </div>`).join("")
+        : `<div class="empty">아직 사이클이 없습니다. 첫 사이클을 만들면 기존 OKR이 그 사이클에 자동으로 담깁니다.</div>`}
+    </div>
+    <form id="cycle-form" class="cycle-new">
+      <input id="cy-name" required maxlength="30" placeholder="예: 2026 4Q" />
+      <button type="submit" class="btn btn-primary btn-sm">사이클 만들기</button>
+    </form>
+    <div class="modal-actions"><button type="button" class="btn btn-ghost btn-sm" id="cy-close">닫기</button></div>`);
+  $("#cy-close").onclick = closeModal;
+
+  $("#cycle-form").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const name = $("#cy-name").value.trim();
+    if (!name) return toast("사이클 이름을 입력하세요.");
+    if (cycles.some((c) => c.name === name)) return toast("같은 이름의 사이클이 이미 있습니다.");
+    try {
+      const ref = await db.collection(COL.okrCycles).add({
+        name,
+        active: cycles.length === 0,   // 첫 사이클은 바로 진행중
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      // 첫 사이클: 사이클 없이 만들어진 기존 OKR을 모두 담는다
+      if (cycles.length === 0) {
+        const orphans = allOkrs.filter((o) => !o.cycleId);
+        await Promise.all(orphans.map((o) => db.collection(COL.okrs).doc(o.id).update({ cycleId: ref.id })));
+      }
+      closeModal();
+      toast(`'${name}' 사이클을 만들었습니다.`);
+      okrViewCycleId = cycles.length === 0 ? ref.id : okrViewCycleId;
+      renderOkr();
+    } catch (e) {
+      toast("사이클 생성에 실패했습니다. 잠시 후 다시 시도하세요.");
+    }
+  };
+
+  document.querySelectorAll("[data-cy-act]").forEach((b) => {
+    b.onclick = async () => {
+      const id = b.dataset.cyAct;
+      try {
+        await Promise.all(cycles.map((c) => db.collection(COL.okrCycles).doc(c.id).update({ active: c.id === id })));
+        closeModal();
+        toast("진행중 사이클을 변경했습니다. 전 직원 화면에 바로 적용됩니다.");
+        okrViewCycleId = id;
+        renderOkr();
+      } catch (e) {
+        toast("변경에 실패했습니다. 잠시 후 다시 시도하세요.");
+      }
+    };
+  });
+
+  document.querySelectorAll("[data-cy-del]").forEach((b) => {
+    b.onclick = async () => {
+      const c = cycles.find((x) => x.id === b.dataset.cyDel);
+      if (!c) return;
+      if (c.active) return toast("진행중 사이클은 삭제할 수 없습니다. 다른 사이클을 먼저 진행중으로 지정하세요.");
+      const n = countOf(c.id);
+      const msg = n
+        ? `'${c.name}' 사이클과 그 안의 OKR ${n}개가 모두 삭제됩니다. 계속할까요?`
+        : `'${c.name}' 사이클을 삭제할까요?`;
+      if (!confirm(msg)) return;
+      try {
+        const targets = allOkrs.filter((o) => o.cycleId === c.id);
+        await Promise.all(targets.map((o) => db.collection(COL.okrs).doc(o.id).delete()));
+        await db.collection(COL.okrCycles).doc(c.id).delete();
+        closeModal();
+        toast("사이클을 삭제했습니다.");
+        if (okrViewCycleId === c.id) okrViewCycleId = null;
+        renderOkr();
+      } catch (e) {
+        toast("삭제에 실패했습니다. 잠시 후 다시 시도하세요.");
+      }
+    };
+  });
 }
 
 /* ───────── 시작 ───────── */

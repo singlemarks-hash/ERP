@@ -26,5 +26,6 @@ const COL = {
   attendance: "attendance",   // 출퇴근 기록 (문서 id: empId_YYYY-MM-DD)
   workNotices: "workNotices", // [레거시] 근무 변경 알림 — 근무변경 결재로 대체. 기존 문서 표시용
   attRequests: "attRequests", // 근태 결재 (추가근무·근무변경 신청 → 결재자 승인)
-  okrs: "okrs"                // OKR 트리 (parentId=null 이면 회사 최상위 O)
+  okrs: "okrs",               // OKR 트리 (parentId=null 이면 회사 최상위 O)
+  okrCycles: "okrCycles"      // OKR 사이클 (분기·연도 단위, active=true 가 진행중)
 };

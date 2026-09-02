@@ -1901,39 +1901,77 @@ button.att-note.req:hover { background: var(--blue-soft); color: var(--blue-deep
 }
 
 /* ── OKR ── */
-.okr-tree { display: grid; gap: 0; }
-.okr-item { border-bottom: 1px solid var(--line); padding: 4px 0; }
-.okr-item:last-child { border-bottom: none; }
-.okr-parent-line { font-size: 0.78rem; color: var(--ink-faint); padding: 6px 2px 0; }
+.okr-cycle-bar { display: flex; align-items: center; gap: 10px; margin: -2px 0 16px; flex-wrap: wrap; }
+.ocb-label { font-size: 0.8rem; color: var(--ink-soft); }
+.ocb-name { font-size: 0.9rem; }
+.ocb-none { font-size: 0.84rem; color: var(--ink-faint); }
+.okr-cycle-bar select {
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
+  font-size: 0.84rem; background: #fff; color: var(--ink);
+}
+.okr-tree { padding: 6px 2px 2px; }
+.okr-item { padding: 2px 0 8px; }
+.okr-parent-line { font-size: 0.78rem; color: var(--ink-faint); padding: 4px 4px 7px; }
 .okr-parent-line b { color: var(--ink-soft); font-weight: 600; }
 .okr-row {
-  display: flex; align-items: center; gap: 14px;
-  padding: 11px 2px 11px calc(2px + var(--okr-depth, 0) * 22px);
-  border-bottom: 1px solid var(--line); min-width: 0;
+  position: relative; display: flex; align-items: center; gap: 16px;
+  margin: 0 2px 10px calc(2px + var(--okr-depth, 0) * 26px);
+  padding: 13px 16px 13px 18px;
+  background: #fafbfc; border: 1px solid var(--line); border-radius: 10px;
+  border-left: 4px solid var(--okr-stripe, #d9dee3);
+  min-width: 0;
 }
-.okr-tree > .okr-row:last-child, .okr-item .okr-row { border-bottom: none; }
-.okr-row.okr-mine { background: #f7f9fd; border-radius: 8px; }
+.okr-row.okr-mine { background: #f4f8ff; }
+/* 위계 연결선 — 상위 카드에서 내려와 꺾이는 엘보 */
+.okr-child::before {
+  content: ""; position: absolute; left: -17px; top: -9px;
+  width: 13px; height: calc(50% + 9px);
+  border-left: 2px solid #d5dae1; border-bottom: 2px solid #d5dae1;
+  border-bottom-left-radius: 8px;
+}
 .okr-row-main { flex: 1; min-width: 0; }
 .okr-title-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .okr-title { font-size: 0.9rem; word-break: keep-all; overflow-wrap: break-word; }
-.okr-lv { flex-shrink: 0; }
 .okr-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.78rem; color: var(--ink-soft); margin-top: 4px; font-variant-numeric: tabular-nums; }
-.okr-prog { display: flex; align-items: center; gap: 8px; width: 160px; flex-shrink: 0; }
+/* 레벨 배지 — 회사는 기존 톤 유지, 부서부터는 진하게 */
+.okr-lv { flex-shrink: 0; }
+.okr-lv.d0 { background: #f2f4f6; color: var(--ink-soft); }
+.okr-lv.d1 { background: #333d4b; color: #fff; }
+.okr-lv.d2 { background: #6b7684; color: #fff; }
+.okr-lv.d3 { background: #e8edf3; color: #4e5968; }
+.okr-prog { display: flex; align-items: center; gap: 8px; width: 170px; flex-shrink: 0; }
 .okr-prog .bar { flex: 1; }
-.okr-pct { font-size: 0.8rem; color: var(--ink-soft); font-variant-numeric: tabular-nums; width: 38px; text-align: right; }
+.okr-pct { font-size: 0.8rem; color: var(--ink-soft); font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; }
+/* 초과 달성 (100% 초과) — 본인 수치만 초과 표시, 상위 롤업은 100% 상한 */
+.bar.over > i { background: var(--green); }
+.okr-pct.over { color: var(--green); font-weight: 700; }
 .okr-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.btn-okr-prog { border: 1px solid var(--blue); color: var(--blue); background: #fff; }
+.btn-okr-prog:hover { background: var(--blue-soft); }
 .okr-dept-sel {
   border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
   font-size: 0.84rem; background: #fff; color: var(--ink);
 }
+.okr-legend { display: flex; gap: 14px; flex-wrap: wrap; margin: 2px 2px 12px; }
+.okr-legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--ink-soft); }
+.okr-legend-item i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
 .okr-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
 .okr-stat { margin-bottom: 0; text-align: center; padding: 18px 10px; }
 .os-num { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .os-num.warn { color: var(--amber); }
 .os-label { font-size: 0.78rem; color: var(--ink-soft); margin-top: 4px; }
+.cycle-list { display: grid; gap: 8px; margin-bottom: 14px; }
+.cycle-row { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 0.88rem; }
+.cycle-row b { flex: 1; word-break: keep-all; overflow-wrap: break-word; }
+.cy-meta { font-size: 0.78rem; color: var(--ink-soft); white-space: nowrap; }
+.cycle-new { display: flex; gap: 8px; margin-bottom: 6px; }
+.cycle-new input {
+  flex: 1; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 0.88rem;
+}
 @media (max-width: 760px) {
   .okr-stats { grid-template-columns: repeat(2, 1fr); }
-  .okr-row { flex-wrap: wrap; gap: 8px; padding-left: calc(2px + var(--okr-depth, 0) * 12px); }
+  .okr-row { flex-wrap: wrap; gap: 8px; margin-left: calc(2px + var(--okr-depth, 0) * 14px); }
+  .okr-child::before { left: -10px; width: 7px; }
   .okr-prog { width: 100%; }
   .okr-actions { width: 100%; justify-content: flex-end; }
 }
