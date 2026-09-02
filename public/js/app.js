@@ -1775,7 +1775,8 @@ function openDatePicker(anchor, dateStr, onPick, opts) {
         ${cells.map((c) => {
           const v = c.out ? "" : `${year}-${String(month).padStart(2, "0")}-${String(c.d).padStart(2, "0")}`;
           const ok = v && inRange(v);
-          return `<button type="button" class="cal-d ${c.out ? "out" : ""} ${v && v === sel ? "on" : ""}" ${ok ? `data-d="${v}"` : "disabled"}>${c.d}</button>`;
+          // 범위 밖(상위 마감일 이후 등)은 'blocked' 로 흐리게 + 취소선 — 선택 불가가 한눈에 보이도록
+          return `<button type="button" class="cal-d ${c.out ? "out" : ""} ${v && !ok ? "blocked" : ""} ${v && v === sel ? "on" : ""}" ${ok ? `data-d="${v}"` : "disabled"} ${v && !ok ? 'title="선택할 수 없는 날짜입니다"' : ""}>${c.d}</button>`;
         }).join("")}
       </div>
       <div class="cal-foot">

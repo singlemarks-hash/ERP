@@ -2073,3 +2073,7 @@ button.att-note.req:hover { background: var(--blue-soft); color: var(--blue-deep
 /* 부서 OKR 탭 — 내 항목 '나' 태그 */
 .badge.me-tag { background: var(--blue); color: #fff; font-size: 0.66rem; padding: 1px 6px; margin-right: 5px; vertical-align: 1px; }
 .kr-f-due .cal-input { margin-top: 4px; width: 100%; }
+/* 캘린더 — 범위 밖 날짜는 확실히 흐리게 (선택 불가) */
+.cal-d.blocked { color: var(--ink-faint); opacity: 0.35; text-decoration: line-through; cursor: not-allowed; background: transparent; }
+.cal-d.blocked:hover { background: transparent; }
+.cal-link:disabled { opacity: 0.35; cursor: not-allowed; }
