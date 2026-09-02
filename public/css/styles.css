@@ -2055,3 +2055,18 @@ button.att-note.req:hover { background: var(--blue-soft); color: var(--blue-deep
 .okr-toggle.kr-toggle { align-self: flex-start; margin-bottom: 2px; }
 .okr-kr-body { display: grid; gap: 4px; }
 .okr-kr-body[hidden] { display: none; }
+/* OKR 섹션 헤더 토글 — 행 아래 "▼ 연결된 팀 OKR (3)" / "▼ KR (2)" */
+.okr-sec-head {
+  display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none;
+  margin: -2px 2px 8px calc(2px + var(--okr-depth, 0) * 26px);
+  padding: 5px 4px; font-size: 0.8rem; font-weight: 600; color: var(--ink-soft);
+}
+.okr-sec-head:hover { color: var(--ink); }
+.okr-sec-head .tg-tri { font-size: 0.62rem; width: 12px; text-align: center; }
+.okr-krs .okr-sec-head { margin: 0 0 2px; }
+.okr-row .okr-actions { width: 40px; }
+.okr-kr .okr-actions { width: 108px; }
+@media (max-width: 760px) {
+  .okr-sec-head { margin-left: calc(2px + var(--okr-depth, 0) * 14px); }
+  .okr-row .okr-actions, .okr-kr .okr-actions { width: 100%; }
+}

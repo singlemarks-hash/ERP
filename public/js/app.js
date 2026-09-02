@@ -5084,8 +5084,8 @@ function okrKrListHtml(o, idx, opts) {
   const open = okrOpenState.has(key) ? okrOpenState.get(key) : !opts.krCollapsed;
   return `
     <div class="okr-krs" style="--okr-depth:${depth}" data-krs="${o.id}">
-      ${krs.length ? `<button type="button" class="okr-toggle kr-toggle ${open ? "open" : ""}" data-toggle="${key}"
-         title="${open ? "접기" : "펼치기"}"><span class="tg-arrow">\u25b8</span> KR ${krs.length}개</button>` : ""}
+      ${krs.length ? `<div class="okr-sec-head" data-toggle="${key}" title="${open ? "접기" : "펼치기"}">
+         <span class="tg-tri">${open ? "\u25bc" : "\u25b6"}</span> KR (${krs.length})</div>` : ""}
       <div class="okr-kr-body" data-children="${key}" ${krs.length && !open ? "hidden" : ""}>
       ${krs.map((k) => {
         const raw = krPct(k, true);
@@ -5129,17 +5129,19 @@ function okrTreeHtml(idx, visibleIds, opts) {
   const render = (o) => {
     if (visibleIds && !visibleIds.has(o.id)) return "";
     const kids = idx.childrenOf(o.id).filter((k) => !visibleIds || visibleIds.has(k.id));
-    const collapsible = opts.collapsible && idx.depthOf(o.id) >= 1 && kids.length;
-    const open = !collapsible || (okrOpenState.has(o.id) ? okrOpenState.get(o.id) : false);
-    const extra = collapsible
-      ? `<button type="button" class="okr-toggle ${open ? "open" : ""}" data-toggle="${o.id}" title="${open ? "접기" : "펼치기"}">
-           <span class="tg-arrow">\u25b8</span> 하위 ${kids.length}</button>` : "";
+    const depth = idx.depthOf(o.id);
+    // 진행현황(collapsible)은 부서 아래부터 접어 두고, 사용자가 누른 상태는 기억한다
+    const open = okrOpenState.has(o.id) ? okrOpenState.get(o.id) : !(opts.collapsible && depth >= 1);
+    const childLevel = OKR_LEVEL_LABELS[Math.min(depth + 1, OKR_LEVEL_LABELS.length - 1)];
     return `<div class="okr-node">
-      ${okrRowHtml(o, idx, { ...opts, extra })}
-      <div class="okr-children" data-children="${o.id}" ${open ? "" : "hidden"}>
-        ${okrKrListHtml(o, idx, opts)}
-        ${kids.map(render).join("")}
-      </div>
+      ${okrRowHtml(o, idx, opts)}
+      ${okrKrListHtml(o, idx, opts)}
+      ${kids.length ? `
+        <div class="okr-sec-head" style="--okr-depth:${Math.min(depth + 1, 6)}" data-toggle="${o.id}" title="${open ? "접기" : "펼치기"}">
+          <span class="tg-tri">${open ? "\u25bc" : "\u25b6"}</span> 연결된 ${childLevel} OKR (${kids.length})</div>
+        <div class="okr-children" data-children="${o.id}" ${open ? "" : "hidden"}>
+          ${kids.map(render).join("")}
+        </div>` : ""}
     </div>`;
   };
   const html = idx.roots.map(render).join("");
@@ -5166,7 +5168,8 @@ function bindOkrActions(scope, okrs, emps, idx) {
       if (!box) return;
       const open = box.hidden;
       box.hidden = !open;
-      b.classList.toggle("open", open);
+      const tri = b.querySelector(".tg-tri");
+      if (tri) tri.textContent = open ? "\u25bc" : "\u25b6";
       b.title = open ? "접기" : "펼치기";
       okrOpenState.set(id, open);
     };
@@ -5320,16 +5323,18 @@ function openOkrModal(okrs, emps, idx) {
   const allowRoot = canEditCompanyOkr();
   const canPickOwner = canManageOps();
   /* 상위 후보: 회사 O + 담당자 부서의 OKR만 (다른 부서 트리에 붙는 일을 막는다) */
+  // 회사 O가 하나뿐이면 기본 선택 — 그 바로 아래에 만들면 담당자 부서의 '부서 OKR'이 된다
+  const preselect = idx.roots.length === 1 ? idx.roots[0].id : null;
   const parentOptionsHtml = (dept) => {
     const out = [];
     const walk = (o) => {
       if (!o.parentId || o.dept === dept) {
-        out.push(`<option value="${o.id}">[${idx.levelLabel(o.id)}] ${esc(o.title)}</option>`);
+        out.push(`<option value="${o.id}" ${o.id === preselect ? "selected" : ""}>[${idx.levelLabel(o.id)}] ${esc(o.title)}</option>`);
       }
       idx.childrenOf(o.id).forEach(walk);
     };
     idx.roots.forEach(walk);
-    return `<option value="" disabled selected>상위 OKR을 선택하세요</option>`
+    return `<option value="" disabled ${preselect ? "" : "selected"}>상위 OKR을 선택하세요</option>`
       + (allowRoot ? `<option value="__root">(없음) — 회사 최상위 O 로 만들기</option>` : "")
       + out.join("");
   };
@@ -5347,7 +5352,7 @@ function openOkrModal(okrs, emps, idx) {
       <div id="of-owner-wrap"><label class="field"><span class="field-label">담당자</span>${ownerSel}</label></div>
       <label class="field"><span class="field-label">상위 OKR 연결${allowRoot ? " (비우면 회사 최상위 O)" : ""}</span>
         <select id="of-parent" required>${parentOptionsHtml(me.dept || "")}</select>
-        <span class="field-hint">회사 O와 담당자 부서의 OKR만 연결할 수 있습니다.</span></label>
+        <span class="field-hint" id="of-level-hint"></span></label>
       <label class="field"><span class="field-label">목표 마감일 <b style="color:var(--red,#f04452)">*</b></span>
         <input id="of-deadline" type="date" required /></label>
       <p class="modal-desc" id="of-hint"></p>
@@ -5368,6 +5373,13 @@ function openOkrModal(okrs, emps, idx) {
     const isRoot = parentSel.value === "__root";
     $("#of-owner-wrap").style.display = isRoot ? "none" : "";   // 회사 O는 담당자 없이 전사 목표
     const p = parentSel.value && !isRoot ? idx.byId[parentSel.value] : null;
+    const dept = ownerDept() || "(부서 없음)";
+    const lv = p ? OKR_LEVEL_LABELS[Math.min(idx.depthOf(p.id) + 1, OKR_LEVEL_LABELS.length - 1)] : "";
+    $("#of-level-hint").textContent = isRoot ? "회사 최상위 O로 등록됩니다."
+      : p ? (!p.parentId
+          ? `회사 OKR 바로 아래 → ${dept}의 부서 OKR로 자동 등록됩니다.`
+          : `[${idx.levelLabel(p.id)}] 아래 ${lv} OKR로 등록됩니다. (부서: ${dept})`)
+      : "회사 O와 담당자 부서의 OKR만 연결할 수 있습니다.";
     $("#of-hint").textContent = p && p.deadline
       ? `상위 OKR 마감일(${p.deadline}) 이내로만 설정할 수 있습니다.`
       : (isRoot ? "회사 최상위 O는 담당자 없이 전사 목표로 만듭니다." : "");
