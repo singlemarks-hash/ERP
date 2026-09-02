@@ -2072,3 +2072,4 @@ button.att-note.req:hover { background: var(--blue-soft); color: var(--blue-deep
 }
 /* 부서 OKR 탭 — 내 항목 '나' 태그 */
 .badge.me-tag { background: var(--blue); color: #fff; font-size: 0.66rem; padding: 1px 6px; margin-right: 5px; vertical-align: 1px; }
+.kr-f-due .cal-input { margin-top: 4px; width: 100%; }

@@ -1727,13 +1727,13 @@ function openMonthPicker(anchor, ym, onPick) {
 /* 공용 날짜 필드: 네이티브 date 입력 대신 한글 달력 버튼 (iOS 폭 깨짐·영문 표기 회피) */
 const calField = (id, value) => `<button type="button" class="cal-input" id="${id}" data-val="${esc(value || "")}">
   <span id="${id}-label">${value ? esc(value) : '<span class="cal-ph">날짜 선택</span>'}</span>${CAL_ICON}</button>`;
-function bindCalField(id, onChange) {
+function bindCalField(id, onChange, getOpts) {
   const btn = $("#" + id);
   btn.onclick = () => openDatePicker(btn, btn.dataset.val || "", (v) => {
     btn.dataset.val = v || "";
     $(`#${id}-label`).innerHTML = v ? esc(v) : '<span class="cal-ph">날짜 선택</span>';
     if (onChange) onChange(v || "");
-  });
+  }, getOpts ? getOpts() : null);
 }
 const calVal = (id) => $("#" + id).dataset.val || "";
 const calSet = (id, v) => {
@@ -1742,9 +1742,12 @@ const calSet = (id, v) => {
 };
 
 // 지급일 선택: 연/월 셀렉트 + 일 그리드
-function openDatePicker(anchor, dateStr, onPick) {
+function openDatePicker(anchor, dateStr, onPick, opts) {
   const { pop, place } = calPopBase(anchor);
-  const base = dateStr || todayKST();
+  const min = (opts && opts.min) || "";
+  const max = (opts && opts.max) || "";
+  const inRange = (v) => (!min || v >= min) && (!max || v <= max);
+  const base = dateStr || (max && todayKST() > max ? max : todayKST());
   let year = Number(base.slice(0, 4));
   let month = Number(base.slice(5, 7));
   const sel = dateStr || "";
@@ -1771,12 +1774,13 @@ function openDatePicker(anchor, dateStr, onPick) {
       <div class="cal-dgrid">
         ${cells.map((c) => {
           const v = c.out ? "" : `${year}-${String(month).padStart(2, "0")}-${String(c.d).padStart(2, "0")}`;
-          return `<button type="button" class="cal-d ${c.out ? "out" : ""} ${v && v === sel ? "on" : ""}" ${v ? `data-d="${v}"` : "disabled"}>${c.d}</button>`;
+          const ok = v && inRange(v);
+          return `<button type="button" class="cal-d ${c.out ? "out" : ""} ${v && v === sel ? "on" : ""}" ${ok ? `data-d="${v}"` : "disabled"}>${c.d}</button>`;
         }).join("")}
       </div>
       <div class="cal-foot">
         <button type="button" class="cal-link" data-act="clear">지우기</button>
-        <button type="button" class="cal-link primary" data-act="today">오늘</button>
+        <button type="button" class="cal-link primary" data-act="today" ${inRange(todayKST()) ? "" : "disabled"}>오늘</button>
       </div>`;
     const shift = (n) => { month += n; if (month < 1) { month = 12; year--; } if (month > 12) { month = 1; year++; } render(); };
     pop.querySelectorAll(".cal-nav").forEach((b) => { b.onclick = () => shift(Number(b.dataset.nav)); });
@@ -1786,7 +1790,7 @@ function openDatePicker(anchor, dateStr, onPick) {
       b.onclick = () => { onPick(b.dataset.d); pop.remove(); };
     });
     pop.querySelector('[data-act="clear"]').onclick = () => { onPick(""); pop.remove(); };
-    pop.querySelector('[data-act="today"]').onclick = () => { onPick(todayKST()); pop.remove(); };
+    pop.querySelector('[data-act="today"]').onclick = () => { if (inRange(todayKST())) { onPick(todayKST()); pop.remove(); } };
     place();
   };
   render();
@@ -5112,8 +5116,7 @@ function okrKrListHtml(o, idx, opts) {
             <input class="kr-f-target" type="number" min="1" step="any" required placeholder="목표 수치" />
             <select class="kr-f-unit">${OKR_UNITS.map((u) => `<option>${u}</option>`).join("")}</select>
           </div>
-          <label class="kr-f-due">마감일 (선택)
-            <input class="kr-f-deadline" type="date" ${o.deadline ? `max="${esc(o.deadline)}"` : ""} /></label>
+          <div class="kr-f-due">마감일 (선택)${calField(`kr-dl-${o.id}`, "")}</div>
           <div class="kr-f-actions">
             <button type="button" class="btn btn-ghost btn-sm" data-kr-cancel="${o.id}">취소</button>
             <button type="submit" class="btn btn-primary btn-sm">추가</button>
@@ -5202,19 +5205,21 @@ function bindOkrActions(scope, okrs, emps, idx) {
     b.onclick = () => {
       const f = scope.querySelector(`#kr-form-${b.dataset.krCancel}`);
       const add = scope.querySelector(`[data-kr-add="${b.dataset.krCancel}"]`);
-      if (f) { f.hidden = true; f.reset(); }
+      if (f) { f.hidden = true; f.reset(); calSet(`kr-dl-${b.dataset.krCancel}`, ""); }
       if (add) add.hidden = false;
     };
   });
   scope.querySelectorAll(".kr-add-form").forEach((f) => {
+    const oid = f.id.replace("kr-form-", "");
+    const node = idx.byId[oid];
+    bindCalField(`kr-dl-${oid}`, null, () => ({ max: node && node.deadline ? node.deadline : "" }));
     f.onsubmit = (ev) => {
       ev.preventDefault();
-      const oid = f.id.replace("kr-form-", "");
-      addKr(idx.byId[oid], {
+      addKr(node, {
         title: f.querySelector(".kr-f-title").value.trim(),
         target: Number(f.querySelector(".kr-f-target").value),
         unit: f.querySelector(".kr-f-unit").value,
-        deadline: f.querySelector(".kr-f-deadline").value || null
+        deadline: calVal(`kr-dl-${oid}`) || null
       });
     };
   });
@@ -5354,7 +5359,7 @@ function openOkrModal(okrs, emps, idx) {
         <select id="of-parent" required>${parentOptionsHtml(me.dept || "")}</select>
         <span class="field-hint" id="of-level-hint"></span></label>
       <label class="field"><span class="field-label">목표 마감일 <b style="color:var(--red,#f04452)">*</b></span>
-        <input id="of-deadline" type="date" required /></label>
+        ${calField("of-deadline", "")}</label>
       <p class="modal-desc" id="of-hint"></p>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost btn-sm" id="of-cancel">취소</button>
@@ -5383,9 +5388,11 @@ function openOkrModal(okrs, emps, idx) {
     $("#of-hint").textContent = p && p.deadline
       ? `상위 OKR 마감일(${p.deadline}) 이내로만 설정할 수 있습니다.`
       : (isRoot ? "회사 최상위 O는 담당자 없이 전사 목표로 만듭니다." : "");
-    if (p && p.deadline) $("#of-deadline").max = p.deadline;
-    else $("#of-deadline").removeAttribute("max");
+    ofMax = p && p.deadline ? p.deadline : "";
+    if (ofMax && calVal("of-deadline") > ofMax) calSet("of-deadline", "");   // 상위가 바뀌어 범위를 벗어나면 비운다
   };
+  let ofMax = "";
+  bindCalField("of-deadline", null, () => ({ max: ofMax }));
   parentSel.onchange = sync;
   const ownerEl = $("#of-owner");
   if (ownerEl) ownerEl.onchange = () => { parentSel.innerHTML = parentOptionsHtml(ownerDept()); sync(); };
@@ -5397,7 +5404,7 @@ function openOkrModal(okrs, emps, idx) {
     const title = $("#of-title").value.trim();
     const isRoot = parentSel.value === "__root";
     const parentId = isRoot ? null : (parentSel.value || null);
-    const deadline = $("#of-deadline").value;
+    const deadline = calVal("of-deadline");
     if (!title) return toast("제목을 입력하세요.");
     if (!isRoot && !parentId) return toast("상위 OKR을 선택하세요.");
     if (isRoot && !canEditCompanyOkr()) return toast("회사 O는 총괄 관리자·대표만 만들 수 있습니다.");
