@@ -2077,3 +2077,5 @@ button.att-note.req:hover { background: var(--blue-soft); color: var(--blue-deep
 .cal-d.blocked { color: var(--ink-faint); opacity: 0.35; text-decoration: line-through; cursor: not-allowed; background: transparent; }
 .cal-d.blocked:hover { background: transparent; }
 .cal-link:disabled { opacity: 0.35; cursor: not-allowed; }
+.okr-orphans { margin-top: 14px; border-top: 1px dashed var(--line); padding-top: 10px; }
+.okr-sec-head.static { cursor: default; color: var(--amber); }
