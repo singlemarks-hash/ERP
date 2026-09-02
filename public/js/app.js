@@ -5058,7 +5058,7 @@ function okrRowHtml(o, idx, opts) {
           ${okrDdayChip(o.deadline, rolled)}
         </div>
         <div class="okr-meta">
-          ${o.parentId ? `<span>${esc(o.ownerName || "-")}${o.dept ? ` · ${esc(o.dept)}` : ""}</span><span>${goal}</span>` : ""}
+          ${o.parentId ? `<span>${mine && opts.meTag ? `<span class="badge me-tag">나</span>` : ""}${esc(o.ownerName || "-")}${o.dept ? ` · ${esc(o.dept)}` : ""}</span><span>${goal}</span>` : ""}
           <span>~ ${esc(o.deadline || "-")}</span>
         </div>
       </div>
@@ -5266,7 +5266,7 @@ function renderOkrDept(okrs, emps, idx) {
       cur = cur.parentId ? idx.byId[cur.parentId] : null;
     }
   });
-  const opts = { actions: (o) => okrActionBtns(o, idx), editable: true };
+  const opts = { actions: (o) => okrActionBtns(o, idx), editable: true, meTag: true };  // 내 항목엔 '나' 태그
   body.innerHTML = `
     <div class="card">
       <div class="card-title">부서 OKR
