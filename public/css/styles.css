@@ -1975,3 +1975,25 @@ button.att-note.req:hover { background: var(--blue-soft); color: var(--blue-deep
   .okr-prog { width: 100%; }
   .okr-actions { width: 100%; justify-content: flex-end; }
 }
+/* OKR 최근 KR 업데이트 피드 */
+.okr-feed {
+  background: #fff; border: 1px solid var(--line); border-radius: 12px;
+  padding: 14px 18px; margin: -6px 0 18px;
+}
+.okr-feed-title { font-size: 0.86rem; font-weight: 700; margin-bottom: 8px; }
+.okr-feed-row { display: flex; align-items: baseline; gap: 8px; padding: 5px 0; font-size: 0.84rem; }
+.off-dot { width: 5px; height: 5px; border-radius: 99px; background: var(--ink); flex-shrink: 0; align-self: center; }
+.off-text { flex: 1; min-width: 0; word-break: keep-all; overflow-wrap: break-word; }
+.off-time { font-size: 0.78rem; color: var(--ink-faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* 체크인 모달 */
+.checkin-goal {
+  background: #f7f8fa; border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; font-size: 0.88rem;
+}
+.checkin-goal div { color: var(--ink-soft); font-size: 0.82rem; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.checkin-history { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+.ch-title { font-size: 0.8rem; color: var(--ink-soft); margin-bottom: 6px; }
+.ch-row { display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 0.85rem; }
+.ch-row:last-child { border-bottom: none; }
+.ch-main { flex: 1; min-width: 0; }
+.ch-memo { font-size: 0.8rem; color: var(--ink-soft); margin-top: 2px; white-space: pre-wrap; word-break: keep-all; overflow-wrap: break-word; }
+.ch-when { font-size: 0.76rem; color: var(--ink-faint); white-space: nowrap; font-variant-numeric: tabular-nums; }

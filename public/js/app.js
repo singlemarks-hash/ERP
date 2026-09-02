@@ -4818,7 +4818,7 @@ async function renderMonitor() {
      (본인 표시만 100% 초과 허용 — 상위 롤업에는 100%까지만 반영)
    - 사이클: 총괄 관리자가 분기·연도 단위로 만들고 하나를 '진행중'으로 지정.
      전 직원은 진행중 사이클만 보고, 총괄은 보관된 사이클도 조회할 수 있다.
-   - 생성 후 수정 불가(하위 정합성 보호) — 진행도 입력과 삭제만 가능 */
+   - 생성 후 수정 불가(하위 정합성 보호) — 체크인(최하위 KR만)과 삭제만 가능 */
 let okrTab = "mine";          // mine | dept | status
 let okrViewCycleId = null;    // 총괄이 조회 중인 사이클
 let okrActiveCycleId = null;  // 진행중 사이클 (새 OKR이 담기는 곳)
@@ -4924,6 +4924,26 @@ function okrGoalText(o) {
   if (!o.parentId) return "";
   return `${fmt(o.current || 0)} / ${fmt(o.target)}${esc(o.unit || "")}`;
 }
+/* 진행률 표시값 — 100% 미만은 내림해서 목표 미달인데 100%로 보이는 일을 막는다
+   (예: 1,999/2,000 = 99.95% → 반올림하면 100%가 되어버림 → 99%로 표시) */
+function okrPctDisplay(p) {
+  return p >= 100 ? Math.round(p) : Math.floor(p);
+}
+/* 체크인 피드 시간 — 오늘이면 오전/오후 h:mm, 아니면 M.D */
+function okrFeedTime(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const kst = new Date(d.getTime() + 9 * 3600e3);
+  const today = todayKST();
+  const dateStr = kst.toISOString().slice(0, 10);
+  if (dateStr === today) {
+    let h = kst.getUTCHours();
+    const ampm = h < 12 ? "오전" : "오후";
+    h = h % 12 || 12;
+    return `${ampm} ${String(h).padStart(2, "0")}:${String(kst.getUTCMinutes()).padStart(2, "0")}`;
+  }
+  return `${kst.getUTCMonth() + 1}.${kst.getUTCDate()}`;
+}
 /* 부서 식별 띠 색 — 회사 O는 블랙(대표 컬러) */
 function okrStripeColor(o) {
   return OKR_DEPT_COLORS[o.parentId ? o.dept : "대표"] || "#d9dee3";
@@ -4949,8 +4969,12 @@ async function renderOkr() {
       ${[["mine", "내 OKR"], ["dept", "부서 OKR"], ["status", "진행현황"]].map(([k, l]) =>
         `<button class="subtab ${okrTab === k ? "on" : ""}" data-otab="${k}">${l}</button>`).join("")}
     </div>
+    <div id="okr-feed"></div>
     <div id="okr-cycle-bar"></div>
     <div id="okr-body"><div class="empty">불러오는 중...</div></div>`;
+  // 최근 KR 업데이트 피드가 페이지 설명 바로 아래에 오도록 위치를 옮긴다
+  const headEl = main.querySelector(".page-head");
+  if (headEl) headEl.after($("#okr-feed"));
   main.querySelectorAll("[data-otab]").forEach((b) => {
     b.onclick = () => navigate("okr", b.dataset.otab);
   });
@@ -4993,6 +5017,23 @@ async function renderOkr() {
     bar.innerHTML = "";
   }
 
+  // 최근 KR 업데이트 피드 — 이 사이클의 체크인 중 최신 3건
+  const feed = okrs
+    .flatMap((o) => (o.checkins || []).map((c) => ({ ...c, okrTitle: o.title })))
+    .sort((a, b) => (b.at || "").localeCompare(a.at || ""))
+    .slice(0, 3);
+  $("#okr-feed").innerHTML = feed.length ? `
+    <div class="okr-feed">
+      <div class="okr-feed-title">📢 최근 KR 업데이트</div>
+      ${feed.map((c) => `
+        <div class="okr-feed-row">
+          <span class="off-dot"></span>
+          <span class="off-text"><b>${esc(c.empName)}</b>님이 [${esc(c.okrTitle)}] KR을
+            ${Number(c.pct) >= 100 ? "완료했습니다! 🎉" : `체크인했습니다 (${okrPctDisplay(Number(c.pct) || 0)}%)`}</span>
+          <span class="off-time">${okrFeedTime(c.at)}</span>
+        </div>`).join("")}
+    </div>` : "";
+
   const idx = buildOkrIndex(okrs);
   if (okrTab === "mine") renderOkrMine(okrs, emps, idx);
   else if (okrTab === "dept") renderOkrDept(okrs, emps, idx);
@@ -5002,9 +5043,10 @@ async function renderOkr() {
 /* 트리 한 줄 — 부서 컬러 띠 + 위계 연결선 + 레벨 배지 + 진행바 */
 function okrRowHtml(o, idx, opts) {
   const depth = idx.depthOf(o.id);
-  const rolled = Math.round(idx.progressOf(o.id));   // 롤업(100% 상한) — 달성 판정용
-  const pct = Math.round(idx.displayPctOf(o.id));    // 표시용 — 말단은 초과분 그대로
+  const rolled = idx.progressOf(o.id);               // 롤업(100% 상한) — 달성 판정용 (정확값)
+  const pct = okrPctDisplay(idx.displayPctOf(o.id)); // 표시용 — 말단은 초과분 그대로, 100% 미만은 내림
   const over = pct > 100;
+  const kidCount = idx.childrenOf(o.id).length;
   const mine = me && o.ownerId === me.id;
   // flat: 내 OKR처럼 부모 행 없이 단독으로 보여줄 때 — 들여쓰기·연결선 생략
   const layoutDepth = opts && opts.flat ? 0 : Math.min(depth, 6);
@@ -5018,7 +5060,7 @@ function okrRowHtml(o, idx, opts) {
           ${okrDdayChip(o, rolled)}
         </div>
         <div class="okr-meta">
-          ${o.parentId ? `<span>${esc(o.ownerName || "-")}${o.dept ? ` · ${esc(o.dept)}` : ""}</span><span>${okrGoalText(o)}</span>` : ""}
+          ${o.parentId ? `<span>${esc(o.ownerName || "-")}${o.dept ? ` · ${esc(o.dept)}` : ""}</span><span>${kidCount ? `하위 ${kidCount}개 KR 평균` : okrGoalText(o)}</span>` : ""}
           <span>~ ${esc(o.deadline || "-")}</span>
         </div>
       </div>
@@ -5040,11 +5082,12 @@ function okrTreeHtml(idx, visibleIds, opts) {
   return rows.length ? `<div class="okr-tree">${rows.join("")}</div>` : "";
 }
 
-/* 줄에 붙는 버튼 — 생성 후 수정은 불가, 진행도 입력과 삭제만 (보관 사이클은 조회 전용) */
+/* 줄에 붙는 버튼 — 생성 후 수정은 불가, 체크인과 삭제만 (보관 사이클은 조회 전용)
+   체크인은 최하위 KR에서만 한다 — 하위가 있는 OKR은 하위 평균으로 자동 계산되므로 */
 function okrActionBtns(o, idx) {
   if (okrReadonly || !canEditOkr(o)) return "";
   const btns = [];
-  if (o.parentId) btns.push(`<button class="btn btn-sm btn-okr-prog" data-okr-prog="${o.id}">진행도 입력</button>`);
+  if (o.parentId && !idx.childrenOf(o.id).length) btns.push(`<button class="btn btn-sm btn-okr-prog" data-okr-prog="${o.id}">체크인</button>`);
   btns.push(`<button class="btn btn-danger btn-sm" data-okr-del="${o.id}">삭제</button>`);
   return btns.join("");
 }
@@ -5124,7 +5167,7 @@ function renderOkrDept(okrs, emps, idx) {
 function renderOkrStatus(okrs, emps, idx) {
   const body = $("#okr-body");
   const companyProg = idx.roots.length
-    ? Math.round(idx.roots.reduce((s, r) => s + idx.progressOf(r.id), 0) / idx.roots.length) : 0;
+    ? okrPctDisplay(idx.roots.reduce((s, r) => s + idx.progressOf(r.id), 0) / idx.roots.length) : 0;
   const soon = okrs.filter((o) => {
     const d = okrDday(o.deadline);
     return d !== null && d >= 0 && d <= 7 && idx.progressOf(o.id) < 100;
@@ -5264,32 +5307,57 @@ function openOkrModal(okrs, emps, idx) {
   };
 }
 
-/* ── 진행도 입력 ── */
+/* ── 체크인 — 새 값 + 메모(선택) + 최근 체크인 기록 ── */
 function openOkrProgressModal(okr) {
-  const pct = Number(okr.target) > 0 ? Math.round(((Number(okr.current) || 0) / Number(okr.target)) * 100) : 0;
+  const pctOf = (v) => Number(okr.target) > 0 ? (Number(v) || 0) / Number(okr.target) * 100 : 0;
+  const history = [...(okr.checkins || [])].sort((a, b) => (b.at || "").localeCompare(a.at || "")).slice(0, 5);
   openModal(`
-    <h3>진행도 입력</h3>
-    <p class="modal-desc"><b>${esc(okr.title)}</b> — 목표 ${fmt(okr.target)}${esc(okr.unit || "")} (현재 ${pct}%)</p>
+    <h3>체크인</h3>
+    <div class="checkin-goal">
+      <b>${esc(okr.title)}</b>
+      <div>현재: ${fmt(okr.current || 0)} / 목표: ${fmt(okr.target)} ${esc(okr.unit || "")} (${okrPctDisplay(pctOf(okr.current))}%)</div>
+    </div>
     <form id="okr-prog-form">
-      <label class="field"><span class="field-label">현재 달성 수치 (${esc(okr.unit || "")})</span>
+      <label class="field"><span class="field-label">새 값 (${esc(okr.unit || "")})</span>
         <input id="op-cur" type="number" min="0" step="any" required value="${esc(okr.current ?? 0)}" /></label>
+      <label class="field"><span class="field-label">메모 (선택)</span>
+        <textarea id="op-memo" rows="3" maxlength="200" placeholder="진행 상황을 기록하세요..."></textarea></label>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost btn-sm" id="op-cancel">취소</button>
-        <button type="submit" class="btn btn-primary btn-sm">저장</button>
+        <button type="submit" class="btn btn-primary btn-sm">체크인 저장</button>
       </div>
-    </form>`);
+    </form>
+    ${history.length ? `
+      <div class="checkin-history">
+        <div class="ch-title">최근 체크인 기록</div>
+        ${history.map((c) => `
+          <div class="ch-row">
+            <div class="ch-main">
+              <b>${fmt(c.value)} ${esc(okr.unit || "")} (${okrPctDisplay(Number(c.pct) || 0)}%)</b>
+              ${c.memo ? `<div class="ch-memo">${esc(c.memo)}</div>` : ""}
+            </div>
+            <span class="ch-when">${esc(c.empName || "")} · ${okrFeedTime(c.at)}</span>
+          </div>`).join("")}
+      </div>` : ""}`);
   $("#op-cancel").onclick = closeModal;
   $("#okr-prog-form").onsubmit = async (ev) => {
     ev.preventDefault();
     const cur = Number($("#op-cur").value);
     if (!(cur >= 0)) return toast("0 이상의 수치를 입력하세요.");
+    const memo = $("#op-memo").value.trim();
+    const entry = {
+      empId: me.id, empName: me.name,
+      value: cur, pct: Math.round(pctOf(cur) * 10) / 10,
+      memo, at: new Date().toISOString()
+    };
     try {
       await db.collection(COL.okrs).doc(okr.id).update({
         current: cur,
+        checkins: [...(okr.checkins || []).slice(-19), entry],   // 최근 20건 보관
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       });
       closeModal();
-      toast("진행도를 저장했습니다.");
+      toast("체크인을 저장했습니다.");
       renderOkr();
     } catch (e) {
       toast("저장에 실패했습니다. 잠시 후 다시 시도하세요.");
