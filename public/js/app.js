@@ -4825,7 +4825,7 @@ async function renderMonitor() {
 let okrTab = "mine";          // mine | dept | status
 let okrActiveCycleId = null;  // 활성 사이클 (새 OKR이 담기는 곳)
 let okrReadonly = false;      // 활성 사이클이 없으면 true (조회만)
-const okrExpanded = new Set(); // 진행현황에서 펼쳐 둔 노드 id
+const okrOpenState = new Map(); // 접기/펼치기 상태 (키 → true/false, 없으면 화면 기본값)
 const OKR_UNITS = ["%", "개", "건", "원", "명"];
 const OKR_LEVEL_LABELS = ["회사", "부서", "팀", "개인"];
 const OKR_DEPT_COLORS = {
@@ -5070,16 +5070,23 @@ function okrRowHtml(o, idx, opts) {
     </div>`;
 }
 
-/* 노드 아래 KR 리스트 (투두처럼) — editable 이면 체크인·삭제·추가 폼 */
+/* 노드 아래 KR 리스트 (투두처럼) — editable 이면 체크인·삭제·추가 폼
+   KR은 하위 OKR이 없는 '최하위 OKR'에만 붙는다. 개수가 늘 수 있어 토글로 접는다. */
 function okrKrListHtml(o, idx, opts) {
   opts = opts || {};
   const krs = o.krs || [];
-  const editable = !!opts.editable && !okrReadonly && canEditOkr(o);
+  const isLeaf = !idx.childrenOf(o.id).length;
+  const editable = !!opts.editable && !okrReadonly && canEditOkr(o) && isLeaf;
   if (!krs.length && !editable) return "";
   const depth = opts.flat ? 0 : Math.min(idx.depthOf(o.id), 6);
   const color = okrStripeColor(o);
+  const key = `krs:${o.id}`;
+  const open = okrOpenState.has(key) ? okrOpenState.get(key) : !opts.krCollapsed;
   return `
     <div class="okr-krs" style="--okr-depth:${depth}" data-krs="${o.id}">
+      ${krs.length ? `<button type="button" class="okr-toggle kr-toggle ${open ? "open" : ""}" data-toggle="${key}"
+         title="${open ? "접기" : "펼치기"}"><span class="tg-arrow">\u25b8</span> KR ${krs.length}개</button>` : ""}
+      <div class="okr-kr-body" data-children="${key}" ${krs.length && !open ? "hidden" : ""}>
       ${krs.map((k) => {
         const raw = krPct(k, true);
         const p = okrPctDisplay(raw);
@@ -5096,6 +5103,7 @@ function okrKrListHtml(o, idx, opts) {
           </div>
         </div>`;
       }).join("")}
+      ${editable ? "" : "</div>"}
       ${editable ? `
         <button type="button" class="kr-add-btn" data-kr-add="${o.id}">+ KR 추가</button>
         <form class="kr-add-form" id="kr-form-${o.id}" hidden>
@@ -5110,7 +5118,8 @@ function okrKrListHtml(o, idx, opts) {
             <button type="button" class="btn btn-ghost btn-sm" data-kr-cancel="${o.id}">취소</button>
             <button type="submit" class="btn btn-primary btn-sm">추가</button>
           </div>
-        </form>` : ""}
+        </form>
+      </div>` : ""}
     </div>`;
 }
 
@@ -5120,12 +5129,11 @@ function okrTreeHtml(idx, visibleIds, opts) {
   const render = (o) => {
     if (visibleIds && !visibleIds.has(o.id)) return "";
     const kids = idx.childrenOf(o.id).filter((k) => !visibleIds || visibleIds.has(k.id));
-    const krCount = (o.krs || []).length;
-    const collapsible = opts.collapsible && idx.depthOf(o.id) >= 1 && (kids.length || krCount);
-    const open = !collapsible || okrExpanded.has(o.id);
+    const collapsible = opts.collapsible && idx.depthOf(o.id) >= 1 && kids.length;
+    const open = !collapsible || (okrOpenState.has(o.id) ? okrOpenState.get(o.id) : false);
     const extra = collapsible
       ? `<button type="button" class="okr-toggle ${open ? "open" : ""}" data-toggle="${o.id}" title="${open ? "접기" : "펼치기"}">
-           <span class="tg-arrow">▸</span>${kids.length ? ` 하위 ${kids.length}` : ""}${krCount ? ` KR ${krCount}` : ""}</button>` : "";
+           <span class="tg-arrow">\u25b8</span> 하위 ${kids.length}</button>` : "";
     return `<div class="okr-node">
       ${okrRowHtml(o, idx, { ...opts, extra })}
       <div class="okr-children" data-children="${o.id}" ${open ? "" : "hidden"}>
@@ -5138,14 +5146,10 @@ function okrTreeHtml(idx, visibleIds, opts) {
   return html.trim() ? `<div class="okr-tree">${html}</div>` : "";
 }
 
-/* 줄에 붙는 버튼 — 생성 후 수정은 불가. (과거 방식 정량 노드는 체크인) + 삭제 아이콘 */
+/* 줄에 붙는 버튼 — 생성 후 수정은 불가. 체크인은 KR에서만 하므로 여기엔 삭제만 둔다 */
 function okrActionBtns(o, idx) {
   if (okrReadonly || !canEditOkr(o)) return "";
-  const btns = [];
-  const legacyLeaf = o.parentId && Number(o.target) > 0 && !idx.childrenOf(o.id).length && !(o.krs || []).length;
-  if (legacyLeaf) btns.push(`<button class="btn btn-sm btn-okr-prog" data-okr-prog="${o.id}">체크인</button>`);
-  btns.push(`<button class="btn-icon danger" title="삭제" data-okr-del="${o.id}">${ICON_TRASH}</button>`);
-  return btns.join("");
+  return `<button class="btn-icon danger" title="삭제" data-okr-del="${o.id}">${ICON_TRASH}</button>`;
 }
 
 function bindOkrActions(scope, okrs, emps, idx) {
@@ -5164,7 +5168,7 @@ function bindOkrActions(scope, okrs, emps, idx) {
       box.hidden = !open;
       b.classList.toggle("open", open);
       b.title = open ? "접기" : "펼치기";
-      if (open) okrExpanded.add(id); else okrExpanded.delete(id);
+      okrOpenState.set(id, open);
     };
   });
   // KR 체크인 / 삭제 / 추가
@@ -5304,7 +5308,7 @@ function renderOkrStatus(okrs, emps, idx) {
       </div>
       ${legendDepts.length ? `<div class="okr-legend">${legendDepts.map((d) =>
         `<span class="okr-legend-item"><i style="background:${OKR_DEPT_COLORS[d]}"></i>${esc(d)}</span>`).join("")}</div>` : ""}
-      ${okrTreeHtml(idx, null, { collapsible: true }) || `<div class="empty">등록된 OKR이 없습니다.${canEditCompanyOkr() ? " 회사 최상위 O부터 만들어 주세요." : ""}</div>`}
+      ${okrTreeHtml(idx, null, { collapsible: true, krCollapsed: true }) || `<div class="empty">등록된 OKR이 없습니다.${canEditCompanyOkr() ? " 회사 최상위 O부터 만들어 주세요." : ""}</div>`}
     </div>`;
   const rootBtn = $("#okr-add-root");
   if (rootBtn) rootBtn.onclick = () => openOkrModal(okrs, emps, idx);

@@ -2051,3 +2051,7 @@ button.att-note.req:hover { background: var(--blue-soft); color: var(--blue-deep
   .okr-kr { flex-wrap: wrap; gap: 8px; }
   .okr-kr .okr-prog { width: 100%; }
 }
+/* KR 리스트 접기 토글 */
+.okr-toggle.kr-toggle { align-self: flex-start; margin-bottom: 2px; }
+.okr-kr-body { display: grid; gap: 4px; }
+.okr-kr-body[hidden] { display: none; }
