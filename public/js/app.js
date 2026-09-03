@@ -12,17 +12,19 @@ const SESSION_KEY = "quote_erp_session_v1";
    결재자·가산 제외자는 직원 문서의 필드로 관리하고, 결재 라우팅은 직원 ID로 한다.
    (이름은 동명이인·개명·퇴사에 취약해 표시용으로만 쓴다)
 
-   결재 등급(approverTier)
-     0 결재 권한 없음 (기본)
-     1 1차 결재자   — 일반 직원의 결재를 받는다
-     2 2차 결재자   — 일반 직원 + 매니저의 결재를 받는다
-     3 최종 결재자   — 매니저보다 상위 권한자(임원·특수·총괄)의 결재를 받는다
-   최종 결재자 본인처럼 상위 결재자가 자기 자신뿐이면 셀프 승인을 허용한다. */
+   결재자 배정은 특정 인물이 아니라 '권한'으로 자동 결정한다.
+     일반 직원  → 매니저 + 특수관리자 중 선택
+     매니저     → 특수관리자 중 선택
+     그 이상(특수·임원·총괄) → 최종 결재자(approverTier 3) 중 선택
+   (총괄 관리자·임원열람은 일반·매니저의 결재자로 뜨지 않는다)
+   최종 결재자 본인처럼 상위 결재자가 자기 자신뿐이면 셀프 승인을 허용한다.
+
+   결재 등급(approverTier)은 이제 최종 결재자(3) 지정에만 쓰인다. 1·2는 과거 설정값. */
 const APPROVER_TIERS = [
-  { v: 0, label: "결재 권한 없음" },
-  { v: 1, label: "1차 결재자 (일반 직원 결재)" },
-  { v: 2, label: "2차 결재자 (일반·매니저 결재)" },
-  { v: 3, label: "최종 결재자 (관리자·임원 결재)" }
+  { v: 0, label: "해당 없음 (일반·매니저 결재는 권한으로 자동 배정)" },
+  { v: 1, label: "(구 설정) 1차 결재자 — 현재는 권한으로 자동 배정" },
+  { v: 2, label: "(구 설정) 2차 결재자 — 현재는 권한으로 자동 배정" },
+  { v: 3, label: "최종 결재자 (특수·임원·총괄의 결재를 받음)" }
 ];
 /* 기존 계정 이행용 기본값 — approverTier / otExempt가 아직 지정되지 않은 계정만 이름으로 판단한다.
    [직원 관리]에서 한 번 저장하면 이후로는 직원 문서의 값이 쓰인다. */
@@ -37,11 +39,12 @@ function isOtExemptEmp(emp) {
   if (typeof emp?.otExempt === "boolean") return emp.otExempt;
   return LEGACY_OT_EXEMPT_NAMES.includes(emp?.name);
 }
-/* 신청자 권한에 따른 결재자 후보 (직원 목록 필요) */
+/* 신청자 권한에 따른 결재자 후보 (직원 목록 필요) — 권한 기준 자동 배정 */
 function approverCandidates(emps, applicant = me) {
-  const need = applicant.role === "member" ? [1, 2]
-    : applicant.role === "manager" ? [2] : [3];
-  const list = emps.filter((e) => need.includes(approverTierOf(e)) && e.id !== applicant.id);
+  const pick = applicant.role === "member" ? (e) => e.role === "manager" || e.role === "special"
+    : applicant.role === "manager" ? (e) => e.role === "special"
+    : (e) => approverTierOf(e) === 3;
+  const list = emps.filter((e) => pick(e) && e.id !== applicant.id);
   if (list.length) return list;
   // 상위 결재자가 본인뿐인 경우(대표 등) — 본인이 직접 등록·승인한다
   const self = emps.find((e) => e.id === applicant.id);
