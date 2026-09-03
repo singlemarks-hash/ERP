@@ -2099,3 +2099,6 @@ button.att-note.req:hover { background: var(--blue-soft); color: var(--blue-deep
 .kr-add-btn { border: none; border-top: 1px solid var(--line); border-radius: 0; background: #fafbfc; color: var(--ink-soft); }
 .okr-kr-body[hidden] + .kr-add-btn { border-top: none; }
 .kr-add-form { border-top: 1px solid var(--line); border-radius: 0; }
+/* 일정 캘린더 — 결재 대기 중인 휴가 신청 표시 (연차관리 탭) */
+.sc-dot.gray { background: #8b95a1; }
+.sc-cell.pend { outline: 1.5px dashed var(--amber); outline-offset: -2px; }

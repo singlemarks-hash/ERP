@@ -59,7 +59,7 @@ function isMyApproval(r) {
 const ATT_REQ_LABEL = { overtime: "추가근무", change: "근무변경" };
 
 /* 일정 종류별 색상 (휴가=빨강, 행사=그린, 기타=오렌지, 휴무=자주) */
-const SC_KINDS = { "휴가": "red", "행사": "green", "기타": "orange", "휴무": "purple" };
+const SC_KINDS = { "휴가": "red", "행사": "green", "기타": "orange", "휴무": "purple", "결재대기": "gray" };
 
 let db = null;
 let me = null; // { id, ...employee fields }
@@ -2362,12 +2362,23 @@ async function renderSchedule() {
     "전사 공유 캘린더입니다. 휴무·행사를 등록하면 모두에게 표시되고, 승인된 휴가는 자동으로 표시됩니다.",
     `<button class="btn btn-primary btn-sm" id="sc-add">+ 일정 등록</button>`) +
     `<div id="sc-body"><div class="empty">불러오는 중...</div></div>`;
+  await renderScheduleCalInto($("#sc-body"), renderSchedule, { showToday: true });
+}
 
+/* 일정 캘린더 본체 — 일정 탭과 연차관리 탭이 함께 쓴다.
+   box 안에 그리고, 달 이동·날짜 선택·삭제 후에는 rerender() 로 화면을 다시 그린다.
+   opts.pending: 결재 대기 중인 휴가 신청 목록 — 회색 '결재대기' 칩으로 함께 표시 (승인 판단용) */
+async function renderScheduleCalInto(box, rerender, opts) {
+  opts = opts || {};
+  const todayStr = todayKST();
+  if (!scYm) scYm = todayStr.slice(0, 7);
+  if (!scSel) scSel = todayStr;
   const [scSnap, lvSnap, empSnap] = await Promise.all([
     db.collection(COL.schedules).get(),
     db.collection(COL.leaves).get(),
     db.collection(COL.employees).where("status", "==", "재직").get()
   ]);
+  if (!box || !box.isConnected) return;   // 그 사이 다른 화면으로 이동함
   const empName = {};
   empSnap.docs.forEach((d) => { empName[d.id] = d.data().name; });
 
@@ -2404,7 +2415,19 @@ async function renderSchedule() {
     });
   });
 
-  const kindOrder = ["행사", "휴가", "휴무", "기타"];
+  // 결재 대기 중인 휴가 신청 (연차관리 탭) — 겹치는 일정을 보며 승인 여부를 판단할 수 있게
+  (opts.pending || []).forEach((r) => {
+    if (!r.date) return;
+    const cur = new Date(r.date + "T00:00:00Z");
+    const stop = new Date((r.endDate || r.date) + "T00:00:00Z");
+    let guard = 0;
+    while (cur <= stop && guard++ < 62) {
+      push(cur.toISOString().slice(0, 10), { kind: "결재대기", label: `${r.name || "?"} ${r.type || ""}`.trim(), pend: true });
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+  });
+
+  const kindOrder = [...(opts.pending ? ["결재대기"] : []), "행사", "휴가", "휴무", "기타"];
   const sortEvents = (list) => list.slice().sort((a, b) => kindOrder.indexOf(a.kind) - kindOrder.indexOf(b.kind));
   const dot = (kind) => `<i class="sc-dot ${SC_KINDS[kind] || "orange"}"></i>`;
 
@@ -2434,7 +2457,8 @@ async function renderSchedule() {
     const chips = list.slice(0, 3).map((e) =>
       `<span class="sc-chip">${dot(e.kind)}<b>${esc(e.label)}</b></span>`).join("");
     const more = list.length > 3 ? `<span class="sc-more">+${list.length - 3}</span>` : "";
-    return `<button type="button" class="sc-cell ${dateStr < todayStr ? "past" : ""} ${dateStr === todayStr ? "today" : ""} ${dateStr === scSel ? "sel" : ""}" data-scd="${dateStr}">
+    const pend = list.some((e) => e.pend);
+    return `<button type="button" class="sc-cell ${dateStr < todayStr ? "past" : ""} ${dateStr === todayStr ? "today" : ""} ${dateStr === scSel ? "sel" : ""} ${pend ? "pend" : ""}" data-scd="${dateStr}">
       <span class="d ${dow === 0 ? "sun" : dow === 6 ? "sat" : ""}">${d}</span>
       <span class="sc-chips">${chips}${more}</span>
     </button>`;
@@ -2453,12 +2477,13 @@ async function renderSchedule() {
     </div>`).join("")
     : `<div class="empty" style="padding:14px">등록된 일정이 없습니다.</div>`;
 
-  $("#sc-body").innerHTML = `
-    <div class="card sc-today-card">
+  box.innerHTML = `
+    ${opts.showToday ? `<div class="card sc-today-card">
       <div class="sc-sum-title">오늘 · ${todayLabel}</div>
       ${summaryHtml || `<div class="sc-sum-line"><span class="sc-sum-none">오늘 등록된 일정이 없습니다.</span></div>`}
-    </div>
+    </div>` : ""}
     <div class="card">
+      ${opts.title ? `<div class="card-title"><div>${opts.title}</div></div>` : ""}
       <div class="sc-cal-head">
         <button type="button" class="cal-nav" id="sc-prev">&lsaquo;</button>
         <b class="sc-cal-title">${yy}년 ${mm}월</b>
@@ -2477,21 +2502,22 @@ async function renderSchedule() {
       <div id="sc-day-list">${dayHtml}</div>
     </div>`;
 
-  $("#sc-add").onclick = () => openScheduleModal();
+  const addBtn = $("#sc-add");
+  if (addBtn) addBtn.onclick = () => openScheduleModal();
   const shiftMonth = (n) => {
     let y = yy, m = mm + n;
     if (m < 1) { m = 12; y--; }
     if (m > 12) { m = 1; y++; }
     scYm = `${y}-${String(m).padStart(2, "0")}`;
-    renderSchedule();
+    rerender();
   };
-  $("#sc-prev").onclick = () => shiftMonth(-1);
-  $("#sc-next").onclick = () => shiftMonth(1);
-  $("#sc-now").onclick = () => { scYm = todayStr.slice(0, 7); scSel = todayStr; renderSchedule(); };
-  $("#sc-body").querySelectorAll("[data-scd]").forEach((b) => {
-    b.onclick = () => { scSel = b.dataset.scd; renderSchedule(); };
+  box.querySelector("#sc-prev").onclick = () => shiftMonth(-1);
+  box.querySelector("#sc-next").onclick = () => shiftMonth(1);
+  box.querySelector("#sc-now").onclick = () => { scYm = todayStr.slice(0, 7); scSel = todayStr; rerender(); };
+  box.querySelectorAll("[data-scd]").forEach((b) => {
+    b.onclick = () => { scSel = b.dataset.scd; rerender(); };
   });
-  $("#sc-body").querySelectorAll("[data-scdel]").forEach((b) => {
+  box.querySelectorAll("[data-scdel]").forEach((b) => {
     b.onclick = async () => {
       const s = scDocs.find((x) => x.id === b.dataset.scdel);
       if (!s) return;
@@ -2501,11 +2527,11 @@ async function renderSchedule() {
       if (rest.length) await db.collection(COL.schedules).doc(s.id).update({ dates: rest });
       else await db.collection(COL.schedules).doc(s.id).delete();
       toast("일정을 삭제했습니다.");
-      renderSchedule();
+      rerender();
     };
   });
   // 총괄 관리자: 승인된 휴가 취소 (기록 삭제 → 잔여 연차 자동 복구)
-  $("#sc-body").querySelectorAll("[data-lvdel]").forEach((b) => {
+  box.querySelectorAll("[data-lvdel]").forEach((b) => {
     b.onclick = async () => {
       if (!isAdmin()) return;
       const [empId, date, endDate, type, days] = b.dataset.lvdel.split("|");
@@ -2522,7 +2548,7 @@ async function renderSchedule() {
       recs.splice(idx, 1);
       await ref.set({ ...cur, records: recs });
       toast(`${nm}님의 휴가를 취소했습니다. 잔여 연차가 복구되었습니다.`);
-      renderSchedule();
+      rerender();
     };
   });
 }
@@ -4123,6 +4149,7 @@ async function renderLeaveAdmin() {
         </tr>`).join("")}</tbody></table></div>`
         : `<div class="empty">나에게 올라온 대기 중인 신청이 없습니다.</div>`}
     </div>
+    <div id="lva-cal"><div class="card"><div class="empty">일정 캘린더 불러오는 중...</div></div></div>
     <div class="card">
       <div class="card-title"><div>전 직원 연차 현황<div class="ct-desc">직원을 클릭하면 등록된 연차 사용 이력이 펼쳐집니다.</div></div></div>
       <div class="table-wrap"><table class="data">
@@ -4208,7 +4235,12 @@ async function renderLeaveAdmin() {
 
   // 결재 승인/반려 — 나를 결재자로 지정한 신청만 목록에 있으므로 권한 추가 확인 불필요
   {
-    $("#lva-body").querySelectorAll("[data-approve]").forEach((b) => {
+    // 승인 전에 겹치는 휴가·행사·휴무를 보고 판단할 수 있도록 일정 캘린더를 함께 띄운다 (대기 신청은 회색 칩)
+  renderScheduleCalInto($("#lva-cal"), renderLeaveAdmin, {
+    showToday: false, pending: reqs,
+    title: "일정 캘린더<div class=\"ct-desc\">승인 전에 같은 날 휴가·행사·휴무가 겹치는지 확인하세요. 회색은 결재 대기 중인 신청입니다.</div>"
+  }).catch(() => { const c = $("#lva-cal"); if (c) c.innerHTML = ""; });
+  $("#lva-body").querySelectorAll("[data-approve]").forEach((b) => {
       b.onclick = async () => {
         if (b.disabled) return;
         b.disabled = true; // 더블클릭으로 기록이 두 번 저장되는 것 방지
