@@ -2085,3 +2085,17 @@ button.att-note.req:hover { background: var(--blue-soft); color: var(--blue-deep
 .oi-arrow { color: var(--ink-faint); margin: 0 4px; }
 .btn-icon.danger, .btn-icon.danger:hover { background: transparent; }
 .btn-icon.danger:hover { color: #d6303e; }
+/* 전체 OKR 카드 하위 집계 */
+.os-sub { display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 8px; font-size: 0.76rem; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.os-sub i { width: 1px; height: 10px; background: var(--line); }
+.os-sub .ok { color: var(--green); }
+.os-sub .idle { color: var(--red); font-weight: 600; }
+/* KR 목록 — 항목·추가 버튼을 회색 실선 박스 하나로 묶는다 */
+.okr-kr-group { border: 1px solid #d9dee3; border-radius: 10px; background: #fff; overflow: hidden; }
+.okr-kr-body { gap: 0; }
+.okr-kr { border: none; border-radius: 0; border-bottom: 1px solid var(--line); }
+.okr-kr-group > .okr-kr-body:not([hidden]) + .kr-add-btn { border-top: none; }
+.okr-kr:last-child { border-bottom: none; }
+.kr-add-btn { border: none; border-top: 1px solid var(--line); border-radius: 0; background: #fafbfc; color: var(--ink-soft); }
+.okr-kr-body[hidden] + .kr-add-btn { border-top: none; }
+.kr-add-form { border-top: 1px solid var(--line); border-radius: 0; }

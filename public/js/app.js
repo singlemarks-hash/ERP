@@ -5143,6 +5143,7 @@ function okrKrListHtml(o, idx, opts) {
     <div class="okr-krs" style="--okr-depth:${depth}" data-krs="${o.id}">
       ${krs.length ? `<div class="okr-sec-head" data-toggle="${key}" title="${open ? "접기" : "펼치기"}">
          <span class="tg-tri">${open ? "\u25bc" : "\u25b6"}</span> KR (${krs.length})</div>` : ""}
+      <div class="okr-kr-group">
       <div class="okr-kr-body" data-children="${key}" ${krs.length && !open ? "hidden" : ""}>
       ${krs.map((k) => {
         const raw = krPct(k, true);
@@ -5175,6 +5176,7 @@ function okrKrListHtml(o, idx, opts) {
             <button type="submit" class="btn btn-primary btn-sm">추가</button>
           </div>
         </form>` : ""}
+      </div>
     </div>`;
 }
 
@@ -5355,10 +5357,15 @@ function renderOkrStatus(okrs, emps, idx) {
   }).length;
   const legendDepts = [...new Set(okrs.map((o) => o.parentId ? o.dept : "대표").filter(Boolean))]
     .filter((d) => OKR_DEPT_COLORS[d]);
+  // 전체 OKR = O(목표) 개수. KR은 세지 않는다. 미진행 = 1%도 진행되지 않은 것
+  const done = okrs.filter((o) => idx.progressOf(o.id) >= 100).length;
+  const idle = okrs.filter((o) => idx.progressOf(o.id) < 1).length;
+  const active = okrs.length - done - idle;
   body.innerHTML = `
     <div class="okr-stats">
       <div class="card okr-stat"><div class="os-num">${companyProg}%</div><div class="os-label">회사 목표 진행률</div></div>
-      <div class="card okr-stat"><div class="os-num">${okrs.length}</div><div class="os-label">전체 OKR</div></div>
+      <div class="card okr-stat"><div class="os-num">${okrs.length}</div><div class="os-label">전체 OKR (O 기준)</div>
+        <div class="os-sub"><span class="ok">완료 ${done}</span><i></i><span>진행중 ${active}</span><i></i><span class="${idle ? "idle" : ""}">미진행 ${idle}</span></div></div>
       <div class="card okr-stat"><div class="os-num ${soon ? "warn" : ""}">${soon}</div><div class="os-label">마감 임박 (7일 이내)</div></div>
       <div class="card okr-stat"><div class="os-num ${late ? "warn" : ""}">${late}</div><div class="os-label">지연</div></div>
     </div>
