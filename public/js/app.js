@@ -3470,6 +3470,7 @@ async function renderAttCalendar() {
         <b class="sc-cal-title">${yy}년 ${mm}월</b>
         <button type="button" class="cal-nav" id="at-next">&rsaquo;</button>
         <button type="button" class="btn btn-ghost btn-sm" id="at-now">오늘</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="at-pdf" title="이 달 근무 캘린더를 PDF로 저장">PDF 저장</button>
       </div>
       <div class="at-cal-scroll">
         <div class="at-cal-inner">
@@ -3494,9 +3495,80 @@ async function renderAttCalendar() {
   $("#at-prev").onclick = () => shiftMonth(-1);
   $("#at-next").onclick = () => shiftMonth(1);
   $("#at-now").onclick = () => { atCalYm = ymNowKST(); renderAttend(); };
+  $("#at-pdf").onclick = () => printWorkCalendar(yy, mm, cells, byDate, monthEmps);
   body.querySelectorAll("[data-atd]").forEach((b) => {
     b.onclick = () => openShiftDayModal(b.dataset.atd, emps);
   });
+}
+
+/* 근무 캘린더 PDF 저장 — 급여명세서처럼 인쇄 창을 열어 브라우저의 'PDF로 저장'을 쓴다.
+   화면과 같은 직원 색상을 쓰기 위해 앱 스타일시트의 .shcN 색상 규칙을 그대로 복사한다. */
+function printWorkCalendar(yy, mm, cells, byDate, monthEmps) {
+  let colorCss = "";
+  try {
+    colorCss = [...document.styleSheets]
+      .flatMap((ss) => { try { return [...ss.cssRules]; } catch (e) { return []; } })
+      .filter((r) => r.selectorText && /\.shc(\d+|-temp)\b/.test(r.selectorText))
+      .map((r) => r.cssText).join("\n");
+  } catch (e) { /* 색상 없이 출력 */ }
+  const cellHtml = (d, idx) => {
+    if (!d) return `<td class="blank"></td>`;
+    const ds = `${yy}-${String(mm).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const dow = idx % 7;
+    const list = byDate[ds] || [];
+    const groups = WORK_AREAS.map((area) => {
+      const g = list.filter((s) => s.area === area).sort((a, b) => minOf(a.start) - minOf(b.start));
+      if (!g.length) return "";
+      return `<div class="wa">${esc(area)}</div>` + g.map((s) =>
+        `<div class="shift-ent ${shiftColor(s.empId)}"><b>${s.isTemp ? "[단기] " : ""}${esc(s.name)}</b><span>${shiftCompact(s)}</span></div>`).join("");
+    }).join("");
+    return `<td><div class="d ${dow === 0 ? "sun" : dow === 6 ? "sat" : ""}">${d}</div>${groups}</td>`;
+  };
+  const rows = [];
+  for (let i = 0; i < cells.length; i += 7) {
+    rows.push(`<tr>${cells.slice(i, i + 7).map((d, j) => cellHtml(d, i + j)).join("")}</tr>`);
+  }
+  const html = `<!DOCTYPE html>
+<html lang="ko"><head><meta charset="UTF-8" />
+<title>${yy}년 ${mm}월 근무 캘린더</title>
+<style>
+  @page { size: A4 landscape; margin: 10mm 10mm; }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; color: #191f28; margin: 0; padding: 12px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { font-size: 11px; color: #6b7684; margin-bottom: 8px; display: flex; justify-content: space-between; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  th { font-size: 11px; font-weight: 600; color: #6b7684; padding: 4px 0; border: 1px solid #d9dee3; background: #f7f8fa; }
+  th.sun, .d.sun { color: #f04452; } th.sat, .d.sat { color: #3182f6; }
+  td { vertical-align: top; border: 1px solid #d9dee3; padding: 3px 4px; height: 92px; font-size: 9.5px; }
+  td.blank { background: #fafbfc; }
+  .d { font-weight: 700; font-size: 10.5px; margin-bottom: 2px; }
+  .wa { font-size: 8px; color: #8b95a1; margin-top: 2px; }
+  .shift-ent { display: block; border-radius: 4px; padding: 1px 4px; margin: 1px 0; line-height: 1.35; background: #f2f4f6; break-inside: avoid; }
+  .shift-ent b { font-weight: 700; margin-right: 3px; }
+  ${colorCss}
+  .legend { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; font-size: 9.5px; }
+  .legend .shift-ent { display: inline-block; margin: 0; }
+  .note { font-size: 9px; color: #6b7684; margin-top: 4px; }
+  .noprint { text-align: center; padding: 10px 0; }
+  .noprint button { padding: 9px 20px; font-size: 13px; border-radius: 8px; border: none; background: #3182f6; color: #fff; cursor: pointer; }
+  @media print { .noprint { display: none; } body { padding: 0; } }
+</style></head><body>
+<div class="noprint"><button onclick="window.print()">인쇄 / PDF 저장</button></div>
+<h1>${yy}년 ${mm}월 근무 캘린더</h1>
+<div class="sub"><span>작은따옴표</span><span>출력: ${esc(todayKST())}</span></div>
+<table>
+  <thead><tr>${["일", "월", "화", "수", "목", "금", "토"].map((d, i) => `<th class="${i === 0 ? "sun" : i === 6 ? "sat" : ""}">${d}</th>`).join("")}</tr></thead>
+  <tbody>${rows.join("")}</tbody>
+</table>
+<div class="legend">${monthEmps.map(([id, nm]) => `<span class="shift-ent ${shiftColor(id)}"><b>${String(id).startsWith("temp:") ? "[단기] " : ""}${esc(nm)}</b></span>`).join("")}</div>
+<div class="note">* 표시는 휴게 1시간 차감 · 시간 뒤 괄호는 실근무 시간</div>
+<script>window.onload = () => setTimeout(() => window.print(), 300);</` + `script>
+</body></html>`;
+  const win = window.open("", "_blank");
+  if (!win) { toast("팝업이 차단되었습니다. 이 사이트의 팝업을 허용해주세요."); return; }
+  win.document.write(html);
+  win.document.close();
 }
 
 /* 근무 일정 일별 모달: 목록 + (관리자) 추가/수정/삭제 */

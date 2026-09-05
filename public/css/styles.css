@@ -2102,3 +2102,6 @@ button.att-note.req:hover { background: var(--blue-soft); color: var(--blue-deep
 /* 일정 캘린더 — 결재 대기 중인 휴가 신청 표시 (연차관리 탭) */
 .sc-dot.gray { background: #8b95a1; }
 .sc-cell.pend { outline: 1.5px dashed var(--amber); outline-offset: -2px; }
+/* 근무 캘린더 PDF 저장 버튼 — '오늘' 왼쪽에 붙인다 */
+.sc-cal-head #at-pdf { position: absolute; right: 92px; }
+@media (max-width: 760px) { .sc-cal-head #at-pdf { right: 78px; } }
