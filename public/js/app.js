@@ -2055,6 +2055,43 @@ function openRowMenu(anchor, items) {
 }
 
 /* ── 급여 지급명세서 출력 (법정 양식 · A4) ── */
+/* 인쇄용 문서를 숨긴 iframe에 넣고 인쇄 대화상자를 연다.
+   빈 팝업(window.open + document.write)에 print() 를 거는 방식은 크롬·모바일에서
+   미리보기가 '로딩 중'에 멈추거나 팝업이 차단되는 일이 잦아 iframe 방식으로 바꿨다.
+   iframe 인쇄가 막힌 환경에서는 예전처럼 새 창으로 연다. */
+function openPrintDoc(html) {
+  const old = document.getElementById("print-frame");
+  if (old) old.remove();
+  const f = document.createElement("iframe");
+  f.id = "print-frame";
+  f.setAttribute("aria-hidden", "true");
+  f.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none";
+  let printed = false;
+  const fallback = () => {
+    if (printed) return;
+    const win = window.open("", "_blank");
+    if (!win) { toast("인쇄 창을 열 수 없습니다. 이 사이트의 팝업을 허용해주세요."); return; }
+    win.document.write(html.replace("</body>", '<script>window.onload=()=>setTimeout(()=>window.print(),300);<' + '/script></body>'));
+    win.document.close();
+  };
+  f.onload = () => {
+    try {
+      const w = f.contentWindow;
+      w.focus();
+      w.print();
+      printed = true;
+      f.dataset.printed = "1";
+    } catch (e) {
+      fallback();
+    }
+  };
+  document.body.appendChild(f);
+  if ("srcdoc" in f) f.srcdoc = html;
+  else { const d = f.contentDocument; d.open(); d.write(html); d.close(); }
+  // 5초 안에 인쇄가 걸리지 않으면(로드 실패 등) 새 창 방식으로
+  setTimeout(() => { if (!printed) fallback(); }, 5000);
+}
+
 function printPayslip(emp, r) {
   const [y, m] = r.ym.split("-").map(Number);
   const payDate = r.payDate ? r.payDate.slice(2).replace(/-/g, ". ") + "." : "—";
@@ -2136,13 +2173,8 @@ function printPayslip(emp, r) {
 
   <div class="footer">귀하의 노고에 감사드립니다.</div>
 </div>
-<script>window.onload = () => setTimeout(() => window.print(), 300);</` + `script>
 </body></html>`;
-
-  const win = window.open("", "_blank");
-  if (!win) { toast("팝업이 차단되었습니다. 이 사이트의 팝업을 허용해주세요."); return; }
-  win.document.write(html);
-  win.document.close();
+  openPrintDoc(html);
 }
 
 /* ───────── 연차/휴가 ───────── */
@@ -3563,12 +3595,8 @@ function printWorkCalendar(yy, mm, cells, byDate, monthEmps) {
 </table>
 <div class="legend">${monthEmps.map(([id, nm]) => `<span class="shift-ent ${shiftColor(id)}"><b>${String(id).startsWith("temp:") ? "[단기] " : ""}${esc(nm)}</b></span>`).join("")}</div>
 <div class="note">* 표시는 휴게 1시간 차감 · 시간 뒤 괄호는 실근무 시간</div>
-<script>window.onload = () => setTimeout(() => window.print(), 300);</` + `script>
 </body></html>`;
-  const win = window.open("", "_blank");
-  if (!win) { toast("팝업이 차단되었습니다. 이 사이트의 팝업을 허용해주세요."); return; }
-  win.document.write(html);
-  win.document.close();
+  openPrintDoc(html);
 }
 
 /* 근무 일정 일별 모달: 목록 + (관리자) 추가/수정/삭제 */
