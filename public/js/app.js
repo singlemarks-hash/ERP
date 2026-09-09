@@ -1998,7 +1998,7 @@ async function renderPayHistoryAdmin(emp) {
         { name: r.name, dept: "-", grade: "", position: "", joinDate: "" };
       openRowMenu(b, [
         {
-          label: "명세서 출력",
+          label: "명세서 PDF 다운로드",
           icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>',
           onClick: () => printPayslip(recEmp, r)
         },
@@ -2055,6 +2055,93 @@ function openRowMenu(anchor, items) {
 }
 
 /* ── 급여 지급명세서 출력 (법정 양식 · A4) ── */
+/* ── PDF 직접 생성 ────────────────────────────────────────────────
+   브라우저 인쇄 대화상자는 기기에 따라 '미리보기 로딩'에서 멈추는 일이 있어(크롬 인쇄 서비스 문제)
+   문서를 화면 밖 iframe 에 그린 뒤 html2canvas → jsPDF 로 PDF 파일을 직접 만들어 내려받는다.
+   라이브러리는 필요할 때만 CDN에서 받고, 못 받으면 인쇄 대화상자로 대체한다. */
+const PDF_LIBS = [
+  "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",
+  "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"
+];
+function loadScriptOnce(src) {
+  return new Promise((res, rej) => {
+    const old = document.querySelector(`script[src="${src}"]`);
+    if (old && old.dataset.loaded) return res();
+    const sc = old || document.createElement("script");
+    sc.addEventListener("load", () => { sc.dataset.loaded = "1"; res(); });
+    sc.addEventListener("error", () => rej(new Error("script load failed: " + src)));
+    if (!old) { sc.src = src; document.head.appendChild(sc); }
+  });
+}
+async function downloadPdfFromHtml(html, filename, opts) {
+  opts = opts || {};
+  try {
+    await Promise.all((window.PDF_LIB_URLS || PDF_LIBS).map(loadScriptOnce));
+  } catch (e) {
+    toast("PDF 도구를 불러오지 못해 인쇄 창으로 엽니다.");
+    openPrintDoc(html);
+    return;
+  }
+  toast("PDF를 만드는 중...");
+  const landscape = !!opts.landscape;
+  const pxW = landscape ? 1123 : 794;   // A4 @ 96dpi
+  const f = document.createElement("iframe");
+  f.setAttribute("aria-hidden", "true");
+  f.style.cssText = `position:fixed;left:-30000px;top:0;width:${pxW}px;height:1400px;border:0;opacity:0;pointer-events:none`;
+  document.body.appendChild(f);
+  try {
+    await new Promise((res) => { f.onload = res; f.srcdoc = html; });
+    const doc = f.contentDocument;
+    doc.querySelectorAll(".noprint").forEach((el) => el.remove());
+    doc.body.style.background = "#fff";
+    doc.body.style.margin = "0";
+    await new Promise((r) => setTimeout(r, 200));   // 폰트·레이아웃 안정
+    const target = doc.querySelector(".pdf-root") || doc.body;
+    const canvas = await html2canvas(target, {
+      scale: 2, backgroundColor: "#ffffff", useCORS: true, logging: false,
+      windowWidth: pxW, width: target.scrollWidth, height: target.scrollHeight
+    });
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation: landscape ? "landscape" : "portrait", unit: "mm", format: "a4" });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const margin = opts.margin == null ? 8 : opts.margin;
+    const imgW = pageW - margin * 2;
+    const imgH = canvas.height * imgW / canvas.width;
+    const maxH = pageH - margin * 2;
+    if (imgH <= maxH * 1.03) {
+      // 한 장에 들어가면 (반올림 오차 3% 까지는) 높이를 맞춰 한 장으로
+      pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", margin, margin, imgW, Math.min(imgH, maxH));
+    } else {
+      const pagePxH = Math.floor(maxH * canvas.width / imgW);
+      let y = 0, first = true;
+      while (y < canvas.height) {
+        const h = Math.min(pagePxH, canvas.height - y);
+        const slice = document.createElement("canvas");
+        slice.width = canvas.width; slice.height = h;
+        slice.getContext("2d").drawImage(canvas, 0, y, canvas.width, h, 0, 0, canvas.width, h);
+        if (!first) pdf.addPage();
+        pdf.addImage(slice.toDataURL("image/jpeg", 0.92), "JPEG", margin, margin, imgW, h * imgW / canvas.width);
+        first = false; y += h;
+      }
+    }
+    // 파일명이 확실히 붙도록 blob 링크로 직접 내려받는다 (jsPDF 기본 save 는 일부 환경에서 이름이 빠짐)
+    const blob = pdf.output("blob");
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 4000);
+    toast("PDF를 저장했습니다.");
+  } catch (e) {
+    toast("PDF 생성에 실패해 인쇄 창으로 엽니다.");
+    openPrintDoc(html);
+  } finally {
+    f.remove();
+  }
+}
+
 /* 인쇄용 문서를 숨긴 iframe에 넣고 인쇄 대화상자를 연다.
    빈 팝업(window.open + document.write)에 print() 를 거는 방식은 크롬·모바일에서
    미리보기가 '로딩 중'에 멈추거나 팝업이 차단되는 일이 잦아 iframe 방식으로 바꿨다.
@@ -2135,7 +2222,7 @@ function printPayslip(emp, r) {
   .noprint button { padding: 10px 22px; font-size: 14px; border-radius: 8px; border: none; background: #3182f6; color: #fff; cursor: pointer; }
 </style></head><body>
 <div class="noprint"><button onclick="window.print()">인쇄 / PDF 저장</button></div>
-<div class="sheet">
+<div class="sheet pdf-root">
   <h1>${y}년 ${m}월 급여 지급명세서</h1>
   <div class="head-row"><b>작은따옴표</b><span>지급일: ${payDate}</span></div>
   <table>
@@ -2174,7 +2261,8 @@ function printPayslip(emp, r) {
   <div class="footer">귀하의 노고에 감사드립니다.</div>
 </div>
 </body></html>`;
-  openPrintDoc(html);
+  // 시트 자체에 A4 여백(15mm 13mm)이 있으므로 PDF 여백은 0
+  downloadPdfFromHtml(html, `${y}년 ${m}월 급여명세서_${emp.name}.pdf`, { margin: 0 });
 }
 
 /* ───────── 연차/휴가 ───────── */
@@ -3587,6 +3675,7 @@ function printWorkCalendar(yy, mm, cells, byDate, monthEmps) {
   @media print { .noprint { display: none; } body { padding: 0; } }
 </style></head><body>
 <div class="noprint"><button onclick="window.print()">인쇄 / PDF 저장</button></div>
+<div class="pdf-root">
 <h1>${yy}년 ${mm}월 근무 캘린더</h1>
 <div class="sub"><span>작은따옴표</span><span>출력: ${esc(todayKST())}</span></div>
 <table>
@@ -3595,8 +3684,9 @@ function printWorkCalendar(yy, mm, cells, byDate, monthEmps) {
 </table>
 <div class="legend">${monthEmps.map(([id, nm]) => `<span class="shift-ent ${shiftColor(id)}"><b>${String(id).startsWith("temp:") ? "[단기] " : ""}${esc(nm)}</b></span>`).join("")}</div>
 <div class="note">* 표시는 휴게 1시간 차감 · 시간 뒤 괄호는 실근무 시간</div>
+</div>
 </body></html>`;
-  openPrintDoc(html);
+  downloadPdfFromHtml(html, `${yy}년 ${mm}월 근무캘린더.pdf`, { landscape: true, margin: 8 });
 }
 
 /* 근무 일정 일별 모달: 목록 + (관리자) 추가/수정/삭제 */
