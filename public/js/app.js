@@ -2095,14 +2095,17 @@ async function downloadPdfFromHtml(html, filename, opts) {
     doc.querySelectorAll(".noprint").forEach((el) => el.remove());
     doc.body.style.background = "#fff";
     doc.body.style.margin = "0";
-    await new Promise((r) => setTimeout(r, 200));   // 폰트·레이아웃 안정
+    // 웹폰트가 있으면 로드될 때까지(최대 2초) 기다린다 — 화면과 같은 글자 폭으로 그려야 열이 맞는다
+    try { await Promise.race([doc.fonts && doc.fonts.ready, new Promise((r) => setTimeout(r, 2000))]); } catch (e) { /* 무시 */ }
+    await new Promise((r) => setTimeout(r, 150));
     const target = doc.querySelector(".pdf-root") || doc.body;
+    // 3배 해상도(A4 기준 약 290dpi) + PNG 무손실 — 글자가 흐려지거나 JPEG 번짐이 생기지 않게
     const canvas = await html2canvas(target, {
-      scale: 2, backgroundColor: "#ffffff", useCORS: true, logging: false,
+      scale: 3, backgroundColor: "#ffffff", useCORS: true, logging: false,
       windowWidth: pxW, width: target.scrollWidth, height: target.scrollHeight
     });
     const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF({ orientation: landscape ? "landscape" : "portrait", unit: "mm", format: "a4" });
+    const pdf = new jsPDF({ orientation: landscape ? "landscape" : "portrait", unit: "mm", format: "a4", compress: true });
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
     const margin = opts.margin == null ? 8 : opts.margin;
@@ -2111,7 +2114,7 @@ async function downloadPdfFromHtml(html, filename, opts) {
     const maxH = pageH - margin * 2;
     if (imgH <= maxH * 1.03) {
       // 한 장에 들어가면 (반올림 오차 3% 까지는) 높이를 맞춰 한 장으로
-      pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", margin, margin, imgW, Math.min(imgH, maxH));
+      pdf.addImage(canvas.toDataURL("image/png"), "PNG", margin, margin, imgW, Math.min(imgH, maxH));
     } else {
       const pagePxH = Math.floor(maxH * canvas.width / imgW);
       let y = 0, first = true;
@@ -2121,18 +2124,11 @@ async function downloadPdfFromHtml(html, filename, opts) {
         slice.width = canvas.width; slice.height = h;
         slice.getContext("2d").drawImage(canvas, 0, y, canvas.width, h, 0, 0, canvas.width, h);
         if (!first) pdf.addPage();
-        pdf.addImage(slice.toDataURL("image/jpeg", 0.92), "JPEG", margin, margin, imgW, h * imgW / canvas.width);
+        pdf.addImage(slice.toDataURL("image/png"), "PNG", margin, margin, imgW, h * imgW / canvas.width);
         first = false; y += h;
       }
     }
-    // 파일명이 확실히 붙도록 blob 링크로 직접 내려받는다 (jsPDF 기본 save 는 일부 환경에서 이름이 빠짐)
-    const blob = pdf.output("blob");
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = filename; a.style.display = "none";
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 4000);
+    savePdfBlob(pdf, filename);
     toast("PDF를 저장했습니다.");
   } catch (e) {
     toast("PDF 생성에 실패해 인쇄 창으로 엽니다.");
@@ -2140,6 +2136,137 @@ async function downloadPdfFromHtml(html, filename, opts) {
   } finally {
     f.remove();
   }
+}
+
+/* ── 벡터 PDF (글자를 실제 텍스트로 쓰는 방식) ───────────────────────
+   캡처 방식과 달리 선명하고 텍스트 선택·검색이 되며 파일도 작다.
+   한글은 PDF 기본 폰트에 없으므로 나눔고딕 TTF(우리 서버 /fonts)를 심는다.
+   폰트 파일은 처음 한 번만 받아 메모리에 캐시한다. */
+const PDF_LIBS_VECTOR = [
+  "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
+  "https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"
+];
+const PDF_FONT_FILES = { normal: "fonts/NanumGothic-400.ttf", bold: "fonts/NanumGothic-700.ttf" };
+const pdfFontCache = {};
+async function loadPdfFontB64(url) {
+  if (pdfFontCache[url]) return pdfFontCache[url];
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("font fetch failed: " + url);
+  const u8 = new Uint8Array(await res.arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  pdfFontCache[url] = btoa(bin);
+  return pdfFontCache[url];
+}
+async function newKoreanPdf(opts) {
+  // AutoTable 플러그인은 jsPDF 가 먼저 있어야 붙으므로 반드시 순서대로 로드한다
+  for (const src of (window.PDF_LIB_URLS_VECTOR || PDF_LIBS_VECTOR)) await loadScriptOnce(src);
+  if (typeof window.jspdf?.jsPDF?.API?.autoTable !== "function") throw new Error("autotable not attached");
+  const [n, b] = await Promise.all([loadPdfFontB64(PDF_FONT_FILES.normal), loadPdfFontB64(PDF_FONT_FILES.bold)]);
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ ...opts, compress: true });   // 폰트·콘텐츠 스트림 압축 (없으면 수십 MB)
+  pdf.addFileToVFS("NanumGothic-400.ttf", n);
+  pdf.addFont("NanumGothic-400.ttf", "NanumGothic", "normal");
+  pdf.addFileToVFS("NanumGothic-700.ttf", b);
+  pdf.addFont("NanumGothic-700.ttf", "NanumGothic", "bold");
+  pdf.setFont("NanumGothic", "normal");
+  return pdf;
+}
+/* 파일명이 확실히 붙도록 blob 링크로 직접 내려받는다 (jsPDF 기본 save 는 일부 환경에서 이름이 빠짐) */
+function savePdfBlob(pdf, filename) {
+  const url = URL.createObjectURL(pdf.output("blob"));
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 4000);
+}
+
+/* 급여명세서 — 벡터 PDF. 화면 예시 포맷과 같은 구성(인적사항 → 세부 내역 → 근로시간 → 계산 방법) */
+async function buildPayslipPdf(emp, r) {
+  const [y, m] = r.ym.split("-").map(Number);
+  const payDate = r.payDate ? r.payDate.slice(2).replace(/-/g, ". ") + "." : "—";
+  const birth = emp.birthDate ? emp.birthDate.replace(/-/g, ".") : "—";
+  const pdf = await newKoreanPdf({ orientation: "portrait", unit: "mm", format: "a4" });
+  const L = 13, W = 184, INK = [38, 40, 44], GRAY = [241, 242, 244], NETBG = [223, 229, 245];
+  let top = 20;
+
+  pdf.setFont("NanumGothic", "bold"); pdf.setFontSize(17); pdf.setTextColor(...INK);
+  pdf.text(`${y}년 ${m}월 급여 지급명세서`, 105, top, { align: "center" });
+  top += 10;
+  pdf.setFontSize(10.5); pdf.text("작은따옴표", L, top);
+  pdf.setFont("NanumGothic", "normal"); pdf.setFontSize(9.5);
+  pdf.text(`지급일: ${payDate}`, L + W, top, { align: "right" });
+  top += 2.5;
+
+  const styles = {
+    font: "NanumGothic", fontSize: 9.5, textColor: INK, lineColor: INK, lineWidth: 0.25,
+    cellPadding: { top: 1.9, bottom: 1.9, left: 2.6, right: 2.6 }, valign: "middle", overflow: "linebreak"
+  };
+  const head = { fillColor: GRAY, textColor: INK, fontStyle: "bold", halign: "center", lineWidth: 0.25, lineColor: INK };
+  const label = { fillColor: GRAY, fontStyle: "bold", halign: "center" };
+  const num = { halign: "right" };
+  const table = (o) => { pdf.autoTable({ theme: "grid", margin: { left: L, right: L }, tableWidth: W, styles, headStyles: head, ...o }); return pdf.lastAutoTable.finalY; };
+  const section = (title, at) => { pdf.setFont("NanumGothic", "bold"); pdf.setFontSize(10.5); pdf.text(title, 105, at, { align: "center" }); return at + 2.5; };
+
+  // 인적사항
+  top = table({
+    startY: top,
+    columnStyles: { 0: { cellWidth: W * 0.18, ...label }, 1: { cellWidth: W * 0.32 }, 2: { cellWidth: W * 0.18, ...label }, 3: { cellWidth: W * 0.32 } },
+    body: [
+      ["성명", emp.name || "", "생년월일", birth],
+      ["부서", emp.dept || "", "직위(직급)", emp.grade || emp.position || "—"],
+      ["입사일", emp.joinDate || "—", "퇴사일", "—"]
+    ]
+  }) + 8;
+
+  // 세부 내역
+  top = section("세부 내역", top);
+  const n = Math.max(r.payments.length, r.deductions.length, 1);
+  const rows = Array.from({ length: n }, (_, i) => {
+    const p = r.payments[i], d = r.deductions[i];
+    return [p ? p.label : "", { content: p ? fmt(p.amount) + "원" : "", styles: num }, d ? d.label : "", { content: d ? fmt(d.amount) + "원" : "", styles: num }];
+  });
+  rows.push([
+    { content: "지급액 계", styles: { ...label } }, { content: fmt(r.payTotal) + "원", styles: { ...num, fillColor: GRAY, fontStyle: "bold" } },
+    { content: "공제액 계", styles: { ...label } }, { content: fmt(r.deductTotal) + "원", styles: { ...num, fillColor: GRAY, fontStyle: "bold" } }
+  ]);
+  rows.push([
+    { content: "실수령액(원)", colSpan: 2, styles: { halign: "center", fillColor: NETBG, fontStyle: "bold", fontSize: 10.5 } },
+    { content: fmt(r.net) + "원", colSpan: 2, styles: { halign: "right", fillColor: NETBG, fontStyle: "bold", fontSize: 10.5 } }
+  ]);
+  top = table({
+    startY: top,
+    head: [[{ content: "지 급", colSpan: 2 }, { content: "공 제", colSpan: 2 }], ["임금 항목", "지급 금액", "공제 항목", "공제 금액"]],
+    columnStyles: { 0: { cellWidth: W * 0.25 }, 1: { cellWidth: W * 0.25 }, 2: { cellWidth: W * 0.25 }, 3: { cellWidth: W * 0.25 } },
+    body: rows
+  }) + 6;
+
+  // 근로시간
+  top = table({
+    startY: top,
+    head: [["기본근로시간수", "야간근로시간수", "휴일근로시간수", "연장근로시간수"]],
+    columnStyles: { 0: { cellWidth: W * 0.25, halign: "center" }, 1: { cellWidth: W * 0.25, halign: "center" }, 2: { cellWidth: W * 0.25, halign: "center" }, 3: { cellWidth: W * 0.25, halign: "center" } },
+    body: [["—", "—", "—", "—"]]
+  }) + 8;
+
+  // 계산 방법
+  top = section("계산 방법", top);
+  top = table({
+    startY: top,
+    head: [["구분", "산출식 또는 산출방법", "구분", "산출식 또는 산출방법"]],
+    columnStyles: { 0: { cellWidth: W * 0.16, halign: "center" }, 1: { cellWidth: W * 0.34 }, 2: { cellWidth: W * 0.16, halign: "center" }, 3: { cellWidth: W * 0.34 } },
+    body: [
+      ["기본급", "기본근로시간수 x 통상시급(주휴수당 포함)", "", ""],
+      ["야간근로수당", "야간근로시간수 x 통상시급 x 0.5", "", ""],
+      ["연장근로수당", "연장근로시간수 x 통상시급 x 1.5", "", ""],
+      ["휴일근로수당", "휴일근로시간수 x 통상시급 x 1.5", "", ""]
+    ]
+  }) + 9;
+
+  pdf.setFont("NanumGothic", "normal"); pdf.setFontSize(9.5); pdf.setTextColor(107, 118, 132);
+  pdf.text("귀하의 노고에 감사드립니다.", 105, top, { align: "center" });
+  savePdfBlob(pdf, `${y}년 ${m}월 급여명세서_${emp.name}.pdf`);
 }
 
 /* 인쇄용 문서를 숨긴 iframe에 넣고 인쇄 대화상자를 연다.
@@ -2195,6 +2322,7 @@ function printPayslip(emp, r) {
   const html = `<!DOCTYPE html>
 <html lang="ko"><head><meta charset="UTF-8" />
 <title>${y}년 ${m}월 급여 지급명세서 - ${esc(emp.name)}</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
 <style>
   @page { size: A4; margin: 15mm 13mm; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -2202,14 +2330,16 @@ function printPayslip(emp, r) {
      회색 머리행·실수령액 강조가 인쇄물에도 그대로 나온다. */
   html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { font-family: "Pretendard Variable", Pretendard, "Malgun Gothic", sans-serif; color: #26282c; font-size: 12px; line-height: 1.5; background: #eceef0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .sheet { width: 210mm; max-width: 100%; margin: 0 auto; background: #fff; padding: 15mm 13mm; min-height: 297mm; }
+  /* 캡처가 소수점 없이 그리도록 A4 를 픽셀(96dpi)로 고정: 210mm=794px, 297mm=1123px */
+  .sheet { width: 794px; max-width: 100%; margin: 0 auto; background: #fff; padding: 57px 49px; min-height: 1123px; }
   @media print { body { background: #fff; } .sheet { width: auto; min-height: auto; padding: 0; } .noprint { display: none; } }
   h1 { text-align: center; font-size: 20px; font-weight: 800; margin: 0 0 14px; letter-spacing: -0.02em; }
   .head-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
   .head-row b { font-size: 13px; }
   /* A4 한 장에 담기도록 행 높이·표 간격을 최소로 잡는다 (표가 페이지를 넘어 쪼개지지 않게 고정) */
-  table { width: 100%; border-collapse: collapse; margin-bottom: 13px; table-layout: fixed; page-break-inside: avoid; break-inside: avoid; }
-  th, td { border: 1px solid #26282c; padding: 5px 10px; font-size: 12px; word-break: break-all; }
+  /* 테두리를 합치지 않고(collapse 는 캡처 시 반 픽셀씩 어긋남) 칸마다 오른쪽·아래 선만 긋는다 */
+  table { width: 100%; border-collapse: separate; border-spacing: 0; margin-bottom: 13px; table-layout: fixed; page-break-inside: avoid; break-inside: avoid; border-left: 1px solid #26282c; border-top: 1px solid #26282c; }
+  th, td { border-right: 1px solid #26282c; border-bottom: 1px solid #26282c; padding: 5px 10px; font-size: 12px; word-break: keep-all; overflow-wrap: anywhere; }
   th { background: #f1f2f4; font-weight: 700; text-align: center; }
   td.label { background: #f1f2f4; font-weight: 700; text-align: center; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -2261,8 +2391,11 @@ function printPayslip(emp, r) {
   <div class="footer">귀하의 노고에 감사드립니다.</div>
 </div>
 </body></html>`;
-  // 시트 자체에 A4 여백(15mm 13mm)이 있으므로 PDF 여백은 0
-  downloadPdfFromHtml(html, `${y}년 ${m}월 급여명세서_${emp.name}.pdf`, { margin: 0 });
+  // 벡터 PDF(선명·텍스트 선택 가능)를 먼저 시도하고, 폰트·라이브러리를 못 받으면 캡처 방식으로 대체
+  toast("PDF를 만드는 중...");
+  buildPayslipPdf(emp, r)
+    .then(() => toast("PDF를 저장했습니다."))
+    .catch(() => downloadPdfFromHtml(html, `${y}년 ${m}월 급여명세서_${emp.name}.pdf`, { margin: 0 }));
 }
 
 /* ───────── 연차/휴가 ───────── */
@@ -3651,16 +3784,18 @@ function printWorkCalendar(yy, mm, cells, byDate, monthEmps) {
   const html = `<!DOCTYPE html>
 <html lang="ko"><head><meta charset="UTF-8" />
 <title>${yy}년 ${mm}월 근무 캘린더</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
 <style>
   @page { size: A4 landscape; margin: 10mm 10mm; }
   * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  body { font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; color: #191f28; margin: 0; padding: 12px; }
+  body { font-family: "Pretendard Variable", "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; color: #191f28; margin: 0; padding: 12px; width: 1123px; }
   h1 { font-size: 18px; margin: 0 0 4px; }
   .sub { font-size: 11px; color: #6b7684; margin-bottom: 8px; display: flex; justify-content: space-between; }
-  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-  th { font-size: 11px; font-weight: 600; color: #6b7684; padding: 4px 0; border: 1px solid #d9dee3; background: #f7f8fa; }
+  /* 캡처(html2canvas)가 정확히 그리도록 테두리를 합치지 않고 칸마다 오른쪽·아래 선만 긋는다 */
+  table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; border-left: 1px solid #d9dee3; border-top: 1px solid #d9dee3; }
+  th { font-size: 11px; font-weight: 600; color: #6b7684; padding: 4px 0; border-right: 1px solid #d9dee3; border-bottom: 1px solid #d9dee3; background: #f7f8fa; }
   th.sun, .d.sun { color: #f04452; } th.sat, .d.sat { color: #3182f6; }
-  td { vertical-align: top; border: 1px solid #d9dee3; padding: 3px 4px; height: 92px; font-size: 9.5px; }
+  td { vertical-align: top; border-right: 1px solid #d9dee3; border-bottom: 1px solid #d9dee3; padding: 3px 4px; height: 92px; font-size: 9.5px; }
   td.blank { background: #fafbfc; }
   .d { font-weight: 700; font-size: 10.5px; margin-bottom: 2px; }
   .wa { font-size: 8px; color: #8b95a1; margin-top: 2px; }
