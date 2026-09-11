@@ -5346,18 +5346,15 @@ function okrDdayChip(deadline, prog) {
 function okrPctDisplay(p) {
   return p >= 100 ? Math.round(p) : Math.floor(p);
 }
-/* 체크인 피드 시간 — 오늘이면 오전/오후 h:mm, 아니면 M.D */
+/* 체크인 피드 시간 — "2026-09-08 오후 03:25" (날짜 + 오전/오후 시각, 한국시간) */
 function okrFeedTime(iso) {
   if (!iso) return "";
   const kst = new Date(new Date(iso).getTime() + 9 * 3600e3);
   const dateStr = kst.toISOString().slice(0, 10);
-  if (dateStr === todayKST()) {
-    let h = kst.getUTCHours();
-    const ampm = h < 12 ? "오전" : "오후";
-    h = h % 12 || 12;
-    return `${ampm} ${String(h).padStart(2, "0")}:${String(kst.getUTCMinutes()).padStart(2, "0")}`;
-  }
-  return `${kst.getUTCMonth() + 1}.${kst.getUTCDate()}`;
+  let h = kst.getUTCHours();
+  const ampm = h < 12 ? "오전" : "오후";
+  h = h % 12 || 12;
+  return `${dateStr} ${ampm} ${String(h).padStart(2, "0")}:${String(kst.getUTCMinutes()).padStart(2, "0")}`;
 }
 /* 부서 식별 띠 색 — 회사 O는 블랙(대표 컬러) */
 function okrStripeColor(o) {
