@@ -2114,3 +2114,7 @@ button.att-note.req:hover { background: var(--blue-soft); color: var(--blue-deep
   .ocb-past select { flex: 1; max-width: none; min-width: 0; }
 }
 .ocb-past select:disabled { color: var(--ink-faint); background: #f7f8fa; cursor: default; }
+/* 직원 관리 — 퇴사자 행은 비활성 느낌으로 흐리게 */
+table.data tr.emp-retired td { color: var(--ink-faint); background: #fafbfc; }
+table.data tr.emp-retired td > *:not(button):not(.btn):not(.row-menu-btn) { opacity: 0.55; filter: grayscale(1); }
+table.data tr.emp-retired:hover td { background: #f5f6f8; }

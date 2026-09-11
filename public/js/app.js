@@ -4967,7 +4967,7 @@ async function renderEmployees() {
     ${emps.length ? `<table class="data pay-table"><thead><tr>
       <th>이름</th><th>부서</th><th>직급</th><th>직책</th><th>이메일</th><th>입사일</th><th>고용 구분</th><th>역할</th><th>비밀번호</th><th>상태</th><th></th>
     </tr></thead><tbody>
-    ${emps.map((e) => `<tr>
+    ${emps.map((e) => `<tr class="${e.status !== "재직" ? "emp-retired" : ""}">
       <td>${e.hrUrl
         ? `<a class="emp-link" href="${esc(e.hrUrl)}" target="_blank" rel="noopener" title="인사정보 열기"><b>${esc(e.name)}</b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6M10 14 21 3"/></svg></a>`
         : `<b>${esc(e.name)}</b>`}</td><td>${esc(e.dept)}</td><td>${esc(e.grade || "-")}</td><td>${esc(e.position || "-")}</td>
