@@ -2113,3 +2113,4 @@ button.att-note.req:hover { background: var(--blue-soft); color: var(--blue-deep
   .ocb-past { width: 100%; margin-left: 0; }
   .ocb-past select { flex: 1; max-width: none; min-width: 0; }
 }
+.ocb-past select:disabled { color: var(--ink-faint); background: #f7f8fa; cursor: default; }

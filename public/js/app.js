@@ -5411,10 +5411,11 @@ async function renderOkr() {
     ? `<b class="ocb-name">${esc(viewing.name)}</b>${viewing.id === okrActiveCycleId ? `<span class="badge ok">현재</span>` : `<span class="badge off">보관됨 · 조회 전용</span>`}`
     : `<span class="ocb-none">${cycles.length ? "활성화된 사이클이 없습니다 — 사이클 관리에서 활성화하세요." : "아직 사이클이 없습니다 — 첫 사이클을 만들어 시작하세요."}</span>`;
   const pastCycles = cycles.filter((c) => c.id !== okrActiveCycleId);
-  const pastSel = pastCycles.length ? `
+  // 사이클이 있으면 항상 표시 — 지난 사이클이 없어도 자리는 보여 기능이 있다는 걸 알 수 있게
+  const pastSel = cycles.length ? `
     <label class="ocb-past"><span>지난 사이클 보기</span>
-      <select id="okr-cycle-view">
-        <option value="" ${!okrViewCycleId ? "selected" : ""}>현재 사이클${active ? ` (${esc(active.name)})` : ""}</option>
+      <select id="okr-cycle-view" ${pastCycles.length ? "" : "disabled"}>
+        <option value="" ${!okrViewCycleId ? "selected" : ""}>${pastCycles.length ? `현재 사이클${active ? ` (${esc(active.name)})` : ""}` : "지난 사이클 없음"}</option>
         ${pastCycles.map((c) => `<option value="${c.id}" ${c.id === okrViewCycleId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
       </select></label>` : "";
   if (cycles.length || isAdmin()) {
