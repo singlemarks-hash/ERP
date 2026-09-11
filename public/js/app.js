@@ -5232,7 +5232,8 @@ async function renderMonitor() {
    - (과거 데이터 호환) 노드 자체에 target 이 있고 하위·KR이 없으면 그 수치로 계산 */
 let okrTab = "mine";          // mine | dept | status
 let okrActiveCycleId = null;  // 활성 사이클 (새 OKR이 담기는 곳)
-let okrReadonly = false;      // 활성 사이클이 없으면 true (조회만)
+let okrViewCycleId = null;    // 지난 사이클을 골라 보는 중이면 그 id (null = 활성 사이클)
+let okrReadonly = false;      // 활성 사이클이 아닌 것을 보는 중이면 true (조회만)
 const okrOpenState = new Map(); // 접기/펼치기 상태 (키 → true/false, 없으면 화면 기본값)
 const OKR_UNITS = ["%", "개", "건", "원", "명"];
 const OKR_LEVEL_LABELS = ["회사", "부서", "팀", "개인"];
@@ -5402,21 +5403,33 @@ async function renderOkr() {
   });
   const active = cycles.find((c) => c.active) || null;
   okrActiveCycleId = active ? active.id : null;
-  // 총괄이 활성화한 사이클만 모두에게 보인다 (사이클이 하나도 없으면 과거 데이터 그대로)
-  okrReadonly = cycles.length > 0 && !active;
-  const okrs = cycles.length ? allOkrs.filter((o) => active && o.cycleId === active.id) : allOkrs;
+  // 기본은 총괄이 활성화한 사이클. 누구나 '지난 사이클 보기'로 보관된 사이클을 조회(읽기 전용)할 수 있다
+  if (okrViewCycleId && !cycles.some((c) => c.id === okrViewCycleId)) okrViewCycleId = null;
+  const viewing = okrViewCycleId ? cycles.find((c) => c.id === okrViewCycleId) : active;
+  okrReadonly = cycles.length > 0 && (!viewing || viewing.id !== okrActiveCycleId);
+  const okrs = cycles.length ? allOkrs.filter((o) => viewing && o.cycleId === viewing.id) : allOkrs;
 
   const bar = $("#okr-cycle-bar");
-  const cycleName = active ? `<b class="ocb-name">${esc(active.name)}</b>`
+  const cycleName = viewing
+    ? `<b class="ocb-name">${esc(viewing.name)}</b>${viewing.id === okrActiveCycleId ? `<span class="badge ok">현재</span>` : `<span class="badge off">보관됨 · 조회 전용</span>`}`
     : `<span class="ocb-none">${cycles.length ? "활성화된 사이클이 없습니다 — 사이클 관리에서 활성화하세요." : "아직 사이클이 없습니다 — 첫 사이클을 만들어 시작하세요."}</span>`;
-  if (isAdmin()) {
+  const pastCycles = cycles.filter((c) => c.id !== okrActiveCycleId);
+  const pastSel = pastCycles.length ? `
+    <label class="ocb-past"><span>지난 사이클 보기</span>
+      <select id="okr-cycle-view">
+        <option value="" ${!okrViewCycleId ? "selected" : ""}>현재 사이클${active ? ` (${esc(active.name)})` : ""}</option>
+        ${pastCycles.map((c) => `<option value="${c.id}" ${c.id === okrViewCycleId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
+      </select></label>` : "";
+  if (cycles.length || isAdmin()) {
     bar.innerHTML = `<div class="okr-cycle-bar">
       <span class="ocb-label">사이클</span>${cycleName}
-      <button class="btn btn-ghost btn-sm" id="okr-cycle-manage">사이클 관리</button>
+      ${isAdmin() ? `<button class="btn btn-ghost btn-sm" id="okr-cycle-manage">사이클 관리</button>` : ""}
+      ${pastSel}
     </div>`;
-    $("#okr-cycle-manage").onclick = () => openOkrCycleModal(cycles, allOkrs);
-  } else if (cycles.length) {
-    bar.innerHTML = `<div class="okr-cycle-bar"><span class="ocb-label">사이클</span>${cycleName}</div>`;
+    const mb = $("#okr-cycle-manage");
+    if (mb) mb.onclick = () => openOkrCycleModal(cycles, allOkrs);
+    const vs = $("#okr-cycle-view");
+    if (vs) vs.onchange = (ev) => { okrViewCycleId = ev.target.value || null; renderOkr(); };
   } else {
     bar.innerHTML = "";
   }

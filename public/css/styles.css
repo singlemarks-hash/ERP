@@ -2105,3 +2105,11 @@ button.att-note.req:hover { background: var(--blue-soft); color: var(--blue-deep
 /* 근무 캘린더 PDF 저장 버튼 — '오늘' 왼쪽에 붙인다 */
 .sc-cal-head #at-pdf { position: absolute; right: 92px; }
 @media (max-width: 760px) { .sc-cal-head #at-pdf { right: 78px; } }
+/* OKR 사이클 행 — 우측 '지난 사이클 보기' */
+.okr-cycle-bar { row-gap: 8px; }
+.ocb-past { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--ink-soft); white-space: nowrap; }
+.ocb-past select { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 0.84rem; background: #fff; color: var(--ink); max-width: 220px; }
+@media (max-width: 760px) {
+  .ocb-past { width: 100%; margin-left: 0; }
+  .ocb-past select { flex: 1; max-width: none; min-width: 0; }
+}
