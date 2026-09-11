@@ -4927,7 +4927,9 @@ async function renderEmployees() {
   $("#emp-add").onclick = () => openEmployeeModal(null);
 
   const snap = await db.collection(COL.employees).get();
-  const emps = sortByGrade(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+  // 직급순 정렬 후 퇴사자는 맨 아래로 (재직자 먼저)
+  const sorted = sortByGrade(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+  const emps = [...sorted.filter((e) => e.status === "재직"), ...sorted.filter((e) => e.status !== "재직")];
 
   /* ── 재직 현황 요약 ── */
   const active = emps.filter((e) => e.status === "재직");
