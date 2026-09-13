@@ -4155,7 +4155,7 @@ async function renderAttendAdmin() {
           const s = shiftBy[d], a = attBy[d];
           const wh = workedHours(a, s);
           return `<tr>
-            <td class="att-mono"><b>${d.slice(5)}</b></td>
+            <td class="att-mono"><b>${d.slice(5)}</b> <span class="dow-tag ${dateParts(d).dow === 0 ? "sun" : dateParts(d).dow === 6 ? "sat" : ""}">${"일월화수목금토"[dateParts(d).dow]}</span></td>
             <td class="att-mono">${s ? `${s.start}-${shiftEndLabel(s)}` : "-"}</td>
             <td class="att-mono c-green">${a.inAt}</td>
             <td class="att-mono ${a.outAt ? "c-red" : ""}">${a.outAt || "-"}</td>

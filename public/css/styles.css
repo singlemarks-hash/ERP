@@ -2127,3 +2127,7 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
   .okr-child::before { left: -14px; width: 11px; }
   .okr-krs { margin-left: calc(2px + var(--okr-depth, 0) * var(--okr-step, 22px) + 12px); }
 }
+/* 근태관리 날짜 열 — 요일 표시 (주말수당 확인용) */
+.dow-tag { display: inline-block; min-width: 18px; text-align: center; font-size: 0.72rem; font-weight: 700; color: var(--ink-soft); background: #f2f4f6; border-radius: 5px; padding: 1px 4px; margin-left: 3px; vertical-align: 1px; }
+.dow-tag.sun { color: var(--red); background: var(--red-soft); }
+.dow-tag.sat { color: var(--blue); background: var(--blue-soft); }
