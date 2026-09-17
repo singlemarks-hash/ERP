@@ -5761,7 +5761,6 @@ function renderOkrStatus(okrs, emps, idx) {
       ${statCard("soon", soon, "마감 임박 (7일 이내)", soonList, "마감 임박")}
       ${statCard("late", late, "지연", lateList, "지연")}
     </div>
-    <div class="card okr-stat-detail" id="okr-stat-detail" hidden></div>
     <div class="card">
       <div class="card-title">전사 진행현황
         <span class="ct-desc">부서 아래 세부 OKR·KR은 ▸ 버튼으로 펼쳐 봅니다.</span>
@@ -5778,42 +5777,42 @@ function renderOkrStatus(okrs, emps, idx) {
     </div>`;
   const rootBtn = $("#okr-add-root");
   if (rootBtn) rootBtn.onclick = () => openOkrModal(okrs, emps, idx);
-  // 마감 임박·지연 카드: 클릭하면 아래 패널에 목록을 펼친다 (모바일은 호버가 없으므로)
-  const detail = $("#okr-stat-detail");
+  // 마감 임박·지연 카드: 호버(데스크톱)/탭(모바일)으로 팝오버, 항목을 누르면 트리의 해당 OKR로 이동
+  const gotoOkr = (id) => {
+    const target = body.querySelector(`.okr-tree .okr-row[data-okr="${id}"]`);
+    if (!target) return;
+    let box = target.closest(".okr-children[hidden]");
+    while (box) {
+      box.hidden = false;
+      const head = body.querySelector(`[data-toggle="${box.dataset.children}"]`);
+      if (head) { const tri = head.querySelector(".tg-tri"); if (tri) tri.textContent = "\u25bc"; okrOpenState.set(box.dataset.children, true); }
+      box = box.parentElement && box.parentElement.closest(".okr-children[hidden]");
+    }
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    target.classList.add("okr-flash");
+    setTimeout(() => target.classList.remove("okr-flash"), 2200);
+  };
+  const closeStatPops = () => body.querySelectorAll(".okr-stat.open").forEach((c) => c.classList.remove("open"));
   body.querySelectorAll(".okr-stat.has-pop").forEach((card) => {
-    const open = () => {
-      const key = card.dataset.stat;
-      if (detail.dataset.key === key && !detail.hidden) { detail.hidden = true; detail.dataset.key = ""; card.classList.remove("open"); return; }
-      body.querySelectorAll(".okr-stat.open").forEach((c) => c.classList.remove("open"));
-      card.classList.add("open");
-      detail.dataset.key = key;
-      detail.innerHTML = `<div class="card-title"><div>${key === "soon" ? "마감 임박 (7일 이내)" : "지연"} 항목
-        <div class="ct-desc">항목을 누르면 아래 트리에서 해당 OKR로 이동합니다.</div></div>
-        <button type="button" class="btn btn-ghost btn-sm" id="okr-stat-close" style="margin-left:auto">닫기</button></div>
-        ${card.querySelector(".os-pop").innerHTML.replace(/<div class="osp-title">[^<]*<\/div>/, "")}`;
-      detail.hidden = false;
-      $("#okr-stat-close").onclick = () => { detail.hidden = true; detail.dataset.key = ""; card.classList.remove("open"); };
-      // 항목 클릭 → 트리에서 해당 OKR을 펼쳐 보여주고 잠시 강조
-      detail.querySelectorAll("[data-goto]").forEach((row) => {
-        row.onclick = () => {
-          const target = body.querySelector(`.okr-tree .okr-row[data-okr="${row.dataset.goto}"]`);
-          if (!target) return;
-          let box = target.closest(".okr-children[hidden]");
-          while (box) {
-            box.hidden = false;
-            const head = body.querySelector(`[data-toggle="${box.dataset.children}"]`);
-            if (head) { const tri = head.querySelector(".tg-tri"); if (tri) tri.textContent = "\u25bc"; okrOpenState.set(box.dataset.children, true); }
-            box = box.parentElement && box.parentElement.closest(".okr-children[hidden]");
-          }
-          target.scrollIntoView({ behavior: "smooth", block: "center" });
-          target.classList.add("okr-flash");
-          setTimeout(() => target.classList.remove("okr-flash"), 2200);
-        };
-      });
+    card.onclick = (ev) => {
+      const item = ev.target.closest("[data-goto]");
+      if (item) { closeStatPops(); gotoOkr(item.dataset.goto); return; }
+      const wasOpen = card.classList.contains("open");
+      closeStatPops();
+      if (!wasOpen) {
+        card.classList.add("open");
+        // 모바일은 카드가 좁아 팝오버를 화면 폭에 맞춰 카드 아래에 고정 배치한다
+        const pop = card.querySelector(".os-pop");
+        if (pop && window.matchMedia("(max-width: 760px)").matches) {
+          // 카드가 화면 아래쪽에 있으면 팝오버가 밖으로 나가므로 카드를 가운데로 올린 뒤 그 아래에 띄운다
+          card.scrollIntoView({ block: "center", behavior: "auto" });
+          pop.style.top = `${card.getBoundingClientRect().bottom + 6}px`;
+        }
+      }
     };
-    card.onclick = open;
-    card.onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); open(); } };
+    card.onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); card.click(); } };
   });
+  document.addEventListener("click", (ev) => { if (!ev.target.closest(".okr-stat.has-pop")) closeStatPops(); }, { once: false });
   bindOkrActions(body, okrs, emps, idx);
 }
 
