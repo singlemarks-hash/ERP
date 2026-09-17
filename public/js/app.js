@@ -5720,14 +5720,33 @@ function renderOkrStatus(okrs, emps, idx) {
   const body = $("#okr-body");
   const companyProg = idx.roots.length
     ? okrPctDisplay(idx.roots.reduce((s, r) => s + idx.progressOf(r.id), 0) / idx.roots.length) : 0;
-  const soon = okrs.filter((o) => {
+  const byDeadline = (a, b) => (a.deadline || "").localeCompare(b.deadline || "");
+  const soonList = okrs.filter((o) => {
     const d = okrDday(o.deadline);
     return d !== null && d >= 0 && d <= 7 && idx.progressOf(o.id) < 100;
-  }).length;
-  const late = okrs.filter((o) => {
+  }).sort(byDeadline);
+  const lateList = okrs.filter((o) => {
     const d = okrDday(o.deadline);
     return d !== null && d < 0 && idx.progressOf(o.id) < 100;
-  }).length;
+  }).sort(byDeadline);
+  const soon = soonList.length, late = lateList.length;
+  // 마감 임박·지연 항목 목록 (호버 팝오버 + 클릭 시 아래 패널에 같은 내용)
+  const statItems = (list) => list.map((o) => {
+    const d = okrDday(o.deadline);
+    const pct = okrPctDisplay(idx.progressOf(o.id));
+    return `<div class="osp-row">
+      <span class="badge okr-lv d${Math.min(idx.depthOf(o.id), 3)}">${idx.levelLabel(o.id)}</span>
+      <div class="osp-main"><b>${esc(o.title)}</b>
+        <span class="osp-meta">${o.parentId ? esc(o.ownerName || "-") : "전사"}${o.dept ? ` · ${esc(o.dept)}` : ""} · ~${esc(o.deadline || "-")}</span></div>
+      <span class="badge ${d < 0 ? "warn" : "off"}">${d < 0 ? `D+${-d}` : `D-${d}`}</span>
+      <div class="osp-prog"><div class="bar"><i style="width:${Math.min(100, pct)}%"></i></div><span class="okr-pct">${pct}%</span></div>
+    </div>`;
+  }).join("");
+  const statCard = (key, num, label, list, title) => `
+    <div class="card okr-stat ${list.length ? "has-pop" : ""}" data-stat="${key}" ${list.length ? 'role="button" tabindex="0" title="클릭하면 항목 목록을 펼칩니다"' : ""}>
+      <div class="os-num ${num ? "warn" : ""}">${num}</div><div class="os-label">${label}${list.length ? ' <span class="os-more">▾</span>' : ""}</div>
+      ${list.length ? `<div class="os-pop"><div class="osp-title">${title} ${list.length}건</div>${statItems(list)}</div>` : ""}
+    </div>`;
   const legendDepts = [...new Set(okrs.map((o) => o.parentId ? o.dept : "대표").filter(Boolean))]
     .filter((d) => OKR_DEPT_COLORS[d]);
   // 전체 OKR = O(목표) 개수. KR은 세지 않는다. 미진행 = 1%도 진행되지 않은 것
@@ -5739,9 +5758,10 @@ function renderOkrStatus(okrs, emps, idx) {
       <div class="card okr-stat"><div class="os-num">${companyProg}%</div><div class="os-label">회사 목표 진행률</div></div>
       <div class="card okr-stat"><div class="os-num">${okrs.length}</div><div class="os-label">전체 OKR (O 기준)</div>
         <div class="os-sub"><span class="ok">완료 ${done}</span><i></i><span>진행중 ${active}</span><i></i><span class="${idle ? "idle" : ""}">미진행 ${idle}</span></div></div>
-      <div class="card okr-stat"><div class="os-num ${soon ? "warn" : ""}">${soon}</div><div class="os-label">마감 임박 (7일 이내)</div></div>
-      <div class="card okr-stat"><div class="os-num ${late ? "warn" : ""}">${late}</div><div class="os-label">지연</div></div>
+      ${statCard("soon", soon, "마감 임박 (7일 이내)", soonList, "마감 임박")}
+      ${statCard("late", late, "지연", lateList, "지연")}
     </div>
+    <div class="card okr-stat-detail" id="okr-stat-detail" hidden></div>
     <div class="card">
       <div class="card-title">전사 진행현황
         <span class="ct-desc">부서 아래 세부 OKR·KR은 ▸ 버튼으로 펼쳐 봅니다.</span>
@@ -5758,6 +5778,25 @@ function renderOkrStatus(okrs, emps, idx) {
     </div>`;
   const rootBtn = $("#okr-add-root");
   if (rootBtn) rootBtn.onclick = () => openOkrModal(okrs, emps, idx);
+  // 마감 임박·지연 카드: 클릭하면 아래 패널에 목록을 펼친다 (모바일은 호버가 없으므로)
+  const detail = $("#okr-stat-detail");
+  body.querySelectorAll(".okr-stat.has-pop").forEach((card) => {
+    const open = () => {
+      const key = card.dataset.stat;
+      if (detail.dataset.key === key && !detail.hidden) { detail.hidden = true; detail.dataset.key = ""; card.classList.remove("open"); return; }
+      body.querySelectorAll(".okr-stat.open").forEach((c) => c.classList.remove("open"));
+      card.classList.add("open");
+      detail.dataset.key = key;
+      detail.innerHTML = `<div class="card-title"><div>${key === "soon" ? "마감 임박 (7일 이내)" : "지연"} 항목
+        <div class="ct-desc">항목을 누르면 아래 트리에서 해당 OKR로 이동합니다.</div></div>
+        <button type="button" class="btn btn-ghost btn-sm" id="okr-stat-close" style="margin-left:auto">닫기</button></div>
+        ${card.querySelector(".os-pop").innerHTML.replace(/<div class="osp-title">[^<]*<\/div>/, "")}`;
+      detail.hidden = false;
+      $("#okr-stat-close").onclick = () => { detail.hidden = true; detail.dataset.key = ""; card.classList.remove("open"); };
+    };
+    card.onclick = open;
+    card.onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); open(); } };
+  });
   bindOkrActions(body, okrs, emps, idx);
 }
 
