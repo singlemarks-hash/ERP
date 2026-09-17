@@ -2152,3 +2152,7 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 .osp-prog .bar { flex: 1; }
 .okr-stat-detail { margin-bottom: 16px; }
 .okr-stat-detail .osp-row { padding: 9px 0; font-size: 0.88rem; }
+.okr-stat-detail .osp-row { cursor: pointer; border-radius: 8px; padding-left: 6px; padding-right: 6px; }
+.okr-stat-detail .osp-row:hover { background: #f7f8fa; }
+@keyframes okrFlash { 0%, 60% { box-shadow: 0 0 0 3px var(--amber); } 100% { box-shadow: none; } }
+.okr-row.okr-flash { animation: okrFlash 2.2s ease-out; }

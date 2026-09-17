@@ -5734,7 +5734,7 @@ function renderOkrStatus(okrs, emps, idx) {
   const statItems = (list) => list.map((o) => {
     const d = okrDday(o.deadline);
     const pct = okrPctDisplay(idx.progressOf(o.id));
-    return `<div class="osp-row">
+    return `<div class="osp-row" data-goto="${o.id}" title="트리에서 이 OKR로 이동">
       <span class="badge okr-lv d${Math.min(idx.depthOf(o.id), 3)}">${idx.levelLabel(o.id)}</span>
       <div class="osp-main"><b>${esc(o.title)}</b>
         <span class="osp-meta">${o.parentId ? esc(o.ownerName || "-") : "전사"}${o.dept ? ` · ${esc(o.dept)}` : ""} · ~${esc(o.deadline || "-")}</span></div>
@@ -5793,6 +5793,23 @@ function renderOkrStatus(okrs, emps, idx) {
         ${card.querySelector(".os-pop").innerHTML.replace(/<div class="osp-title">[^<]*<\/div>/, "")}`;
       detail.hidden = false;
       $("#okr-stat-close").onclick = () => { detail.hidden = true; detail.dataset.key = ""; card.classList.remove("open"); };
+      // 항목 클릭 → 트리에서 해당 OKR을 펼쳐 보여주고 잠시 강조
+      detail.querySelectorAll("[data-goto]").forEach((row) => {
+        row.onclick = () => {
+          const target = body.querySelector(`.okr-tree .okr-row[data-okr="${row.dataset.goto}"]`);
+          if (!target) return;
+          let box = target.closest(".okr-children[hidden]");
+          while (box) {
+            box.hidden = false;
+            const head = body.querySelector(`[data-toggle="${box.dataset.children}"]`);
+            if (head) { const tri = head.querySelector(".tg-tri"); if (tri) tri.textContent = "\u25bc"; okrOpenState.set(box.dataset.children, true); }
+            box = box.parentElement && box.parentElement.closest(".okr-children[hidden]");
+          }
+          target.scrollIntoView({ behavior: "smooth", block: "center" });
+          target.classList.add("okr-flash");
+          setTimeout(() => target.classList.remove("okr-flash"), 2200);
+        };
+      });
     };
     card.onclick = open;
     card.onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); open(); } };
