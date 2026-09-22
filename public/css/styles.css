@@ -2186,3 +2186,5 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 .note-preview { display: flex; align-items: center; gap: 10px; background: #f7f8fa; border-radius: 10px; padding: 10px 12px; font-size: 0.84rem; color: var(--ink-soft); margin-bottom: 14px; }
 /* 메모 노트 추가 버튼은 탭보다 한 단계 작게 */
 .note-tab.add { padding: 4px 9px; font-size: 0.74rem; }
+.btn-icon.sm { width: 24px; height: 24px; margin-left: 6px; vertical-align: middle; }
+.btn-icon.sm svg { width: 13px; height: 13px; }

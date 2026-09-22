@@ -669,17 +669,18 @@ function openMemoFullModal(notes, activeId, cb) {
       <div class="memo-foot"><span>${n.updatedAt ? "마지막 수정 " + okrFeedTime(n.updatedAt) : ""}</span>
         <span class="memo-foot-actions">
           <button type="button" class="btn btn-ghost btn-sm" id="mv-setting">노트 설정</button>
-          <button type="button" class="btn-icon danger" id="mv-del" title="노트 삭제" ${notes.length <= 1 ? "disabled" : ""}>${ICON_TRASH}</button>
+          ${n.isDefault ? "" : `<button type="button" class="btn-icon danger" id="mv-del" title="노트 삭제">${ICON_TRASH}</button>`}
         </span></div>
       <div class="modal-actions"><button class="btn btn-primary btn-sm" id="mv-close">닫기</button></div>`);
     $("#modal").querySelectorAll("[data-note]").forEach((b) => { b.onclick = () => { sel = b.dataset.note; cb.onSelect(sel); render(); }; });
     $("#mv-close").onclick = closeModal;
     $("#mv-setting").onclick = () => openNoteModal(n, notes, async () => { await cb.onChange(); render(); toast("노트 설정을 저장했습니다."); });
-    $("#mv-del").onclick = async () => {
-      if (notes.length <= 1) return toast("마지막 노트는 삭제할 수 없습니다.");
-      if (!confirm(`'${n.name}' 노트와 그 안의 메모를 삭제할까요?`)) return;
+    const mvDel = $("#mv-del");
+    if (mvDel) mvDel.onclick = async () => {
+      if (n.isDefault) return toast("'기본' 노트는 삭제할 수 없습니다.");
+      if (!confirm(`'${n.name}' 노트를 삭제할까요?\n노트 안의 메모도 함께 삭제되며 되돌릴 수 없습니다.`)) return;
       notes.splice(notes.indexOf(n), 1);
-      sel = notes[0].id;
+      sel = (notes.find((x) => x.isDefault) || notes[0]).id;
       cb.onSelect(sel);
       await cb.onChange();
       render();
@@ -1230,7 +1231,9 @@ async function renderHome() {
   const memoData = memoSnap.exists ? memoSnap.data() : {};
   // 예전 단일 메모(text)는 첫 노트 "메모"로 이관한다
   let notes = Array.isArray(memoData.notes) ? memoData.notes.map((n) => ({ ...n })) : [];
-  if (!notes.length) notes = [{ id: "n_" + Date.now().toString(36), name: "기본", color: MEMO_COLORS[0], text: memoData.text || "", updatedAt: null }];
+  if (!notes.length) notes = [{ id: "n_" + Date.now().toString(36), name: "기본", color: MEMO_COLORS[0], text: memoData.text || "", updatedAt: null, isDefault: true }];
+  // '기본' 노트는 삭제할 수 없다 — 표시가 없는 기존 데이터는 '기본'이라는 이름(없으면 첫 노트)을 기본으로 삼는다
+  if (!notes.some((n) => n.isDefault)) (notes.find((n) => n.name === "기본") || notes[0]).isDefault = true;
   let activeId = notes.some((n) => n.id === memoData.activeId) ? memoData.activeId : notes[0].id;
   let memoEditing = false;
   const cur = () => notes.find((n) => n.id === activeId) || notes[0];
@@ -1267,7 +1270,17 @@ async function renderHome() {
       ed.focus();
     } else {
       holder.innerHTML = `<div class="memo-area memo-render">${n.text.trim() ? memoToHtml(n.text) : '<span class="memo-empty">[수정]을 눌러 메모를 작성하세요.</span>'}</div>
-        <div class="memo-foot"><span>${n.updatedAt ? "마지막 수정 " + okrFeedTime(n.updatedAt) : ""}</span><span>노트 ${notes.length}개</span></div>`;
+        <div class="memo-foot"><span>${n.updatedAt ? "마지막 수정 " + okrFeedTime(n.updatedAt) : ""}</span>
+          <span class="memo-foot-actions">노트 ${notes.length}개${n.isDefault ? "" : `<button type="button" class="btn-icon danger sm" id="memo-del" title="'${esc(n.name)}' 노트 삭제">${ICON_TRASH}</button>`}</span></div>`;
+      const del = $("#memo-del");
+      if (del) del.onclick = async () => {
+        if (!confirm(`'${n.name}' 노트를 삭제할까요?\n노트 안의 메모도 함께 삭제되며 되돌릴 수 없습니다.`)) return;
+        notes.splice(notes.indexOf(n), 1);
+        activeId = (notes.find((x) => x.isDefault) || notes[0]).id;
+        await saveNotes();
+        renderTabs(); renderMemo();
+        toast("노트를 삭제했습니다.");
+      };
     }
   };
   const setEditUi = () => {
