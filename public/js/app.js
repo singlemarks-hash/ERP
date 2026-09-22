@@ -1271,7 +1271,7 @@ async function renderHome() {
     } else {
       holder.innerHTML = `<div class="memo-area memo-render">${n.text.trim() ? memoToHtml(n.text) : '<span class="memo-empty">[수정]을 눌러 메모를 작성하세요.</span>'}</div>
         <div class="memo-foot"><span>${n.updatedAt ? "마지막 수정 " + okrFeedTime(n.updatedAt) : ""}</span>
-          <span class="memo-foot-actions">노트 ${notes.length}개${n.isDefault ? "" : `<button type="button" class="btn-icon danger sm" id="memo-del" title="'${esc(n.name)}' 노트 삭제">${ICON_TRASH}</button>`}</span></div>`;
+          <span class="memo-foot-actions">${n.isDefault ? "" : `<button type="button" class="btn-icon danger sm" id="memo-del" title="'${esc(n.name)}' 노트 삭제">${ICON_TRASH}</button>`}</span></div>`;
       const del = $("#memo-del");
       if (del) del.onclick = async () => {
         if (!confirm(`'${n.name}' 노트를 삭제할까요?\n노트 안의 메모도 함께 삭제되며 되돌릴 수 없습니다.`)) return;
