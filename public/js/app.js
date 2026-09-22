@@ -876,7 +876,7 @@ async function renderHome() {
       </div>
       <div class="card">
         <div class="card-title">
-          <div>개인 메모장</div>
+          <div>개인 메모장<div class="ct-desc">나만 볼 수 있는 메모입니다.</div></div>
           <span style="display:flex;gap:6px" id="memo-actions">
             <button class="btn btn-ghost btn-sm" id="memo-full">전체보기</button>
             <button class="btn btn-ghost btn-sm" id="memo-btn">수정</button>

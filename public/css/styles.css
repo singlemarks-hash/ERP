@@ -2184,3 +2184,5 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 .swatch { width: 30px; height: 30px; border-radius: 999px; border: 3px solid #fff; box-shadow: 0 0 0 1px var(--line); cursor: pointer; padding: 0; }
 .swatch.on { box-shadow: 0 0 0 2px var(--ink); }
 .note-preview { display: flex; align-items: center; gap: 10px; background: #f7f8fa; border-radius: 10px; padding: 10px 12px; font-size: 0.84rem; color: var(--ink-soft); margin-bottom: 14px; }
+/* 메모 노트 추가 버튼은 탭보다 한 단계 작게 */
+.note-tab.add { padding: 4px 9px; font-size: 0.74rem; }
