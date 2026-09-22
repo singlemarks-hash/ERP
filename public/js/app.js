@@ -589,7 +589,7 @@ const DEFAULT_BTN_COLOR = "#d9dee3";
 
 /* ── 개인 메모장 노트 도우미 ── */
 const MEMO_COLORS = BTN_COLORS.map((c) => c.hex);
-const MEMO_MAX_NOTES = 12;
+const MEMO_MAX_NOTES = 5;
 const noteIcon = (color) => `<svg class="note-ico" viewBox="0 0 24 24" fill="none" stroke="${esc(color)}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l5 5v13H6z"/><path d="M15 3v5h5M9 13h7M9 17h5"/></svg>`;
 /* 저장 형식(평문 + **굵게**) → 화면 HTML (이스케이프 + 링크 + <b>) */
 function memoToHtml(text) {
@@ -1230,7 +1230,7 @@ async function renderHome() {
   const memoData = memoSnap.exists ? memoSnap.data() : {};
   // 예전 단일 메모(text)는 첫 노트 "메모"로 이관한다
   let notes = Array.isArray(memoData.notes) ? memoData.notes.map((n) => ({ ...n })) : [];
-  if (!notes.length) notes = [{ id: "n_" + Date.now().toString(36), name: "메모", color: MEMO_COLORS[0], text: memoData.text || "", updatedAt: null }];
+  if (!notes.length) notes = [{ id: "n_" + Date.now().toString(36), name: "기본", color: MEMO_COLORS[0], text: memoData.text || "", updatedAt: null }];
   let activeId = notes.some((n) => n.id === memoData.activeId) ? memoData.activeId : notes[0].id;
   let memoEditing = false;
   const cur = () => notes.find((n) => n.id === activeId) || notes[0];
