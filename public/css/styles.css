@@ -2163,3 +2163,24 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 @media (max-width: 760px) {
   .os-pop, .okr-stats .okr-stat:last-child .os-pop { position: fixed; left: 12px; right: 12px; top: auto; width: auto; max-width: none; transform: none; }
 }
+/* ── 개인 메모장 노트 ── */
+.note-tabs { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid var(--line); scrollbar-width: none; }
+.note-tabs::-webkit-scrollbar { display: none; }
+.note-tabs.full { margin-bottom: 12px; }
+.note-tab { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px 6px 8px; border-radius: 999px; border: 1px solid var(--line); background: #fff; font: inherit; font-size: 0.8rem; font-weight: 600; color: var(--ink-soft); cursor: pointer; white-space: nowrap; }
+.note-tab .note-ico { width: 15px; height: 15px; flex-shrink: 0; }
+.note-tab.on { color: var(--ink); border-color: var(--c); background: color-mix(in srgb, var(--c) 10%, #fff); }
+.note-tab.add { border-style: dashed; color: var(--ink-faint); font-weight: 500; }
+.note-tab:disabled { opacity: 0.5; cursor: default; }
+.memo-render b, .memo-view b, .memo-editor b { font-weight: 800; }
+.memo-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 0.74rem; color: var(--ink-faint); gap: 8px; }
+.memo-foot-actions { display: inline-flex; gap: 6px; align-items: center; }
+.memo-toolbar { display: flex; align-items: center; gap: 4px; border: 1.5px solid var(--blue); border-bottom: 0; border-radius: 12px 12px 0 0; padding: 5px 8px; background: #fafbfc; }
+.memo-toolbar .tb { width: 30px; height: 28px; border: 0; border-radius: 7px; background: transparent; font: inherit; font-weight: 800; cursor: pointer; color: var(--ink); }
+.memo-toolbar .tb:hover { background: #e8ebee; }
+.memo-toolbar .tb-hint { margin-left: auto; font-size: 0.72rem; color: var(--ink-faint); }
+.memo-editor { border-radius: 0 0 12px 12px; outline: none; overflow-y: auto; max-height: 360px; white-space: pre-wrap; word-break: break-word; }
+.swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+.swatch { width: 30px; height: 30px; border-radius: 999px; border: 3px solid #fff; box-shadow: 0 0 0 1px var(--line); cursor: pointer; padding: 0; }
+.swatch.on { box-shadow: 0 0 0 2px var(--ink); }
+.note-preview { display: flex; align-items: center; gap: 10px; background: #f7f8fa; border-radius: 10px; padding: 10px 12px; font-size: 0.84rem; color: var(--ink-soft); margin-bottom: 14px; }

@@ -586,6 +586,108 @@ const BTN_COLORS = [
   { key: "purple", hex: "#7048e8", label: "퍼플" }
 ];
 const DEFAULT_BTN_COLOR = "#d9dee3";
+
+/* ── 개인 메모장 노트 도우미 ── */
+const MEMO_COLORS = BTN_COLORS.map((c) => c.hex);
+const MEMO_MAX_NOTES = 12;
+const noteIcon = (color) => `<svg class="note-ico" viewBox="0 0 24 24" fill="none" stroke="${esc(color)}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l5 5v13H6z"/><path d="M15 3v5h5M9 13h7M9 17h5"/></svg>`;
+/* 저장 형식(평문 + **굵게**) → 화면 HTML (이스케이프 + 링크 + <b>) */
+function memoToHtml(text) {
+  const parts = String(text || "").split("**");
+  return parts.map((seg, i) => i % 2 === 1 ? `<b>${linkify(seg)}</b>` : linkify(seg)).join("");
+}
+/* 편집기 DOM → 저장 형식. 굵게 외의 서식은 모두 버린다 */
+function htmlToMemo(root) {
+  let out = "";
+  const walk = (node, bold) => {
+    if (node.nodeType === 3) { out += node.nodeValue; return; }
+    if (node.nodeType !== 1) return;
+    const tag = node.tagName;
+    if (tag === "BR") { out += "\n"; return; }
+    const isBold = tag === "B" || tag === "STRONG" || (node.style && (node.style.fontWeight === "bold" || Number(node.style.fontWeight) >= 600));
+    const block = tag === "DIV" || tag === "P" || tag === "LI";
+    if (block && out && !out.endsWith("\n")) out += "\n";
+    const open = isBold && !bold;
+    if (open) out += "**";
+    node.childNodes.forEach((c) => walk(c, bold || isBold));
+    if (open) { if (out.endsWith("**")) out = out.slice(0, -2); else out += "**"; }
+  };
+  root.childNodes.forEach((c) => walk(c, false));
+  return out.replace(/\u00a0/g, " ").replace(/\n{3,}/g, "\n\n").replace(/\s+$/, "");
+}
+/* 노트 추가/이름·색 변경 모달 */
+function openNoteModal(note, notes, onDone) {
+  const isEdit = !!note;
+  let color = note ? note.color : MEMO_COLORS[notes.length % MEMO_COLORS.length];
+  openModal(`
+    <h3>${isEdit ? "노트 설정" : "새 노트"}</h3>
+    <form id="note-form">
+      <label class="field"><span class="field-label">노트 이름</span>
+        <input id="nf-name" required maxlength="12" placeholder="예: 거래처 연락" value="${esc(note ? note.name : "")}" /></label>
+      <div class="field"><span class="field-label">색상</span>
+        <div class="swatches" id="nf-swatches">${MEMO_COLORS.map((c) =>
+          `<button type="button" class="swatch ${c === color ? "on" : ""}" style="background:${c}" data-c="${c}" aria-label="${c}"></button>`).join("")}</div></div>
+      <div class="note-preview">미리보기 <span class="note-tab on" id="nf-preview" style="--c:${color}">${noteIcon(color)}<span class="nt-name" id="nf-preview-name">${esc(note ? note.name : "노트 이름")}</span></span></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost btn-sm" id="nf-cancel">취소</button>
+        <button type="submit" class="btn btn-primary btn-sm">${isEdit ? "저장" : "노트 만들기"}</button>
+      </div>
+    </form>`);
+  const pv = $("#nf-preview");
+  $("#nf-swatches").querySelectorAll(".swatch").forEach((b) => {
+    b.onclick = () => {
+      color = b.dataset.c;
+      $("#nf-swatches").querySelectorAll(".swatch").forEach((x) => x.classList.toggle("on", x === b));
+      pv.style.setProperty("--c", color);
+      pv.querySelector("svg").setAttribute("stroke", color);
+    };
+  });
+  $("#nf-name").oninput = (ev) => { $("#nf-preview-name").textContent = ev.target.value.trim() || "노트 이름"; };
+  $("#nf-cancel").onclick = closeModal;
+  $("#note-form").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const name = $("#nf-name").value.trim();
+    if (!name) return toast("노트 이름을 입력하세요.");
+    if (notes.some((n) => n !== note && n.name === name)) return toast("같은 이름의 노트가 이미 있습니다.");
+    if (!isEdit && notes.length >= MEMO_MAX_NOTES) return toast(`노트는 최대 ${MEMO_MAX_NOTES}개까지 만들 수 있습니다.`);
+    closeModal();
+    if (isEdit) { note.name = name; note.color = color; await onDone(note); }
+    else await onDone({ id: "n_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name, color, text: "", updatedAt: null });
+  };
+}
+/* 전체보기 — 노트 탭 + 큰 본문, 노트 설정(이름·색)·삭제 */
+function openMemoFullModal(notes, activeId, cb) {
+  let sel = notes.some((n) => n.id === activeId) ? activeId : notes[0].id;
+  const render = () => {
+    const n = notes.find((x) => x.id === sel) || notes[0];
+    sel = n.id;
+    openModal(`
+      <h3>개인 메모장</h3>
+      <div class="note-tabs full">${notes.map((x) => `
+        <button type="button" class="note-tab ${x.id === sel ? "on" : ""}" style="--c:${esc(x.color)}" data-note="${x.id}">${noteIcon(x.color)}<span class="nt-name">${esc(x.name)}</span></button>`).join("")}</div>
+      <div class="memo-view">${n.text.trim() ? memoToHtml(n.text) : '<span class="memo-empty">작성된 메모가 없습니다.</span>'}</div>
+      <div class="memo-foot"><span>${n.updatedAt ? "마지막 수정 " + okrFeedTime(n.updatedAt) : ""}</span>
+        <span class="memo-foot-actions">
+          <button type="button" class="btn btn-ghost btn-sm" id="mv-setting">노트 설정</button>
+          <button type="button" class="btn-icon danger" id="mv-del" title="노트 삭제" ${notes.length <= 1 ? "disabled" : ""}>${ICON_TRASH}</button>
+        </span></div>
+      <div class="modal-actions"><button class="btn btn-primary btn-sm" id="mv-close">닫기</button></div>`);
+    $("#modal").querySelectorAll("[data-note]").forEach((b) => { b.onclick = () => { sel = b.dataset.note; cb.onSelect(sel); render(); }; });
+    $("#mv-close").onclick = closeModal;
+    $("#mv-setting").onclick = () => openNoteModal(n, notes, async () => { await cb.onChange(); render(); toast("노트 설정을 저장했습니다."); });
+    $("#mv-del").onclick = async () => {
+      if (notes.length <= 1) return toast("마지막 노트는 삭제할 수 없습니다.");
+      if (!confirm(`'${n.name}' 노트와 그 안의 메모를 삭제할까요?`)) return;
+      notes.splice(notes.indexOf(n), 1);
+      sel = notes[0].id;
+      cb.onSelect(sel);
+      await cb.onChange();
+      render();
+      toast("노트를 삭제했습니다.");
+    };
+  };
+  render();
+}
 let homeEditMode = false;
 let homeShowAll = false; // 모바일: 바로가기 4개 초과 펼침 여부
 
@@ -774,12 +876,13 @@ async function renderHome() {
       </div>
       <div class="card">
         <div class="card-title">
-          <div>개인 메모장<div class="ct-desc">나만 보는 메모입니다.</div></div>
-          <span style="display:flex;gap:6px">
+          <div>개인 메모장</div>
+          <span style="display:flex;gap:6px" id="memo-actions">
             <button class="btn btn-ghost btn-sm" id="memo-full">전체보기</button>
             <button class="btn btn-ghost btn-sm" id="memo-btn">수정</button>
           </span>
         </div>
+        <div id="memo-tabs" class="note-tabs"></div>
         <div id="memo-holder" class="memo-holder"><div class="empty" style="padding:20px">불러오는 중...</div></div>
       </div>
     </div>
@@ -1120,51 +1223,77 @@ async function renderHome() {
     renderTodos();
   };
 
-  /* ── 개인 메모장 (보기: URL 자동 링크 / 수정: textarea) ── */
+  /* ── 개인 메모장 — 노트(이름·색)별로 나누어 저장. 본문은 평문 + **굵게** + URL 자동 링크 ── */
   const memoRef = db.collection(COL.memos).doc(me.id);
   const memoSnap = await pMemo;
   const memoBtn = $("#memo-btn");
-  let memoText = memoSnap.exists ? (memoSnap.data().text || "") : "";
+  const memoData = memoSnap.exists ? memoSnap.data() : {};
+  // 예전 단일 메모(text)는 첫 노트 "메모"로 이관한다
+  let notes = Array.isArray(memoData.notes) ? memoData.notes.map((n) => ({ ...n })) : [];
+  if (!notes.length) notes = [{ id: "n_" + Date.now().toString(36), name: "메모", color: MEMO_COLORS[0], text: memoData.text || "", updatedAt: null }];
+  let activeId = notes.some((n) => n.id === memoData.activeId) ? memoData.activeId : notes[0].id;
   let memoEditing = false;
+  const cur = () => notes.find((n) => n.id === activeId) || notes[0];
+  const saveNotes = async () => memoRef.set({ notes, activeId });
 
+  const renderTabs = () => {
+    const box = $("#memo-tabs");
+    box.innerHTML = notes.map((n) => `
+      <button type="button" class="note-tab ${n.id === activeId ? "on" : ""}" style="--c:${esc(n.color)}" data-note="${n.id}" ${memoEditing ? "disabled" : ""}>
+        ${noteIcon(n.color)}<span class="nt-name">${esc(n.name)}</span></button>`).join("") +
+      (notes.length < MEMO_MAX_NOTES && !memoEditing ? `<button type="button" class="note-tab add" id="memo-add">+ 새 노트</button>` : "");
+    box.querySelectorAll("[data-note]").forEach((b) => {
+      b.onclick = async () => { activeId = b.dataset.note; renderTabs(); renderMemo(); await saveNotes(); };
+    });
+    const on = box.querySelector(".note-tab.on");
+    if (on && on.scrollIntoView) on.scrollIntoView({ block: "nearest", inline: "nearest" });
+    const add = $("#memo-add");
+    if (add) add.onclick = () => openNoteModal(null, notes, async (n) => { notes.push(n); activeId = n.id; await saveNotes(); renderTabs(); renderMemo(); toast("노트를 만들었습니다."); });
+  };
   const renderMemo = () => {
     const holder = $("#memo-holder");
+    const n = cur();
     if (memoEditing) {
-      holder.innerHTML = `<textarea id="memo-area" class="memo-area editing"></textarea>`;
-      const ta = $("#memo-area");
-      ta.value = memoText;
-      ta.focus();
+      holder.innerHTML = `
+        <div class="memo-toolbar">
+          <button type="button" class="tb" id="memo-bold" title="굵게 (Ctrl+B)">B</button>
+          <span class="tb-hint">선택 후 B 또는 Ctrl+B</span>
+        </div>
+        <div id="memo-area" class="memo-area memo-editor editing" contenteditable="true" spellcheck="false">${memoToHtml(n.text)}</div>`;
+      const ed = $("#memo-area");
+      $("#memo-bold").onmousedown = (ev) => { ev.preventDefault(); document.execCommand("bold"); };
+      ed.onkeydown = (ev) => { if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "b") { ev.preventDefault(); document.execCommand("bold"); } };
+      ed.onpaste = (ev) => { ev.preventDefault(); document.execCommand("insertText", false, (ev.clipboardData || window.clipboardData).getData("text/plain")); };
+      ed.focus();
     } else {
-      holder.innerHTML = `<div class="memo-area memo-render">${memoText.trim() ? linkify(memoText) : '<span class="memo-empty">[수정]을 눌러 메모를 작성하세요. URL을 입력하면 자동으로 링크가 됩니다.</span>'}</div>`;
+      holder.innerHTML = `<div class="memo-area memo-render">${n.text.trim() ? memoToHtml(n.text) : '<span class="memo-empty">[수정]을 눌러 메모를 작성하세요.</span>'}</div>
+        <div class="memo-foot"><span>${n.updatedAt ? "마지막 수정 " + okrFeedTime(n.updatedAt) : ""}</span><span>노트 ${notes.length}개</span></div>`;
     }
   };
-  renderMemo();
-
-  $("#memo-full").onclick = () => {
-    openModal(`
-      <h3>개인 메모장</h3>
-      <div class="memo-view">${memoText.trim() ? linkify(memoText) : "작성된 메모가 없습니다."}</div>
-      <div class="modal-actions"><button class="btn btn-primary" id="mv-close">닫기</button></div>`);
-    $("#mv-close").onclick = closeModal;
-  };
-  memoBtn.onclick = async () => {
-    if (!memoEditing) {
-      memoEditing = true;
-      renderMemo();
-      memoBtn.textContent = "저장";
-      memoBtn.classList.remove("btn-ghost");
-      memoBtn.classList.add("btn-primary");
-    } else {
-      memoText = $("#memo-area").value;
-      await memoRef.set({ text: memoText });
-      memoEditing = false;
-      renderMemo();
-      memoBtn.textContent = "수정";
-      memoBtn.classList.remove("btn-primary");
-      memoBtn.classList.add("btn-ghost");
+  const setEditUi = () => {
+    $("#memo-actions").innerHTML = memoEditing
+      ? `<button class="btn btn-ghost btn-sm" id="memo-cancel">취소</button><button class="btn btn-primary btn-sm" id="memo-btn">저장</button>`
+      : `<button class="btn btn-ghost btn-sm" id="memo-full">전체보기</button><button class="btn btn-ghost btn-sm" id="memo-btn">수정</button>`;
+    $("#memo-btn").onclick = async () => {
+      if (!memoEditing) { memoEditing = true; setEditUi(); renderTabs(); renderMemo(); return; }
+      const n = cur();
+      n.text = htmlToMemo($("#memo-area"));
+      n.updatedAt = new Date().toISOString();
+      await saveNotes();
+      memoEditing = false; setEditUi(); renderTabs(); renderMemo();
       toast("메모를 저장했습니다.");
-    }
+    };
+    const cancel = $("#memo-cancel");
+    if (cancel) cancel.onclick = () => { memoEditing = false; setEditUi(); renderTabs(); renderMemo(); };
+    const full = $("#memo-full");
+    if (full) full.onclick = () => openMemoFullModal(notes, activeId, {
+      onSelect: (id) => { activeId = id; renderTabs(); renderMemo(); saveNotes(); },
+      onChange: async () => { await saveNotes(); if (!notes.some((n) => n.id === activeId)) activeId = notes[0].id; renderTabs(); renderMemo(); }
+    });
   };
+  setEditUi();
+  renderTabs();
+  renderMemo();
 }
 
 /* ───────── 사내 시스템 (관리자: 버튼 등록 + 계정별 권한 부여) ───────── */
