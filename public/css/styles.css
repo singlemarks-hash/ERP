@@ -2188,3 +2188,6 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 .note-tab.add { padding: 4px 9px; font-size: 0.74rem; }
 .btn-icon.sm { width: 24px; height: 24px; margin-left: 6px; vertical-align: middle; }
 .btn-icon.sm svg { width: 13px; height: 13px; }
+/* 근무변경 사유 — 말줄임 없이 전문·줄바꿈 그대로 */
+.atr-sum.full { white-space: pre-wrap; overflow: visible; text-overflow: clip; max-width: 460px; min-width: 200px; line-height: 1.55; word-break: keep-all; overflow-wrap: anywhere; color: var(--ink); }
+@media (max-width: 760px) { .atr-sum.full { max-width: none; min-width: 0; } }

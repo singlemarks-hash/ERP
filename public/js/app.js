@@ -3619,7 +3619,7 @@ function attReqSectionHtml(myReqs, emps) {
         <thead><tr><th>구분</th><th>내용</th><th>결재자</th><th>신청일</th><th>상태</th><th></th></tr></thead>
         <tbody>${myReqs.map((r) => `<tr>
           <td><b>${ATT_REQ_LABEL[r.type] || "-"}</b></td>
-          <td class="atr-sum">${esc(attReqSummary(r))}</td>
+          <td class="atr-sum ${r.type === "change" ? "full" : ""}">${esc(attReqSummary(r))}</td>
           <td>${esc(r.approver || "-")}</td>
           <td>${fmtTs(r.createdAt)}</td>
           <td><span class="badge ${ATT_REQ_STATUS_BADGE[r.status] || ""}">${esc(r.status || "대기")}</span></td>
@@ -3634,7 +3634,8 @@ function attReqSummary(r) {
   if (r.type === "overtime") {
     return `${r.date} ${r.start}~${r.nextDay ? "익일 " : ""}${r.end} (총 ${fmtH(r.hours || 0)}시간)`;
   }
-  return (r.text || "").replace(/\s+/g, " ").slice(0, 60);
+  // 근무변경 사유는 자르지 않고 줄바꿈까지 그대로 보여준다 (결재자가 전문을 읽고 판단해야 하므로)
+  return (r.text || "").trim();
 }
 
 /* 근태 결재 신청 폼 이벤트 바인딩 (renderAttRecord에서 호출) */
@@ -4336,7 +4337,7 @@ async function renderAttendAdmin() {
         <tbody>${myApprovals.map((r) => `<tr>
           <td><span class="badge ${r.type === "overtime" ? "admin" : "manager"}">${ATT_REQ_LABEL[r.type] || "-"}</span></td>
           <td><b>${esc(r.name)}</b><span class="atr-dept">${esc(r.dept || "-")}</span></td>
-          <td class="atr-sum">${esc(attReqSummary(r))}</td>
+          <td class="atr-sum ${r.type === "change" ? "full" : ""}">${esc(attReqSummary(r))}</td>
           <td>${fmtTs(r.createdAt)}</td>
           <td style="white-space:nowrap">
             <button class="btn btn-primary btn-sm" data-arok="${r.id}">승인</button>
