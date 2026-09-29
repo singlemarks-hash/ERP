@@ -713,29 +713,129 @@ function fmtPeriod(start, end) {
 }
 
 /* 연차 갱신일이 도래했으면 자동 리셋하고 이전 주기를 history에 보존한다 */
-async function maybeResetLeave(empId, lv) {
-  if (!lv || !lv.grantDate) return lv;
+/* ── 연차 자동 계산 (근로기준법 제60조, 입사일 기준) ──────────────────
+   · 1년 미만: 입사일 기준 매월 같은 날 +1일, 최대 11일 (개근 가정 — 결근은 관리자가 '연차 조정'으로 차감)
+   · 만 1년부터: 매년 입사기념일에 15일, 3년차부터 2년마다 +1일 (최대 25일)
+   · 1년 미만에 생긴 월차 중 못 쓴 것은 소멸하지 않고 계속 이월 (회사 정책, carry 로 보관)
+   · 그 외 연차는 주기(입사기념일~다음 기념일)가 끝나면 잔여 소멸 → history 에 기록
+   관리자 입력은 예외만 저장한다: adjusts(±일·사유), mode:"manual"(자동 계산 제외·수동 할당) */
+function ymdAddMonths(ds, n) {
+  const [y, m, d] = ds.split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1 + n, 1));
+  const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate();
+  t.setUTCDate(Math.min(d, last));   // 1/31 입사 → 2/28 처럼 말일로 맞춘다
+  return t.toISOString().slice(0, 10);
+}
+const ymdAddYears = (ds, n) => ymdAddMonths(ds, n * 12);
+/* 근속 k년(k ≥ 1)의 연차 일수 */
+const annualLeaveDays = (k) => Math.min(25, 15 + Math.floor((k - 1) / 2));
+function isAutoLeave(emp, lv) { return !!(emp && emp.joinDate) && !(lv && lv.mode === "manual"); }
+/* 입사일 기준으로 today 가 속한 주기: k = 지난 입사기념일 수 */
+function leaveCycleOf(joinDate, today) {
+  let k = 0;
+  while (k < 80 && ymdAddYears(joinDate, k + 1) <= today) k++;
+  return { k, start: ymdAddYears(joinDate, k), end: ymdAddYears(joinDate, k + 1) };
+}
+const sumDays = (list) => (list || []).reduce((s, r) => s + (Number(r.days) || 0), 0);
+
+/* 직원 한 명의 현재 연차 현황 — 화면은 모두 이 결과만 쓴다 */
+function leaveStatus(emp, lv, today) {
+  today = today || todayKST();
+  lv = lv || {};
+  const used = sumDays(lv.records);
+  const adjust = sumDays(lv.adjusts);
+  if (!isAutoLeave(emp, lv)) {
+    const base = Number(lv.allocated) || 0;
+    const total = base + adjust;
+    return {
+      auto: false, label: emp && emp.joinDate ? "수동 할당" : "입사일 미등록", base, adjust, carry: 0, total, used, remain: total - used,
+      months: null, next: null, cycleStart: lv.grantDate || "", cycleEnd: lv.grantDate ? nextGrantDate(lv.grantDate) : ""
+    };
+  }
+  const { k, start, end } = leaveCycleOf(emp.joinDate, today);
+  let base, months = null, next;
+  if (k === 0) {
+    months = Array.from({ length: 11 }, (_, i) => {
+      const date = ymdAddMonths(emp.joinDate, i + 1);
+      return { date, granted: date <= today };
+    });
+    base = months.filter((m) => m.granted).length;
+    const up = months.find((m) => !m.granted);
+    next = up ? { date: up.date, days: 1, label: "월차 +1일" } : { date: end, days: 15, label: "연차 15일 발생" };
+  } else {
+    base = annualLeaveDays(k);
+    next = { date: end, days: annualLeaveDays(k + 1), label: `연차 ${annualLeaveDays(k + 1)}일 발생` };
+  }
+  const carry = Number(lv.carry) || 0;
+  const total = base + adjust + carry;
+  return {
+    auto: true, k, label: k === 0 ? "1년 미만" : `근속 ${k}년`, base, adjust, carry, total, used, remain: total - used,
+    months, next, cycleStart: start, cycleEnd: end
+  };
+}
+/* 발생 내역 한 줄 요약 — "월차 7 · 이월 3 · 조정 -1" */
+function leaveBreakdown(st) {
+  const parts = [`${st.auto ? (st.k === 0 ? "월차" : "연차") : "할당"} ${fmtDays(st.base)}`];
+  if (st.carry) parts.push(`이월 ${fmtDays(st.carry)}`);
+  if (st.adjust) parts.push(`조정 ${st.adjust > 0 ? "+" : ""}${fmtDays(st.adjust)}`);
+  return parts.join(" · ");
+}
+const fmtDays = (n) => String(Math.round(n * 10) / 10);
+
+/* 주기가 바뀌었으면 이전 주기를 history 로 넘기고 월차 이월분을 carry 로 넘긴다 */
+async function maybeResetLeave(empId, lv, emp) {
+  if (!lv) return lv;
   const today = todayKST();
   let changed = false;
-  while (nextGrantDate(lv.grantDate) <= today) {
-    const cycleEnd = nextGrantDate(lv.grantDate);
-    const used = (lv.records || []).reduce((s, r) => s + (Number(r.days) || 0), 0);
-    const allocated = Number(lv.allocated) || 0;
-    lv.history = [...(lv.history || []), {
-      start: lv.grantDate,
-      end: cycleEnd,
-      allocated,
-      used,
-      remaining: allocated - used,
-      records: lv.records || []
-    }];
-    lv.records = [];
-    lv.grantDate = cycleEnd;
-    changed = true;
+  if (isAutoLeave(emp, lv)) {
+    const cur = leaveCycleOf(emp.joinDate, today);
+    // 자동 계산으로 처음 전환: 이전(수동) 주기 기록은 그대로 보관만 하고, 소급 계산은 하지 않는다
+    if (!lv.autoSince) {
+      const old = (lv.records || []).filter((r) => (r.date || "") < cur.start);
+      if (old.length) {
+        const allocated = Number(lv.allocated) || 0, used = sumDays(old);
+        lv.history = [...(lv.history || []), { start: lv.grantDate || old[0].date, end: cur.start, allocated, used, remaining: allocated - used, migrated: true, records: old }];
+        lv.records = (lv.records || []).filter((r) => (r.date || "") >= cur.start);
+      }
+      lv.grantDate = cur.start;
+      lv.carry = Number(lv.carry) || 0;
+      lv.autoSince = today;
+      changed = true;
+    }
+    let guard = 0;
+    while (lv.grantDate < cur.start && guard++ < 80) {
+      const { k, end } = leaveCycleOf(emp.joinDate, lv.grantDate);
+      const inCycle = (x) => (x.date || "") < end;
+      const recs = (lv.records || []).filter(inCycle);
+      const adj = (lv.adjusts || []).filter(inCycle);
+      const st = leaveStatus(emp, { ...lv, records: recs, adjusts: adj }, prevDateStr(end));
+      const carryIn = Number(lv.carry) || 0;
+      // 1년 미만 주기: 남은 월차 전부 이월 / 그 뒤: 이월분을 먼저 쓴 것으로 보고 남은 이월분만 계속 이월
+      const carryOut = Math.max(0, k === 0 ? st.remain : Math.min(Math.max(0, carryIn - st.used), st.remain));
+      lv.history = [...(lv.history || []), {
+        start: lv.grantDate, end, allocated: st.total, used: st.used, remaining: st.remain,
+        carried: carryOut, expired: Math.max(0, st.remain - carryOut), records: recs, adjusts: adj
+      }];
+      lv.records = (lv.records || []).filter((x) => !inCycle(x));
+      lv.adjusts = (lv.adjusts || []).filter((x) => !inCycle(x));
+      lv.carry = carryOut;
+      lv.grantDate = end;
+      changed = true;
+    }
+  } else {
+    // 수동 할당: 연차 발생일마다 사용 기록만 리셋 (기존 방식)
+    while (lv.grantDate && nextGrantDate(lv.grantDate) <= today) {
+      const cycleEnd = nextGrantDate(lv.grantDate);
+      const used = sumDays(lv.records);
+      const allocated = (Number(lv.allocated) || 0) + sumDays(lv.adjusts);
+      lv.history = [...(lv.history || []), { start: lv.grantDate, end: cycleEnd, allocated, used, remaining: allocated - used, records: lv.records || [], adjusts: lv.adjusts || [] }];
+      lv.records = [];
+      lv.adjusts = [];
+      lv.grantDate = cycleEnd;
+      changed = true;
+    }
   }
-  if (changed) {
-    await db.collection(COL.leaves).doc(empId).set(lv);
-  }
+  if (changed) await db.collection(COL.leaves).doc(empId).set(lv);
   return lv;
 }
 
@@ -743,6 +843,16 @@ function nextGrantDate(d) {
   // 연차 발생일 + 1년 = 다음 갱신 예정일
   const [y, m, dd] = d.split("-");
   return `${Number(y) + 1}-${m}-${dd}`;
+}
+
+/* 지난 주기 표 한 줄 — 이월/소멸을 구분해 보여준다 (예전 기록은 잔여 전부를 소멸로 본다) */
+function leaveHistoryCells(h) {
+  if (h.migrated) return `<td class="num">${fmtDays(h.allocated)}일</td><td class="num">${fmtDays(h.used)}일</td><td class="num">${fmtDays(h.remaining)}일</td><td class="num">-</td><td class="num"><span class="c-faint">자동 전환 이전</span></td>`;
+  const carried = Number(h.carried) || 0;
+  const expired = h.expired != null ? Number(h.expired) : Math.max(0, Number(h.remaining) || 0);
+  return `<td class="num">${fmtDays(h.allocated)}일</td><td class="num">${fmtDays(h.used)}일</td><td class="num">${fmtDays(h.remaining)}일</td>
+    <td class="num">${carried ? `<b class="c-green">${fmtDays(carried)}일</b>` : "-"}</td>
+    <td class="num">${expired ? `<b class="c-red">${fmtDays(expired)}일</b>` : "-"}</td>`;
 }
 
 /* ── 공지사항 ── */
@@ -1123,11 +1233,12 @@ async function renderHome() {
 
   /* ── 연차 위젯 ── */
   const lvSnap = await pLv;
-  const lv = lvSnap.exists ? lvSnap.data() : { allocated: 0, records: [] };
+  let lv = lvSnap.exists ? lvSnap.data() : { records: [] };
+  try { lv = await maybeResetLeave(me.id, lv, me); } catch (e) { /* 표시만 계속 */ }
   const recs = lv.records || [];
-  const used = recs.reduce((s, r) => s + (Number(r.days) || 0), 0);
-  const remain = (Number(lv.allocated) || 0) - used;
-  const pct = lv.allocated ? Math.min(100, Math.round((used / lv.allocated) * 100)) : 0;
+  const lst = leaveStatus(me, lv);
+  const used = lst.used, remain = lst.remain;
+  const pct = lst.total ? Math.min(100, Math.round((used / lst.total) * 100)) : 0;
   const byType = LEAVE_TYPES.map((t, i) => {
     const days = recs.filter((r) => r.type === t).reduce((s, r) => s + (Number(r.days) || 0), 0);
     return { t, days, tone: ["", "gold", "ok", "plum", ""][i % 5] };
@@ -1136,12 +1247,13 @@ async function renderHome() {
 
   $("#home-leave").innerHTML = `
     <div class="leave-chips">
-      <div class="leave-chip"><div class="c-label">총 연차</div><div class="c-value">${lv.allocated || 0}일</div></div>
-      <div class="leave-chip"><div class="c-label">사용</div><div class="c-value">${used}일</div></div>
-      <div class="leave-chip remain"><div class="c-label">남은 연차</div><div class="c-value">${remain}일</div></div>
+      <div class="leave-chip"><div class="c-label">총 연차</div><div class="c-value">${fmtDays(lst.total)}일</div></div>
+      <div class="leave-chip"><div class="c-label">사용</div><div class="c-value">${fmtDays(used)}일</div></div>
+      <div class="leave-chip remain"><div class="c-label">남은 연차</div><div class="c-value">${fmtDays(remain)}일</div></div>
     </div>
     <div class="usage-line"><span>사용률</span><div class="bar ${remain < 0 ? "over" : ""}"><i style="width:${pct}%"></i></div><b>${pct}%</b></div>
-    ${lv.grantDate ? `<div class="mini-note" style="margin:0 0 14px">연차 발생일 ${esc(lv.grantDate)} · 다음 갱신 예정 ${esc(nextGrantDate(lv.grantDate))}</div>` : ""}
+    ${lst.next ? `<div class="mini-note" style="margin:0 0 14px">다음 발생 ${esc(lst.next.date)} · ${esc(lst.next.label)}</div>`
+      : lv.grantDate ? `<div class="mini-note" style="margin:0 0 14px">연차 발생일 ${esc(lv.grantDate)} · 다음 갱신 예정 ${esc(nextGrantDate(lv.grantDate))}</div>` : ""}
     <div class="type-bars">
       ${byType.map((b) => `<div class="type-bar">
         <span>${b.t}</span>
@@ -2560,13 +2672,14 @@ async function renderLeave() {
     db.collection(COL.leaveRequests).where("empId", "==", me.id).get(),
     loadActiveEmployees()
   ]);
-  let mine = mySnap.exists ? mySnap.data() : { allocated: 0, records: [] };
-  mine = await maybeResetLeave(me.id, mine);
+  let mine = mySnap.exists ? mySnap.data() : { records: [] };
+  mine = await maybeResetLeave(me.id, mine, me);
   const records = mine.records || [];
   const myReqs = myReqSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  const used = records.reduce((s, r) => s + Number(r.days || 0), 0);
-  const allocated = Number(mine.allocated) || 0;
-  const remain = allocated - used;
+  const lst = leaveStatus(me, mine);
+  const used = lst.used;
+  const allocated = lst.total;
+  const remain = lst.remain;
   const pending = myReqs.filter((r) => r.status === "대기").length;
   const pct = allocated ? Math.min(100, Math.round((used / allocated) * 100)) : 0;
 
@@ -2593,7 +2706,7 @@ async function renderLeave() {
     <div class="card">
       <div class="card-title"><div>나의 연차 현황<div class="ct-desc">총 연차 보유 및 사용 현황을 확인하세요.</div></div></div>
       <div class="lv-stats">
-        ${statCard(LV_ICONS.total, "t-blue", "총 연차 일수", `${allocated}일`)}
+        ${statCard(LV_ICONS.total, "t-blue", "총 연차 일수", `${fmtDays(allocated)}일`)}
         ${statCard(LV_ICONS.used, "t-green", "사용한 연차", `${used}일`)}
         ${statCard(LV_ICONS.remain, "t-purple", "남은 연차", `${remain}일`)}
         ${statCard(LV_ICONS.pending, "t-amber", "대기 중 신청", `${pending}건`)}
@@ -2602,9 +2715,11 @@ async function renderLeave() {
         <div class="bar ${remain < 0 ? "over" : ""}"><i style="width:${pct}%"></i></div>
         <b>${pct}%</b><span>(${used}일 / ${allocated}일)</span>
       </div>
-      <div class="mini-note">${mine.grantDate
-        ? `연차 발생일 ${esc(mine.grantDate)} · 다음 갱신 예정 ${esc(nextGrantDate(mine.grantDate))}`
-        : "연차 발생일이 아직 설정되지 않았습니다. 경영지원본부에 문의하세요."}</div>
+      <div class="mini-note">${lst.auto
+        ? `입사일 ${esc(me.joinDate)} 기준 · ${esc(lst.label)} · ${esc(leaveBreakdown(lst))}일<br>다음 발생 <b>${esc(lst.next.date)}</b> · ${esc(lst.next.label)}`
+        : mine.grantDate
+          ? `연차 발생일 ${esc(mine.grantDate)} · 다음 갱신 예정 ${esc(nextGrantDate(mine.grantDate))}`
+          : "입사일이 등록되지 않아 연차를 계산할 수 없습니다. 경영지원본부에 문의하세요."}</div>
     </div>
 
     <div class="card">
@@ -2651,14 +2766,11 @@ async function renderLeave() {
 
     ${(mine.history || []).length ? `
     <div class="card">
-      <div class="card-title"><div>지난 연차 기록<div class="ct-desc">갱신일이 지나 리셋된 이전 주기의 기록입니다.</div></div></div>
+      <div class="card-title"><div>지난 연차 기록<div class="ct-desc">입사기념일이 지나 넘어간 이전 주기입니다. 1년 미만에 생긴 월차는 소멸 없이 이월됩니다.</div></div></div>
       <div class="table-wrap"><table class="data pay-table">
-        <thead><tr><th>주기</th><th class="num">할당</th><th class="num">사용</th><th class="num">잔여(소멸)</th></tr></thead>
+        <thead><tr><th>주기</th><th class="num">발생</th><th class="num">사용</th><th class="num">잔여</th><th class="num">이월</th><th class="num">소멸</th></tr></thead>
         <tbody>${mine.history.slice().reverse().map((h) => `<tr>
-          <td>${fmtPeriod(h.start, h.end)}</td>
-          <td class="num">${h.allocated}일</td>
-          <td class="num">${h.used}일</td>
-          <td class="num"><b class="${h.remaining > 0 ? "c-red" : ""}">${h.remaining}일</b></td>
+          <td>${fmtPeriod(h.start, h.end)}</td>${leaveHistoryCells(h)}
         </tr>`).join("")}</tbody></table></div>
     </div>` : ""}
 `;
@@ -4577,7 +4689,7 @@ async function renderLeaveAdmin() {
   main.innerHTML = pageHead("ADMIN", "연차관리",
     "휴가 신청 승인과 전 직원 연차 현황을 관리합니다.",
     isAdmin() ? `<button class="btn btn-primary btn-sm" id="lv-use">+ 사용 기록 추가</button>
-                 <button class="btn btn-ghost btn-sm" id="lv-alloc">할당 일수 설정</button>` : "") +
+                 <button class="btn btn-ghost btn-sm" id="lv-alloc">연차 조정</button>` : "") +
     `<div id="lva-body"><div class="empty">불러오는 중...</div></div>`;
 
   const [empSnap, lvSnap, reqSnap] = await Promise.all([
@@ -4589,10 +4701,12 @@ async function renderLeaveAdmin() {
   lvSnap.docs.forEach((d) => (lvMap[d.id] = d.data()));
   const emps = empSnap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) =>
     DEPTS.indexOf(a.dept) - DEPTS.indexOf(b.dept) || a.name.localeCompare(b.name, "ko"));
-  // 갱신일이 도래한 직원의 연차를 자동 리셋 (이전 주기는 history 보존)
+  // 입사기념일이 지난 직원은 이전 주기를 history 로 넘기고 월차 이월분을 정리한다
   for (const e of emps) {
-    if (lvMap[e.id]) lvMap[e.id] = await maybeResetLeave(e.id, lvMap[e.id]);
+    if (lvMap[e.id] || isAutoLeave(e, null)) lvMap[e.id] = await maybeResetLeave(e.id, lvMap[e.id] || { records: [] }, e);
   }
+  const stMap = {};
+  emps.forEach((e) => { stMap[e.id] = leaveStatus(e, lvMap[e.id]); });
   // 결재는 신청자가 지정한 결재자에게만 올라간다 — 본인 앞으로 온 건만 노출.
   const reqs = reqSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
     .filter((r) => isMyApproval(r))
@@ -4619,16 +4733,33 @@ async function renderLeaveAdmin() {
     </div>
     <div id="lva-cal"><div class="card"><div class="empty">일정 캘린더 불러오는 중...</div></div></div>
     <div class="card">
-      <div class="card-title"><div>전 직원 연차 현황<div class="ct-desc">직원을 클릭하면 등록된 연차 사용 이력이 펼쳐집니다.</div></div></div>
-      <div class="table-wrap"><table class="data">
-        <thead><tr><th>이름</th><th>부서</th><th>연차 발생일</th><th class="num">할당</th><th class="num">사용</th><th class="num">잔여</th><th>사용률</th></tr></thead>
+      <div class="card-title"><div>전 직원 연차 현황<div class="ct-desc">입사일 기준으로 자동 계산됩니다. 직원을 누르면 발생·조정·사용 내역이 펼쳐집니다.</div></div></div>
+      <div class="table-wrap"><table class="data lva-table">
+        <thead><tr><th>이름</th><th>부서</th><th>입사일</th><th>구분</th><th class="num">발생</th><th class="num">사용</th><th class="num">잔여</th><th>다음 발생</th><th>사용률</th></tr></thead>
         <tbody>${emps.map((e) => {
-          const lv = lvMap[e.id] || { allocated: 0, records: [] };
+          const lv = lvMap[e.id] || { records: [] };
+          const st = stMap[e.id];
           const recs = (lv.records || []).slice().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-          const u = recs.reduce((s, r) => s + Number(r.days || 0), 0);
-          const rm = (Number(lv.allocated) || 0) - u;
-          const p = lv.allocated ? Math.min(100, (u / lv.allocated) * 100) : 0;
-          const detail = recs.length ? `
+          const u = st.used;
+          const rm = st.remain;
+          const p = st.total ? Math.min(100, (u / st.total) * 100) : 0;
+          const monthsHtml = st.months ? `
+            <div class="lva-sub">월차 발생 (입사일 기준 매월 ${Number(e.joinDate.slice(8))}일)</div>
+            <div class="lva-months">${st.months.map((m, i) => `<span class="lva-month ${m.granted ? "on" : ""}" title="${m.date}">${i + 1}개월 · ${m.date.slice(5).replace("-", "/")}${m.granted ? " ✓" : ""}</span>`).join("")}</div>` : "";
+          const adjs = (lv.adjusts || []).slice().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+          const adjHtml = adjs.length ? `
+            <div class="lva-sub">연차 조정</div>
+            <table class="data lva-rec-table">
+              <tbody>${adjs.map((a) => `<tr>
+                <td>${esc(a.date || "-")}</td>
+                <td class="num"><b class="${a.days < 0 ? "c-red" : "c-green"}">${a.days > 0 ? "+" : ""}${fmtDays(a.days)}일</b></td>
+                <td>${esc(a.note || "")}</td>
+                ${isAdmin() ? `<td class="num"><button class="icon-btn" title="조정 삭제" data-lvadj="${e.id}|${esc(a.id)}">${ICON_TRASH}</button></td>` : ""}
+              </tr>`).join("")}</tbody></table>` : "";
+          const legacyNote = st.auto && Number(lv.allocated) > 0
+            ? `<div class="mini-note">자동 계산 전환 전 수동 할당: ${fmtDays(Number(lv.allocated))}일 — 차이가 있으면 [연차 조정]으로 맞춰 주세요.</div>` : "";
+          const recHtml = recs.length ? `
+            <div class="lva-sub">사용 기록</div>`+`
             <table class="data lva-rec-table">
               <thead><tr><th>기간</th><th>유형</th><th class="num">일수</th>${isAdmin() ? "<th></th>" : ""}</tr></thead>
               <tbody>${recs.map((r) => `<tr>
@@ -4640,28 +4771,29 @@ async function renderLeaveAdmin() {
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/><path d="M10 11v6M14 11v6"/></svg></button></td>` : ""}
               </tr>`).join("")}</tbody>
             </table>`
-            : `<div class="empty" style="padding:12px">등록된 연차 사용 기록이 없습니다.</div>`;
+            : `<div class="lva-sub">사용 기록</div><div class="empty" style="padding:12px">등록된 연차 사용 기록이 없습니다.</div>`;
+          const detail = monthsHtml + adjHtml + recHtml + legacyNote;
           return `<tr class="ph-click" data-lvatoggle="${e.id}">
             <td><b>${esc(e.name)}</b></td><td>${esc(e.dept)}</td>
-            <td>${esc(lv.grantDate || "-")}</td>
-            <td class="num">${lv.allocated || 0}일</td><td class="num">${u}일</td>
-            <td class="num"><b>${rm}일</b></td>
+            <td class="att-mono">${esc(e.joinDate || "-")}</td>
+            <td><span class="badge ${st.auto ? (st.k === 0 ? "warn" : "ok") : "off"}">${esc(st.label)}</span></td>
+            <td class="num"><b>${fmtDays(st.total)}일</b><span class="lva-bd">${esc(leaveBreakdown(st))}</span></td>
+            <td class="num">${fmtDays(u)}일</td>
+            <td class="num"><b class="${rm < 0 ? "c-red" : ""}">${fmtDays(rm)}일</b></td>
+            <td class="lva-next">${st.next ? `<b>${esc(st.next.date.slice(2).replace(/-/g, "."))}</b><span>${esc(st.next.label)}</span>` : "-"}</td>
             <td><div class="bar ${rm < 0 ? "over" : ""}"><i style="width:${p}%"></i></div></td>
           </tr>
-          <tr class="ph-detail-tr hidden" data-lvadetail="${e.id}"><td colspan="7"><div class="ph-detail ph-anim">${detail}</div></td></tr>`;
+          <tr class="ph-detail-tr hidden" data-lvadetail="${e.id}"><td colspan="9"><div class="ph-detail ph-anim">${detail}</div></td></tr>`;
         }).join("")}</tbody></table></div>
     </div>
     ${pastCycles.length ? `
     <div class="card">
-      <div class="card-title"><div>지난 연차 주기 기록<div class="ct-desc">갱신일이 지나 자동 리셋된 이전 주기의 잔여(소멸) 내역입니다.</div></div></div>
+      <div class="card-title"><div>지난 연차 주기 기록<div class="ct-desc">입사기념일이 지나 넘어간 이전 주기입니다. 1년 미만 월차 잔여는 이월, 그 외 잔여는 소멸됩니다.</div></div></div>
       <div class="table-wrap"><table class="data pay-table">
-        <thead><tr><th>직원</th><th>부서</th><th>주기</th><th class="num">할당</th><th class="num">사용</th><th class="num">잔여(소멸)</th></tr></thead>
+        <thead><tr><th>직원</th><th>부서</th><th>주기</th><th class="num">발생</th><th class="num">사용</th><th class="num">잔여</th><th class="num">이월</th><th class="num">소멸</th></tr></thead>
         <tbody>${pastCycles.map((h) => `<tr>
           <td><b>${esc(h.name)}</b></td><td>${esc(h.dept)}</td>
-          <td>${fmtPeriod(h.start, h.end)}</td>
-          <td class="num">${h.allocated}일</td>
-          <td class="num">${h.used}일</td>
-          <td class="num"><b class="${h.remaining > 0 ? "c-red" : ""}">${h.remaining}일</b></td>
+          <td>${fmtPeriod(h.start, h.end)}</td>${leaveHistoryCells(h)}
         </tr>`).join("")}</tbody></table></div>
     </div>` : ""}`;
 
@@ -4671,6 +4803,24 @@ async function renderLeaveAdmin() {
       if (ev.target.closest("button")) return;
       const detail = $("#lva-body").querySelector(`[data-lvadetail="${row.dataset.lvatoggle}"]`);
       if (detail) detail.classList.toggle("hidden");
+    };
+  });
+  // 총괄 관리자: 연차 조정 삭제
+  $("#lva-body").querySelectorAll("[data-lvadj]").forEach((b) => {
+    b.onclick = async () => {
+      if (!isAdmin() || b.disabled) return;
+      const [empId, adjId] = b.dataset.lvadj.split("|");
+      const emp = emps.find((x) => x.id === empId);
+      const a = ((lvMap[empId] || {}).adjusts || []).find((x) => x.id === adjId);
+      if (!a) return;
+      if (!confirm(`${emp ? emp.name : "?"}님의 연차 조정(${a.days > 0 ? "+" : ""}${fmtDays(a.days)}일 · ${a.note || ""})을 삭제할까요?`)) return;
+      b.disabled = true;
+      const ref = db.collection(COL.leaves).doc(empId);
+      const snap = await ref.get();
+      const cur = snap.exists ? snap.data() : {};
+      await ref.set({ ...cur, adjusts: (cur.adjusts || []).filter((x) => x.id !== adjId) });
+      toast("연차 조정을 삭제했습니다.");
+      renderLeaveAdmin();
     };
   });
   // 총괄 관리자: 이력에서 개별 기록 삭제 (잔여 연차 복구)
@@ -4827,44 +4977,106 @@ async function openLeaveUseModal() {
   };
 }
 
+/* 연차 조정 — 결근 차감(-1)·포상(+N) 같은 예외를 사유와 함께 기록. 자동 계산에 그대로 더해진다.
+   입사일이 없거나 규칙을 쓰지 않을 직원만 '수동 할당'으로 전환한다. */
 async function openLeaveAllocModal() {
   const emps = await loadActiveEmployees();
   const lvSnap = await db.collection(COL.leaves).get();
   const lvMap = {};
   lvSnap.docs.forEach((d) => (lvMap[d.id] = d.data()));
+  const today = todayKST();
   openModal(`
-    <h3>할당 연차 설정</h3>
-    <p class="modal-desc">직원별 연간 할당 연차 일수를 설정합니다.</p>
+    <h3>연차 조정</h3>
     <form id="lva-form">
       <label class="field"><span class="field-label">직원</span>
         <select id="la-emp" required>
           <option value="" disabled selected>직원 선택</option>
-          ${emps.map((e) =>
-          `<option value="${e.id}">${esc(e.name)} (${esc(e.dept)}) — 현재 ${lvMap[e.id]?.allocated || 0}일</option>`).join("")}</select></label>
-      <label class="field"><span class="field-label">할당 일수</span><input id="la-days" type="number" step="0.5" min="0" required /></label>
-      <div class="field"><span class="field-label">연차 발생일 (매년 이 날짜에 갱신)</span>${calField("la-grant", "")}</div>
+          ${emps.map((e) => { const st = leaveStatus(e, lvMap[e.id]);
+            return `<option value="${e.id}">${esc(e.name)} (${esc(e.dept)}) — ${esc(st.label)} · 잔여 ${fmtDays(st.remain)}일</option>`; }).join("")}</select></label>
+      <div class="lva-status" id="la-status"></div>
+      <div id="la-adjust">
+        <div class="grid-2">
+          <label class="field"><span class="field-label">조정 일수</span>
+            <input id="la-days" type="number" step="0.5" value="-1" required /></label>
+          <div class="field"><span class="field-label">적용일</span>${calField("la-date", today)}</div>
+        </div>
+        <div class="la-quick">
+          <button type="button" class="btn btn-ghost btn-sm" data-q="-1|결근 차감">결근 -1</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-q="-0.5|반일 결근 차감">반일 결근 -0.5</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-q="1|">+1</button>
+        </div>
+        <label class="field"><span class="field-label">사유</span>
+          <input id="la-note" required maxlength="40" placeholder="예: 9월 결근 차감" value="결근 차감" /></label>
+      </div>
+      <label class="la-manual-toggle"><input type="checkbox" id="la-manual" /> 자동 계산 대신 수동 할당 (입사일 기준 규칙을 쓰지 않는 직원)</label>
+      <div id="la-manual-box" hidden>
+        <label class="field"><span class="field-label">할당 일수</span><input id="la-alloc" type="number" step="0.5" min="0" /></label>
+        <div class="field"><span class="field-label">연차 발생일 (매년 이 날짜에 갱신)</span>${calField("la-grant", "")}</div>
+      </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="la-cancel">취소</button>
         <button type="submit" class="btn btn-primary">저장</button>
       </div>
     </form>`);
   $("#la-cancel").onclick = closeModal;
+  bindCalField("la-date");
   bindCalField("la-grant");
-  const fillGrant = () => { calSet("la-grant", lvMap[$("#la-emp").value]?.grantDate || ""); };
-  $("#la-emp").onchange = fillGrant;
-  fillGrant();
+  const empOf = () => emps.find((e) => e.id === $("#la-emp").value);
+  const sync = () => {
+    const e = empOf();
+    const box = $("#la-status");
+    if (!e) { box.innerHTML = ""; return; }
+    const lv = lvMap[e.id] || {};
+    const st = leaveStatus(e, lv);
+    box.innerHTML = `<b>${esc(e.name)}</b> · 입사일 ${esc(e.joinDate || "미등록")} · ${esc(st.label)}<br>
+      발생 ${fmtDays(st.total)}일 (${esc(leaveBreakdown(st))}) · 사용 ${fmtDays(st.used)}일 · 잔여 <b>${fmtDays(st.remain)}일</b>
+      ${st.next ? `<br>다음 발생 ${esc(st.next.date)} · ${esc(st.next.label)}` : ""}`;
+    const manual = !e.joinDate || lv.mode === "manual";
+    $("#la-manual").checked = manual;
+    $("#la-manual").disabled = !e.joinDate;   // 입사일이 없으면 수동만 가능
+    $("#la-manual-box").hidden = !manual;
+    $("#la-alloc").value = lv.allocated != null ? lv.allocated : "";
+    calSet("la-grant", lv.grantDate || "");
+  };
+  $("#la-emp").onchange = sync;
+  $("#la-manual").onchange = () => { $("#la-manual-box").hidden = !$("#la-manual").checked; };
+  $("#lva-form").querySelectorAll("[data-q]").forEach((b) => {
+    b.onclick = () => { const [d, n] = b.dataset.q.split("|"); $("#la-days").value = d; if (n) $("#la-note").value = n; else $("#la-note").select(); };
+  });
   $("#lva-form").onsubmit = async (ev) => {
     ev.preventDefault();
-    const empId = $("#la-emp").value;
-    const emp = emps.find((e) => e.id === empId);
+    const e = empOf();
+    if (!e) return toast("직원을 선택하세요.");
     const days = Number($("#la-days").value);
-    const grantDate = calVal("la-grant");
-    const ref = db.collection(COL.leaves).doc(empId);
+    const note = $("#la-note").value.trim();
+    const manual = $("#la-manual").checked;
+    const ref = db.collection(COL.leaves).doc(e.id);
     const snap = await ref.get();
     const cur = snap.exists ? snap.data() : { records: [] };
-    await ref.set({ ...cur, allocated: days, ...(grantDate ? { grantDate } : {}) });
+    const next = { ...cur };
+    if (manual) {
+      const alloc = Number($("#la-alloc").value);
+      if (!(alloc >= 0) || $("#la-alloc").value === "") return toast("할당 일수를 입력하세요.");
+      next.mode = "manual";
+      next.allocated = alloc;
+      const g = calVal("la-grant");
+      if (g) next.grantDate = g;
+    } else if (cur.mode === "manual") {
+      next.mode = "auto";
+      delete next.autoSince;   // 다시 자동으로 돌아오면 현재 주기부터 새로 계산
+    }
+    if (days) {
+      if (!note) return toast("사유를 입력하세요.");
+      next.adjusts = [...(cur.adjusts || []), {
+        id: "adj_" + Date.now().toString(36), date: calVal("la-date") || todayKST(), days, note, by: me.name
+      }];
+    } else if (!manual && cur.mode !== "manual") {
+      return toast("조정 일수를 입력하세요.");
+    }
+    await ref.set(next);
     closeModal();
-    renderLeave();
+    toast(days ? `${e.name}님 연차를 ${days > 0 ? "+" : ""}${fmtDays(days)}일 조정했습니다.` : "저장했습니다.");
+    renderLeaveAdmin();
   };
 }
 

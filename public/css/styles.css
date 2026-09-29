@@ -2191,3 +2191,18 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 /* 근무변경 사유 — 말줄임 없이 전문·줄바꿈 그대로 */
 .atr-sum.full { white-space: pre-wrap; overflow: visible; text-overflow: clip; max-width: 460px; min-width: 200px; line-height: 1.55; word-break: keep-all; overflow-wrap: anywhere; color: var(--ink); }
 @media (max-width: 760px) { .atr-sum.full { max-width: none; min-width: 0; } }
+/* ── 연차 자동 계산 (연차관리) ── */
+.c-faint { color: var(--ink-faint); }
+.lva-table td { vertical-align: middle; }
+.lva-bd { display: block; font-size: 0.72rem; color: var(--ink-faint); font-weight: 400; white-space: nowrap; }
+.lva-next b { display: block; font-size: 0.84rem; font-variant-numeric: tabular-nums; }
+.lva-next span { font-size: 0.72rem; color: var(--ink-soft); white-space: nowrap; }
+.lva-sub { font-size: 0.78rem; font-weight: 700; color: var(--ink-soft); margin: 10px 0 6px; }
+.lva-sub:first-child { margin-top: 0; }
+.lva-months { display: flex; flex-wrap: wrap; gap: 6px; }
+.lva-month { font-size: 0.74rem; padding: 3px 8px; border-radius: 999px; background: #f2f4f6; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.lva-month.on { background: var(--green-soft); color: var(--green); font-weight: 600; }
+.lva-status { background: #f7f8fa; border-radius: 10px; padding: 10px 12px; font-size: 0.82rem; line-height: 1.6; color: var(--ink-soft); margin: -4px 0 14px; }
+.lva-status:empty { display: none; }
+.la-quick { display: flex; gap: 6px; flex-wrap: wrap; margin: -6px 0 12px; }
+.la-manual-toggle { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--ink-soft); margin: 4px 0 12px; }
