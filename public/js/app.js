@@ -806,6 +806,8 @@ async function maybeResetLeave(empId, lv, emp) {
     if (!Number(lv.carry)) delete lv.carry;
     changed = true;
   }
+  // 관리자 확인 완료(복원된 발생일이 원래 날짜가 맞음) — 확인 표시를 해제하고 정상 리셋을 재개한다
+  if (lv.grantDateCheck) { delete lv.grantDateCheck; changed = true; }
   if (isAutoLeave(emp, lv)) {
     const cur = leaveCycleOf(emp.joinDate, today);
     // 자동 계산으로 처음 전환: 이전(수동) 주기 기록은 그대로 보관만 하고, 소급 계산은 하지 않는다
@@ -4752,7 +4754,7 @@ async function renderLeaveAdmin() {
     </div>
     <div id="lva-cal"><div class="card"><div class="empty">일정 캘린더 불러오는 중...</div></div></div>
     <div class="card">
-      <div class="card-title"><div>전 직원 연차 현황<div class="ct-desc">입사일 기준으로 자동 계산됩니다. 직원을 누르면 발생·조정·사용 내역이 펼쳐집니다.</div></div></div>
+      <div class="card-title"><div>전 직원 연차 현황<div class="ct-desc">직원을 누르면 발생·조정·사용 내역이 펼쳐집니다. 입사일 기준 자동 계산은 [연차 조정]에서 직원별로 켤 수 있습니다.</div></div></div>
       <div class="table-wrap"><table class="data lva-table">
         <thead><tr><th>이름</th><th>부서</th><th>입사일</th><th>구분</th><th class="num">발생</th><th class="num">사용</th><th class="num">잔여</th><th>다음 발생</th><th>사용률</th></tr></thead>
         <tbody>${emps.map((e) => {
@@ -4777,7 +4779,7 @@ async function renderLeaveAdmin() {
               </tr>`).join("")}</tbody></table>` : "";
           const legacyNote = (st.auto && Number(lv.allocated) > 0
             ? `<div class="mini-note">자동 계산 전환 전 수동 할당: ${fmtDays(Number(lv.allocated))}일 — 차이가 있으면 [연차 조정]으로 맞춰 주세요.</div>` : "")
-            + (lv.grantDateCheck ? `<div class="mini-note">연차 발생일 ${esc(lv.grantDate || "-")}이 맞는지 확인해 주세요. [연차 조정]에서 저장하면 확인 완료됩니다.</div>` : "");
+            ;
           const recHtml = recs.length ? `
             <div class="lva-sub">사용 기록</div>`+`
             <table class="data lva-rec-table">
@@ -4797,11 +4799,11 @@ async function renderLeaveAdmin() {
             <td><b>${esc(e.name)}</b></td><td>${esc(e.dept)}</td>
             <td class="att-mono">${esc(e.joinDate || "-")}</td>
             <td><span class="badge ${st.auto ? (st.k === 0 ? "warn" : "ok") : "off"}">${esc(st.label)}</span></td>
-            <td class="num"><b>${fmtDays(st.total)}일</b><span class="lva-bd">${esc(leaveBreakdown(st))}</span></td>
+            <td class="num"><b>${fmtDays(st.total)}일</b>${st.auto || st.adjust || st.carry ? `<span class="lva-bd">${esc(leaveBreakdown(st))}</span>` : ""}</td>
             <td class="num">${fmtDays(u)}일</td>
             <td class="num"><b class="${rm < 0 ? "c-red" : ""}">${fmtDays(rm)}일</b></td>
             <td class="lva-next">${st.next ? `<b>${esc(st.next.date.slice(2).replace(/-/g, "."))}</b><span>${esc(st.next.label)}</span>`
-              : lv.grantDate ? `<b>${esc(nextGrantDate(lv.grantDate).slice(2).replace(/-/g, "."))}</b><span>연차 갱신${lv.grantDateCheck ? ` · <em class="c-red">발생일 확인</em>` : ""}</span>` : "-"}</td>
+              : lv.grantDate ? `<b>${esc(nextGrantDate(lv.grantDate).slice(2).replace(/-/g, "."))}</b><span>연차 갱신</span>` : "-"}</td>
             <td><div class="bar ${rm < 0 ? "over" : ""}"><i style="width:${p}%"></i></div></td>
           </tr>
           <tr class="ph-detail-tr hidden" data-lvadetail="${e.id}"><td colspan="9"><div class="ph-detail ph-anim">${detail}</div></td></tr>`;
