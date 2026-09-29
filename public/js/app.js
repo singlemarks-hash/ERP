@@ -729,7 +729,8 @@ function ymdAddMonths(ds, n) {
 const ymdAddYears = (ds, n) => ymdAddMonths(ds, n * 12);
 /* 근속 k년(k ≥ 1)의 연차 일수 */
 const annualLeaveDays = (k) => Math.min(25, 15 + Math.floor((k - 1) / 2));
-function isAutoLeave(emp, lv) { return !!(emp && emp.joinDate) && !(lv && lv.mode === "manual"); }
+/* 자동 계산은 관리자가 [연차 조정]에서 켠 직원만 (기존 직원은 수동 할당 그대로) */
+function isAutoLeave(emp, lv) { return !!(emp && emp.joinDate) && !!(lv && lv.mode === "auto"); }
 /* 입사일 기준으로 today 가 속한 주기: k = 지난 입사기념일 수 */
 function leaveCycleOf(joinDate, today) {
   let k = 0;
@@ -748,7 +749,7 @@ function leaveStatus(emp, lv, today) {
     const base = Number(lv.allocated) || 0;
     const total = base + adjust;
     return {
-      auto: false, label: emp && emp.joinDate ? "수동 할당" : "입사일 미등록", base, adjust, carry: 0, total, used, remain: total - used,
+      auto: false, label: "수동 할당", base, adjust, carry: 0, total, used, remain: total - used,
       months: null, next: null, cycleStart: lv.grantDate || "", cycleEnd: lv.grantDate ? nextGrantDate(lv.grantDate) : ""
     };
   }
@@ -769,7 +770,7 @@ function leaveStatus(emp, lv, today) {
   const carry = Number(lv.carry) || 0;
   const total = base + adjust + carry;
   return {
-    auto: true, k, label: k === 0 ? "1년 미만" : `근속 ${k}년`, base, adjust, carry, total, used, remain: total - used,
+    auto: true, k, label: k === 0 ? "1년 미만" : `${k + 1}년차`, base, adjust, carry, total, used, remain: total - used,
     months, next, cycleStart: start, cycleEnd: end
   };
 }
@@ -787,6 +788,24 @@ async function maybeResetLeave(empId, lv, emp) {
   if (!lv) return lv;
   const today = todayKST();
   let changed = false;
+  // [복구] 자동 계산 1차 배포가 기존 수동 데이터를 자동으로 전환하며 옮긴 사용 기록·발생일을 되돌린다.
+  // (관리자가 직접 자동 계산을 켠 직원 = mode "auto" 는 건드리지 않는다)
+  if (lv.autoSince && lv.mode !== "auto") {
+    const mig = (lv.history || []).find((h) => h.migrated);
+    if (mig) {
+      lv.records = [...(mig.records || []), ...(lv.records || [])];
+      lv.history = (lv.history || []).filter((h) => h !== mig);
+      if (mig.start) lv.grantDate = mig.start;
+      lv.grantDateCheck = true;   // 원래 발생일인지 관리자가 한 번 확인할 때까지 자동 리셋을 멈춘다
+    } else if (!("allocated" in lv) && !(lv.records || []).length && !(lv.history || []).length && !(lv.adjusts || []).length) {
+      delete lv.grantDate;        // 이번 배포가 새로 만든 빈 문서
+    } else {
+      lv.grantDateCheck = true;   // 발생일이 입사기념일로 바뀌었을 수 있음 — 확인 필요
+    }
+    delete lv.autoSince;
+    if (!Number(lv.carry)) delete lv.carry;
+    changed = true;
+  }
   if (isAutoLeave(emp, lv)) {
     const cur = leaveCycleOf(emp.joinDate, today);
     // 자동 계산으로 처음 전환: 이전(수동) 주기 기록은 그대로 보관만 하고, 소급 계산은 하지 않는다
@@ -823,8 +842,8 @@ async function maybeResetLeave(empId, lv, emp) {
       changed = true;
     }
   } else {
-    // 수동 할당: 연차 발생일마다 사용 기록만 리셋 (기존 방식)
-    while (lv.grantDate && nextGrantDate(lv.grantDate) <= today) {
+    // 수동 할당: 연차 발생일마다 사용 기록만 리셋 (기존 방식). 발생일 확인 전에는 리셋하지 않는다
+    while (lv.grantDate && !lv.grantDateCheck && nextGrantDate(lv.grantDate) <= today) {
       const cycleEnd = nextGrantDate(lv.grantDate);
       const used = sumDays(lv.records);
       const allocated = (Number(lv.allocated) || 0) + sumDays(lv.adjusts);
@@ -4756,8 +4775,9 @@ async function renderLeaveAdmin() {
                 <td>${esc(a.note || "")}</td>
                 ${isAdmin() ? `<td class="num"><button class="icon-btn" title="조정 삭제" data-lvadj="${e.id}|${esc(a.id)}">${ICON_TRASH}</button></td>` : ""}
               </tr>`).join("")}</tbody></table>` : "";
-          const legacyNote = st.auto && Number(lv.allocated) > 0
-            ? `<div class="mini-note">자동 계산 전환 전 수동 할당: ${fmtDays(Number(lv.allocated))}일 — 차이가 있으면 [연차 조정]으로 맞춰 주세요.</div>` : "";
+          const legacyNote = (st.auto && Number(lv.allocated) > 0
+            ? `<div class="mini-note">자동 계산 전환 전 수동 할당: ${fmtDays(Number(lv.allocated))}일 — 차이가 있으면 [연차 조정]으로 맞춰 주세요.</div>` : "")
+            + (lv.grantDateCheck ? `<div class="mini-note">연차 발생일 ${esc(lv.grantDate || "-")}이 맞는지 확인해 주세요. [연차 조정]에서 저장하면 확인 완료됩니다.</div>` : "");
           const recHtml = recs.length ? `
             <div class="lva-sub">사용 기록</div>`+`
             <table class="data lva-rec-table">
@@ -4780,7 +4800,8 @@ async function renderLeaveAdmin() {
             <td class="num"><b>${fmtDays(st.total)}일</b><span class="lva-bd">${esc(leaveBreakdown(st))}</span></td>
             <td class="num">${fmtDays(u)}일</td>
             <td class="num"><b class="${rm < 0 ? "c-red" : ""}">${fmtDays(rm)}일</b></td>
-            <td class="lva-next">${st.next ? `<b>${esc(st.next.date.slice(2).replace(/-/g, "."))}</b><span>${esc(st.next.label)}</span>` : "-"}</td>
+            <td class="lva-next">${st.next ? `<b>${esc(st.next.date.slice(2).replace(/-/g, "."))}</b><span>${esc(st.next.label)}</span>`
+              : lv.grantDate ? `<b>${esc(nextGrantDate(lv.grantDate).slice(2).replace(/-/g, "."))}</b><span>연차 갱신${lv.grantDateCheck ? ` · <em class="c-red">발생일 확인</em>` : ""}</span>` : "-"}</td>
             <td><div class="bar ${rm < 0 ? "over" : ""}"><i style="width:${p}%"></i></div></td>
           </tr>
           <tr class="ph-detail-tr hidden" data-lvadetail="${e.id}"><td colspan="9"><div class="ph-detail ph-anim">${detail}</div></td></tr>`;
@@ -4996,8 +5017,8 @@ async function openLeaveAllocModal() {
       <div class="lva-status" id="la-status"></div>
       <div id="la-adjust">
         <div class="grid-2">
-          <label class="field"><span class="field-label">조정 일수</span>
-            <input id="la-days" type="number" step="0.5" value="-1" required /></label>
+          <label class="field"><span class="field-label">조정 일수 (없으면 0)</span>
+            <input id="la-days" type="number" step="0.5" value="0" required /></label>
           <div class="field"><span class="field-label">적용일</span>${calField("la-date", today)}</div>
         </div>
         <div class="la-quick">
@@ -5006,10 +5027,11 @@ async function openLeaveAllocModal() {
           <button type="button" class="btn btn-ghost btn-sm" data-q="1|">+1</button>
         </div>
         <label class="field"><span class="field-label">사유</span>
-          <input id="la-note" required maxlength="40" placeholder="예: 9월 결근 차감" value="결근 차감" /></label>
+          <input id="la-note" maxlength="40" placeholder="예: 9월 결근 차감" /></label>
       </div>
-      <label class="la-manual-toggle"><input type="checkbox" id="la-manual" /> 자동 계산 대신 수동 할당 (입사일 기준 규칙을 쓰지 않는 직원)</label>
-      <div id="la-manual-box" hidden>
+      <label class="la-manual-toggle"><input type="checkbox" id="la-auto" /> 입사일 기준 자동 계산 (월차 매월 자동 적립)</label>
+      <div class="mini-note" id="la-auto-preview" style="margin:-6px 0 12px"></div>
+      <div id="la-manual-box">
         <label class="field"><span class="field-label">할당 일수</span><input id="la-alloc" type="number" step="0.5" min="0" /></label>
         <div class="field"><span class="field-label">연차 발생일 (매년 이 날짜에 갱신)</span>${calField("la-grant", "")}</div>
       </div>
@@ -5031,15 +5053,18 @@ async function openLeaveAllocModal() {
     box.innerHTML = `<b>${esc(e.name)}</b> · 입사일 ${esc(e.joinDate || "미등록")} · ${esc(st.label)}<br>
       발생 ${fmtDays(st.total)}일 (${esc(leaveBreakdown(st))}) · 사용 ${fmtDays(st.used)}일 · 잔여 <b>${fmtDays(st.remain)}일</b>
       ${st.next ? `<br>다음 발생 ${esc(st.next.date)} · ${esc(st.next.label)}` : ""}`;
-    const manual = !e.joinDate || lv.mode === "manual";
-    $("#la-manual").checked = manual;
-    $("#la-manual").disabled = !e.joinDate;   // 입사일이 없으면 수동만 가능
-    $("#la-manual-box").hidden = !manual;
+    const auto = !!e.joinDate && lv.mode === "auto";
+    $("#la-auto").checked = auto;
+    $("#la-auto").disabled = !e.joinDate;   // 입사일이 없으면 수동만 가능
+    $("#la-manual-box").hidden = auto;
+    const pv = leaveStatus(e, { ...lv, mode: "auto", records: (lv.records || []).filter((r) => (r.date || "") >= leaveCycleOf(e.joinDate || todayKST(), todayKST()).start) });
+    $("#la-auto-preview").textContent = !e.joinDate ? "입사일을 직원 관리에서 등록하면 자동 계산을 켤 수 있습니다."
+      : auto ? "" : `켜면 ${pv.label} 기준 ${fmtDays(pv.total)}일로 계산됩니다 (현재 수동 ${fmtDays(Number(lv.allocated) || 0)}일).`;
     $("#la-alloc").value = lv.allocated != null ? lv.allocated : "";
     calSet("la-grant", lv.grantDate || "");
   };
   $("#la-emp").onchange = sync;
-  $("#la-manual").onchange = () => { $("#la-manual-box").hidden = !$("#la-manual").checked; };
+  $("#la-auto").onchange = () => { $("#la-manual-box").hidden = $("#la-auto").checked; };
   $("#lva-form").querySelectorAll("[data-q]").forEach((b) => {
     b.onclick = () => { const [d, n] = b.dataset.q.split("|"); $("#la-days").value = d; if (n) $("#la-note").value = n; else $("#la-note").select(); };
   });
@@ -5049,29 +5074,31 @@ async function openLeaveAllocModal() {
     if (!e) return toast("직원을 선택하세요.");
     const days = Number($("#la-days").value);
     const note = $("#la-note").value.trim();
-    const manual = $("#la-manual").checked;
+    const auto = $("#la-auto").checked && !!e.joinDate;
     const ref = db.collection(COL.leaves).doc(e.id);
     const snap = await ref.get();
     const cur = snap.exists ? snap.data() : { records: [] };
     const next = { ...cur };
-    if (manual) {
+    delete next.grantDateCheck;   // 관리자가 한 번 저장하면 발생일 확인 완료
+    if (auto) {
+      if (cur.mode !== "auto") {
+        if (!confirm(`${e.name}님을 입사일 기준 자동 계산으로 바꿀까요?\n수동 할당값 대신 규칙 계산값이 적용됩니다.`)) return;
+        next.mode = "auto";
+        delete next.autoSince;   // 현재 주기부터 새로 계산
+      }
+    } else {
       const alloc = Number($("#la-alloc").value);
       if (!(alloc >= 0) || $("#la-alloc").value === "") return toast("할당 일수를 입력하세요.");
       next.mode = "manual";
       next.allocated = alloc;
       const g = calVal("la-grant");
       if (g) next.grantDate = g;
-    } else if (cur.mode === "manual") {
-      next.mode = "auto";
-      delete next.autoSince;   // 다시 자동으로 돌아오면 현재 주기부터 새로 계산
     }
     if (days) {
       if (!note) return toast("사유를 입력하세요.");
       next.adjusts = [...(cur.adjusts || []), {
         id: "adj_" + Date.now().toString(36), date: calVal("la-date") || todayKST(), days, note, by: me.name
       }];
-    } else if (!manual && cur.mode !== "manual") {
-      return toast("조정 일수를 입력하세요.");
     }
     await ref.set(next);
     closeModal();
