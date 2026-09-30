@@ -5078,6 +5078,7 @@ async function openLeaveAllocModal() {
     const days = Number($("#la-days").value);
     const note = $("#la-note").value.trim();
     const auto = $("#la-auto").checked && !!e.joinDate;
+    const adjDate = calVal("la-date") || todayKST();   // 창을 닫기 전에 읽어 둔다
     const ref = db.collection(COL.leaves).doc(e.id);
     const snap = await ref.get();
     const cur = snap.exists ? snap.data() : { records: [] };
@@ -5100,12 +5101,11 @@ async function openLeaveAllocModal() {
     if (days) {
       if (!note) return toast("사유를 입력하세요.");
       next.adjusts = [...(cur.adjusts || []), {
-        id: "adj_" + Date.now().toString(36), date: calVal("la-date") || todayKST(), days, note, by: me.name
+        id: "adj_" + Date.now().toString(36), date: adjDate, days, note, by: me.name
       }];
     }
     await ref.set(next);
     closeModal();
-    const adjDate = calVal("la-date") || todayKST();
     toast(days ? `${e.name}님 연차 ${days > 0 ? "+" : ""}${fmtDays(days)}일 조정${adjDate > todayKST() ? ` — ${adjDate}부터 반영됩니다` : "했습니다"}.` : "저장했습니다.");
     renderLeaveAdmin();
   };
