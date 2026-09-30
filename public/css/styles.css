@@ -1181,6 +1181,11 @@ tr.ph-row-open td { background: var(--blue-soft); }
   to { opacity: 1; transform: translateY(0); }
 }
 .pay-table .btn.on { background: var(--blue-soft); color: var(--blue-deep); }
+/* 급여 이력: 행 버튼 하나로 열고 닫기 — 폭 고정으로 라벨이 바뀌어도 흔들리지 않게 */
+[data-ph-toggle] { min-width: 84px; justify-content: center; }
+tr.ph-row-open [data-ph-toggle].on { background: #fff; color: var(--blue-deep); box-shadow: inset 0 0 0 1px rgba(49, 130, 246, 0.25); }
+tr.ph-row-open td { border-bottom-color: transparent; }
+.ph-detail-tr > td { border-top: none; }
 
 /* 메모장 전체보기 */
 .memo-view {
@@ -2237,3 +2242,11 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 .pm-h-note { margin: -2px 0 10px; font-size: 0.74rem; line-height: 1.5; color: var(--ink-faint); }
 .pm-h-note:empty { display: none; }
 .pm-h-note b { color: #d9480f; font-weight: 600; }
+/* 급여 이력 — 모바일: 월·지급일·실수령·열기만 남겨 가로 스크롤 없이 표시 (총 지급·공제·메모는 상세 카드에 있음) */
+@media (max-width: 640px) {
+  .ph-table .ph-hide-m { display: none; }
+  .ph-table .ph-tg-txt { display: none; }
+  .ph-table [data-ph-toggle] { min-width: 34px; padding-left: 8px; padding-right: 8px; }
+  .ph-table .ph-tg-td { width: 1%; }
+  .ph-detail-tr > td { padding: 0 6px; }
+}

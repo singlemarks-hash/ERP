@@ -1927,16 +1927,16 @@ async function renderPayHistory() {
         <div><span>총 지급</span><b>${fmt(sumPay)}원</b></div>
         <div><span>총 공제</span><b class="c-red">${fmt(sumDeduct)}원</b></div>
       </div>
-      <div class="table-wrap"><table class="data pay-table">
-        <thead><tr><th>월</th><th>지급일</th><th class="num">총 지급</th><th class="num">총 공제</th><th class="num">실수령</th><th>메모</th><th></th></tr></thead>
+      <div class="table-wrap"><table class="data pay-table ph-table">
+        <thead><tr><th>월</th><th>지급일</th><th class="num ph-hide-m">총 지급</th><th class="num ph-hide-m">총 공제</th><th class="num">실수령</th><th class="ph-hide-m">메모</th><th></th></tr></thead>
         <tbody>${records.map((r) => `<tr class="ph-click ${phOpenIds.has(r.id) ? "ph-row-open" : ""}" data-rowtoggle="${r.id}">
           <td>${payYmCell(r.ym)}</td>
           <td>${esc(r.payDate || "-")}</td>
-          <td class="num"><span class="hov c-green" data-hv="${r.id}" data-ym="${r.ym}" data-kind="pay">${fmt(r.payTotal)}원</span></td>
-          <td class="num"><span class="hov c-red" data-hv="${r.id}" data-ym="${r.ym}" data-kind="deduct">${fmt(r.deductTotal)}원</span></td>
+          <td class="num ph-hide-m"><span class="hov c-green" data-hv="${r.id}" data-ym="${r.ym}" data-kind="pay">${fmt(r.payTotal)}원</span></td>
+          <td class="num ph-hide-m"><span class="hov c-red" data-hv="${r.id}" data-ym="${r.ym}" data-kind="deduct">${fmt(r.deductTotal)}원</span></td>
           <td class="num"><b class="c-green">${fmt(r.net)}원</b></td>
-          <td class="memo">${esc(r.note || "—")}</td>
-          <td><button class="btn btn-ghost btn-sm ${phOpenIds.has(r.id) ? "on" : ""}" data-ph-toggle="${r.id}">상세보기 ${phOpenIds.has(r.id) ? "⌃" : "›"}</button></td>
+          <td class="memo ph-hide-m">${esc(r.note || "—")}</td>
+          <td class="ph-tg-td"><button class="btn btn-ghost btn-sm ${phOpenIds.has(r.id) ? "on" : ""}" data-ph-toggle="${r.id}" aria-expanded="${phOpenIds.has(r.id)}" aria-label="${phOpenIds.has(r.id) ? "상세 닫기" : "상세보기"}"><span class="ph-tg-txt">${phOpenIds.has(r.id) ? "닫기" : "상세보기"}</span> ${phOpenIds.has(r.id) ? "⌃" : "›"}</button></td>
         </tr>${phOpenIds.has(r.id) ? `<tr class="ph-detail-tr"><td colspan="7">${renderPayDetailPanel(r)}</td></tr>` : ""}`).join("")}</tbody>
       </table></div>`
       : `<div class="empty">${year}년 급여 내역이 없습니다.</div>`;
@@ -1980,8 +1980,6 @@ function renderPayDetailPanel(r) {
   const line = (p, cls) => `<div class="ps-line"><span>${esc(p.label)}</span><b class="${cls}">${fmt(p.amount)}원</b></div>`;
   return `
     <div class="ph-detail ph-anim">
-      <div class="ph-detail-head">${r.ym} 급여 내역${isPeriodYm(r.ym) ? ` <span class="ph-date">${payPeriodShort(r.ym)}</span>` : ""} ${r.payDate ? `<span class="ph-date">지급일 ${esc(r.payDate)}</span>` : ""}
-        <button class="btn btn-ghost btn-sm" data-ph-toggle="${r.id}">상세 내역 닫기 ⌃</button></div>
       <div class="ph-detail-grid">
         <div class="ph-col pb-pay"><div class="ph-col-title c-green">지급 내역</div>
           ${r.payments.map((p) => line(p, "c-green")).join("") || '<div class="ps-line"><span>등록된 항목 없음</span></div>'}
@@ -1992,10 +1990,7 @@ function renderPayDetailPanel(r) {
         <div class="ph-col ph-col-net">
           <div class="ph-col-title">이번 달 실수령</div>
           <div class="ph-net-amt">${fmt(r.net)}<span>원</span></div>
-          <ul class="p-meta" style="margin-top:14px">
-            ${r.payDate ? `<li><b>지급일</b> ${esc(r.payDate)}</li>` : ""}
-            ${r.note ? `<li><b>메모</b> ${esc(r.note)}</li>` : ""}
-          </ul>
+          ${r.note ? `<ul class="p-meta" style="margin-top:14px"><li><b>메모</b> ${esc(r.note)}</li></ul>` : ""}
         </div>
       </div>
     </div>`;
