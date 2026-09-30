@@ -1216,6 +1216,7 @@ tr.ph-row-open td { background: var(--blue-soft); }
 /* 급여 명세 공용 라인 (급여이력 상세 패널에서 재사용) */
 .ps-line { display: flex; justify-content: space-between; padding: 7px 0; font-size: 0.87rem; border-bottom: 1px solid var(--line); }
 .ps-line:last-child { border-bottom: none; }
+.ps-line:has(+ .ps-line.strong) { border-bottom: none; } /* 합계 위 두 줄 겹침 방지 */
 .ps-line span { color: var(--ink-soft); }
 .ps-line b { font-variant-numeric: tabular-nums; font-weight: 600; }
 .ps-line.strong { border-top: 1.5px solid var(--line-strong); border-bottom: none; margin-top: 4px; padding-top: 10px; }
@@ -2218,7 +2219,7 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 .pm-hour em { font-style: normal; font-size: 0.74rem; color: var(--ink-faint); }
 
 /* 급여월(산정기간) — 제목의 기간 표기 · 근무 캘린더 7일/8일 경계 */
-.pp-range { font-size: 0.78rem; font-weight: 600; color: var(--ink-faint); margin-left: 4px; letter-spacing: 0; }
+.pp-range { display: block; margin-top: 2px; font-size: 0.76rem; font-weight: 600; color: var(--ink-faint); letter-spacing: 0; }
 .sc-cell.pp-end { box-shadow: inset -3px 0 0 #f59f00; }
 .sc-cell.pp-start { box-shadow: inset 3px 0 0 #f59f00; }
 .pp-tag { display: inline-block; margin-left: 4px; padding: 1px 5px; border-radius: 6px; background: #fff4e0; color: #d9480f;
@@ -2229,6 +2230,6 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 @media (max-width: 640px) {
   .pp-tag { display: block; width: fit-content; margin: 2px 0 0; padding: 0 3px; font-size: 0.55rem; }
   .pp-tag .pp-full { display: none; }
-  .sc-cal-head .sc-cal-title .pp-range { display: block; margin: 0; font-size: 0.72rem; }
+  .sc-cal-head .sc-cal-title .pp-range { font-size: 0.72rem; }
 }
 .pp-sub { display: block; font-size: 0.7rem; font-weight: 600; color: var(--ink-faint); white-space: nowrap; }
