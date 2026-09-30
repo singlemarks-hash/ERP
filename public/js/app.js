@@ -76,6 +76,44 @@ function kstNow() { return new Date(Date.now() + KST_OFFSET_MS); }
 function todayKST() { return kstNow().toISOString().slice(0, 10); }
 function ymNowKST() { return kstNow().toISOString().slice(0, 7); }
 
+/* ── 급여월(산정기간) ─────────────────────────────────────────────
+   2026년 10월 급여부터 급여월 M = (M-1)월 8일 ~ M월 7일. (10월 급여 = 9/8~10/7)
+   그 이전 급여월은 기존대로 1일~말일. 저장 데이터는 바꾸지 않고 규칙으로만 계산한다. */
+const PAY_PERIOD_FROM = "2026-10";
+const PAY_CUT_DAY = 7;
+const ymShift = (ym, n) => {
+  const [y, m] = ym.split("-").map(Number);
+  const t = y * 12 + (m - 1) + n;
+  return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, "0")}`;
+};
+const isPeriodYm = (ym) => !!ym && ym >= PAY_PERIOD_FROM;
+function payPeriod(ym) {
+  if (!isPeriodYm(ym)) {
+    const [y, m] = ym.split("-").map(Number);
+    return { start: `${ym}-01`, end: `${ym}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}` };
+  }
+  return { start: `${ymShift(ym, -1)}-${String(PAY_CUT_DAY + 1).padStart(2, "0")}`, end: `${ym}-${String(PAY_CUT_DAY).padStart(2, "0")}` };
+}
+/* 날짜가 속한 급여월 (8일 이후 근무는 다음 달 급여) */
+function payYmOfDate(ds) {
+  const ym = ds.slice(0, 7);
+  if (Number(ds.slice(8, 10)) > PAY_CUT_DAY && isPeriodYm(ymShift(ym, 1))) return ymShift(ym, 1);
+  return ym;
+}
+/* "9/8~10/7" (새 규칙 급여월만, 이전 달은 "") */
+const payPeriodShort = (ym) => {
+  if (!isPeriodYm(ym)) return "";
+  const { start, end } = payPeriod(ym);
+  const md = (d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+  return `${md(start)}~${md(end)}`;
+};
+/* 급여 목록의 "월" 칸: 2026-10 + (9/8~10/7) */
+const payYmCell = (ym) => `<b>${ym}</b>${isPeriodYm(ym) ? `<span class="pp-sub">${payPeriodShort(ym)}</span>` : ""}`;
+const payYmTitle = (ym) => {
+  const [y, m] = ym.split("-").map(Number);
+  return isPeriodYm(ym) ? `${y}년 ${m}월 급여 <span class="pp-range">${payPeriodShort(ym)}</span>` : `${y}년 ${m}월`;
+};
+
 /* ── 부서 개편 (2026-10-01 0시, 한국시간) ─────────────────────────────
    온라인사업부 → 브랜딩전략부, 오프라인사업부 → F&B&C사업부.
    · 9월 30일 이전에 쌓인 기록(출퇴근·신청·공지·9월 OKR)은 적힌 이름 그대로 둔다
@@ -1382,7 +1420,7 @@ async function renderHome() {
     <div class="table-wrap home-pay-scroll"><table class="data pay-table">
       <thead><tr><th>월</th><th>지급일</th><th class="num">총 지급</th><th class="num">총 공제</th><th class="num">실수령</th></tr></thead>
       <tbody>${payLines.map((l) => `<tr>
-        <td><b>${l.ym}</b></td>
+        <td>${payYmCell(l.ym)}</td>
         <td>${esc(l.rec.payDate || "-")}</td>
         <td class="num c-green">${fmt(l.rec.payTotal)}</td>
         <td class="num c-red">${fmt(l.rec.deductTotal)}</td>
@@ -1808,7 +1846,7 @@ function normalizePayRow(r) {
   const deductTotal = deductions.reduce((s, p) => s + p.amount, 0);
   return {
     id: r.id, empId: r.empId || null, name: r.name || "", category: r.category === "사대보험" ? "4대보험" : (r.category || ""),
-    payDate: r.payDate || "", note: r.note || "", hours: r.hours || null,
+    payDate: r.payDate || "", note: r.note || "", hours: r.hours || null, period: r.period || null,
     payments, deductions, payTotal, deductTotal, net: payTotal - deductTotal
   };
 }
@@ -1892,7 +1930,7 @@ async function renderPayHistory() {
       <div class="table-wrap"><table class="data pay-table">
         <thead><tr><th>월</th><th>지급일</th><th class="num">총 지급</th><th class="num">총 공제</th><th class="num">실수령</th><th>메모</th><th></th></tr></thead>
         <tbody>${records.map((r) => `<tr class="ph-click ${phOpenIds.has(r.id) ? "ph-row-open" : ""}" data-rowtoggle="${r.id}">
-          <td><b>${r.ym}</b></td>
+          <td>${payYmCell(r.ym)}</td>
           <td>${esc(r.payDate || "-")}</td>
           <td class="num"><span class="hov c-green" data-hv="${r.id}" data-ym="${r.ym}" data-kind="pay">${fmt(r.payTotal)}원</span></td>
           <td class="num"><span class="hov c-red" data-hv="${r.id}" data-ym="${r.ym}" data-kind="deduct">${fmt(r.deductTotal)}원</span></td>
@@ -1942,7 +1980,7 @@ function renderPayDetailPanel(r) {
   const line = (p, cls) => `<div class="ps-line"><span>${esc(p.label)}</span><b class="${cls}">${fmt(p.amount)}원</b></div>`;
   return `
     <div class="ph-detail ph-anim">
-      <div class="ph-detail-head">${r.ym} 급여 내역 ${r.payDate ? `<span class="ph-date">지급일 ${esc(r.payDate)}</span>` : ""}
+      <div class="ph-detail-head">${r.ym} 급여 내역${isPeriodYm(r.ym) ? ` <span class="ph-date">${payPeriodShort(r.ym)}</span>` : ""} ${r.payDate ? `<span class="ph-date">지급일 ${esc(r.payDate)}</span>` : ""}
         <button class="btn btn-ghost btn-sm" data-ph-toggle="${r.id}">상세 내역 닫기 ⌃</button></div>
       <div class="ph-detail-grid">
         <div class="ph-col pb-pay"><div class="ph-col-title c-green">지급 내역</div>
@@ -2268,7 +2306,7 @@ function renderPayForm(emp, cat, record) {
     <label class="field" style="margin-top:14px"><span class="field-label">메모</span><textarea id="pm-note" class="pm-note" rows="3" placeholder="예: 식대 포함, 연말정산 반영">${esc(record?.note || "")}</textarea></label>`;
 
   const syncDates = () => {
-    $("#pm-ym-label").textContent = selYm ? `${selYm.slice(0, 4)}년 ${Number(selYm.slice(5, 7))}월` : "급여월 선택";
+    $("#pm-ym-label").innerHTML = selYm ? `${selYm.slice(0, 4)}년 ${Number(selYm.slice(5, 7))}월${isPeriodYm(selYm) ? `<span class="pm-ym-range">${payPeriodShort(selYm)}</span>` : ""}` : "급여월 선택";
     $("#pm-d-label").textContent = selDate ? selDate.replace(/-/g, "/") : "미지정";
     const ct = document.getElementById("pm-copytitle");
     if (ct && selYm) ct.textContent = `${emp.name} ${Number(selYm.slice(5, 7))}월 급여명세서_작은따옴표`;
@@ -2343,6 +2381,8 @@ function renderPayForm(emp, cat, record) {
       hours,
       note: $("#pm-note").value.trim()
     };
+    // 새 급여월 규칙(전월 8일~당월 7일) 적용 월은 산정기간을 함께 남긴다
+    if (isPeriodYm(ym)) data.period = payPeriod(ym);
     if (!data.payments.length) { toast("지급 내역을 1개 이상 입력하세요."); return; }
     const col = (m) => db.collection(COL.payroll).doc(m).collection("rows");
     if (pmEditId) {
@@ -2413,7 +2453,7 @@ async function renderPayHistoryAdmin(emp) {
       <thead><tr>${isAll ? "<th>소속</th><th>직원</th>" : ""}<th>월</th><th>지급일</th><th class="num">총 지급</th><th class="num">총 공제</th><th class="num">실수령</th><th>메모</th><th></th></tr></thead>
       <tbody>${records.map((r) => `<tr>
         ${isAll ? `<td>${esc(deptOf(r))}</td><td><b>${esc(r.name)}</b></td>` : ""}
-        <td><b>${r.ym}</b></td>
+        <td>${payYmCell(r.ym)}</td>
         <td>${esc(r.payDate || "-")}</td>
         <td class="num"><span class="hov c-green" data-hv="${r.id}" data-ym="${r.ym}" data-kind="pay">${fmt(r.payTotal)}원</span></td>
         <td class="num"><span class="hov c-red" data-hv="${r.id}" data-ym="${r.ym}" data-kind="deduct">${fmt(r.deductTotal)}원</span></td>
@@ -4147,8 +4187,11 @@ async function renderAttCalendar() {
       return `<span class="wa-label">${area}</span>` + g.map((s) =>
         `<span class="shift-ent ${shiftColor(s.empId)}"><b>${s.isTemp ? TEMP_BADGE : ""}${esc(s.name)}</b><i class="full">${shiftCompact(s)}</i><i class="st-only">${esc(s.start)}</i></span>`).join("");
     }).join("");
-    return `<button type="button" class="sc-cell at-cell ${ds < today ? "past" : ""} ${ds === today ? "today" : ""}" data-atd="${ds}">
-      <span class="d ${dow === 0 ? "sun" : dow === 6 ? "sat" : ""}">${d}</span>
+    // 급여월 경계: 7일 = 이번 급여월 마감, 8일 = 다음 급여월 시작
+    const ppEnd = d === PAY_CUT_DAY && isPeriodYm(atCalYm);
+    const ppStart = d === PAY_CUT_DAY + 1 && isPeriodYm(ymShift(atCalYm, 1));
+    return `<button type="button" class="sc-cell at-cell ${ds < today ? "past" : ""} ${ds === today ? "today" : ""} ${ppEnd ? "pp-end" : ""} ${ppStart ? "pp-start" : ""}" data-atd="${ds}">
+      <span class="d ${dow === 0 ? "sun" : dow === 6 ? "sat" : ""}">${d}${ppEnd ? `<em class="pp-tag" title="${mm}월 급여 마감"><span class="pp-full">${mm}월 급여 </span>마감</em>` : ""}</span>
       <span class="at-ents">${groups}</span>
     </button>`;
   };
@@ -4172,6 +4215,7 @@ async function renderAttCalendar() {
       </div>
       <div class="at-legend">
         ${monthEmps.map(([id, nm]) => `<span class="at-legend-item ${shiftColor(id)}">${String(id).startsWith("temp:") ? TEMP_BADGE : ""}${esc(nm)}</span>`).join("")}
+        ${isPeriodYm(ymShift(atCalYm, 1)) ? `<span class="at-legend-note pp-legend"><i></i>급여월은 8일 ~ 다음 달 7일</span>` : ""}
         <span class="at-legend-note">${REST_ICON} 휴게 1시간 차감 · 날짜를 누르면 상세${canEditShiftCal() ? "·등록" : ""} 화면이 열립니다</span>
       </div>
     </div>`;
@@ -4419,11 +4463,13 @@ function openShiftDayModal(ds, emps) {
 /* ── 근무 이력 (본인) ── */
 async function renderAttHistory() {
   const body = $("#att-body");
-  if (!atHistYm) atHistYm = ymNowKST();
+  if (!atHistYm) atHistYm = payYmOfDate(todayKST());
   const [yy, mm] = atHistYm.split("-").map(Number);
+  const per = payPeriod(atHistYm); // 급여월 산정기간
+  const inPer = (d) => !!d && d >= per.start && d <= per.end;
   const [shiftSnap, attSnap, reqSnap, emps] = await Promise.all([
-    db.collection(COL.shifts).where("date", ">=", `${atHistYm}-01`).where("date", "<=", `${atHistYm}-31`).get(),
-    db.collection(COL.attendance).where("date", ">=", `${atHistYm}-01`).where("date", "<=", `${atHistYm}-31`).get(),
+    db.collection(COL.shifts).where("date", ">=", per.start).where("date", "<=", per.end).get(),
+    db.collection(COL.attendance).where("date", ">=", per.start).where("date", "<=", per.end).get(),
     db.collection(COL.attRequests).where("empId", "==", me.id).get(),
     loadActiveEmployees()
   ]);
@@ -4437,9 +4483,9 @@ async function renderAttHistory() {
     });
   const reqOfDate = (d) => (kind) => reqSt[`${d}|${kind}`];
   const myShifts = shiftSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
-    .filter((s) => s.empId === me.id && (s.date || "").startsWith(atHistYm));
+    .filter((s) => s.empId === me.id && inPer(s.date));
   const myAtts = attSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
-    .filter((a) => a.empId === me.id && (a.date || "").startsWith(atHistYm));
+    .filter((a) => a.empId === me.id && inPer(a.date));
   const shiftBy = {}; myShifts.forEach((s) => { shiftBy[s.date] = s; });
   const attBy = {}; myAtts.forEach((a) => { attBy[a.date] = a; });
   const allDates = [...new Set([...myShifts.map((s) => s.date), ...myAtts.map((a) => a.date)])].sort().reverse();
@@ -4466,9 +4512,9 @@ async function renderAttHistory() {
       <div class="card-title"><div>${esc(me.name)}님의 근무 이력입니다.</div></div>
       <div class="sc-cal-head">
         <button type="button" class="cal-nav" id="ah-prev">&lsaquo;</button>
-        <b class="sc-cal-title">${yy}년 ${mm}월</b>
+        <b class="sc-cal-title">${payYmTitle(atHistYm)}</b>
         <button type="button" class="cal-nav" id="ah-next">&rsaquo;</button>
-        <button type="button" class="btn btn-ghost btn-sm" id="ah-now">이번 달</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="ah-now">${isPeriodYm(payYmOfDate(todayKST())) ? "이번 급여월" : "이번 달"}</button>
       </div>
       <div class="pb-stats s4">
         <div><span>근무 예정일</span><b>${schedDays}일</b></div>
@@ -4495,7 +4541,7 @@ async function renderAttHistory() {
         }).join("")}</tbody>
       </table></div>
       <div class="mini-note">조기출근·연장 태그를 누르면 그 건만 결재에 올릴 수 있습니다.
-        승인된 건만 위 요약과 급여 가산에 반영됩니다.</div>` : `<div class="empty">${mm}월 근무 기록이 없습니다.</div>`}
+        승인된 건만 위 요약과 급여 가산에 반영됩니다.</div>` : `<div class="empty">${mm}월${isPeriodYm(atHistYm) ? " 급여 기간" : ""} 근무 기록이 없습니다.</div>`}
     </div>`;
 
   // 태그 클릭 → 그 날짜·종류만 결재 요청
@@ -4518,7 +4564,7 @@ async function renderAttHistory() {
   };
   $("#ah-prev").onclick = () => shiftMonth(-1);
   $("#ah-next").onclick = () => shiftMonth(1);
-  $("#ah-now").onclick = () => { atHistYm = ymNowKST(); renderAttend(); };
+  $("#ah-now").onclick = () => { atHistYm = payYmOfDate(todayKST()); renderAttend(); };
 }
 
 /* ── 근태관리 (관리자: 전 직원 이력 + 메모) ── */
@@ -4527,14 +4573,16 @@ let admAttEmp = ""; // "" = 전체 직원
 async function renderAttendAdmin() {
   if (!canEditShifts() && !isManager()) return navigate("home", null, true);
   const main = $("#main");
-  if (!admAttYm) admAttYm = ymNowKST();
+  if (!admAttYm) admAttYm = payYmOfDate(todayKST());
   const [yy, mm] = admAttYm.split("-").map(Number);
+  const per = payPeriod(admAttYm); // 급여월 산정기간
+  const inPer = (d) => !!d && d >= per.start && d <= per.end;
   main.innerHTML = pageHead("ADMIN", "근태관리", "전 직원의 출퇴근·근무 이력을 한눈에 확인하고 기록별 메모를 남깁니다.") +
     `<div id="adm-body"><div class="empty">불러오는 중...</div></div>`;
 
   const [shiftSnap, attSnap, emps, arSnap] = await Promise.all([
-    db.collection(COL.shifts).where("date", ">=", `${admAttYm}-01`).where("date", "<=", `${admAttYm}-31`).get(),
-    db.collection(COL.attendance).where("date", ">=", `${admAttYm}-01`).where("date", "<=", `${admAttYm}-31`).get(),
+    db.collection(COL.shifts).where("date", ">=", per.start).where("date", "<=", per.end).get(),
+    db.collection(COL.attendance).where("date", ">=", per.start).where("date", "<=", per.end).get(),
     loadActiveEmployees(),
     db.collection(COL.attRequests).get()
   ]);
@@ -4550,8 +4598,8 @@ async function renderAttendAdmin() {
     if (reqSt[key] !== "승인" && (r.status === "승인" || reqSt[key] !== "대기")) reqSt[key] = r.status;
   });
   const reqOfFor = (empId, date) => (kind) => reqSt[`${empId}|${date}|${kind}`];
-  const shifts = shiftSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((s) => (s.date || "").startsWith(admAttYm));
-  const atts = attSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((a) => (a.date || "").startsWith(admAttYm));
+  const shifts = shiftSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((s) => inPer(s.date));
+  const atts = attSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((a) => inPer(a.date));
 
   // 직원 목록: 재직 직원 + (이번 달 근무 기록이 있는 외부 인원)
   const people = new Map();
@@ -4643,9 +4691,9 @@ async function renderAttendAdmin() {
     <div class="card">
       <div class="sc-cal-head">
         <button type="button" class="cal-nav" id="adm-prev">&lsaquo;</button>
-        <b class="sc-cal-title">${yy}년 ${mm}월</b>
+        <b class="sc-cal-title">${payYmTitle(admAttYm)}</b>
         <button type="button" class="cal-nav" id="adm-next">&rsaquo;</button>
-        <button type="button" class="btn btn-ghost btn-sm" id="adm-now">이번 달</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="adm-now">${isPeriodYm(payYmOfDate(todayKST())) ? "이번 급여월" : "이번 달"}</button>
       </div>
       <div class="adm-filter">
         <select id="adm-emp">
@@ -4730,7 +4778,7 @@ async function renderAttendAdmin() {
   };
   $("#adm-prev").onclick = () => shiftMonth(-1);
   $("#adm-next").onclick = () => shiftMonth(1);
-  $("#adm-now").onclick = () => { admAttYm = ymNowKST(); renderAttendAdmin(); };
+  $("#adm-now").onclick = () => { admAttYm = payYmOfDate(todayKST()); renderAttendAdmin(); };
   $("#adm-body").querySelectorAll("[data-admtoggle]").forEach((row) => {
     row.onclick = (ev) => {
       if (ev.target.closest("input")) return;

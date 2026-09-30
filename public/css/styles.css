@@ -2216,3 +2216,19 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 .pm-hour span { grid-column: 1 / -1; font-weight: 600; }
 .pm-hour input { min-width: 0; width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px 9px; font: inherit; font-size: 0.88rem; text-align: right; font-variant-numeric: tabular-nums; background: #fff; color: var(--ink); }
 .pm-hour em { font-style: normal; font-size: 0.74rem; color: var(--ink-faint); }
+
+/* 급여월(산정기간) — 제목의 기간 표기 · 근무 캘린더 7일/8일 경계 */
+.pp-range { font-size: 0.78rem; font-weight: 600; color: var(--ink-faint); margin-left: 4px; letter-spacing: 0; }
+.sc-cell.pp-end { box-shadow: inset -3px 0 0 #f59f00; }
+.sc-cell.pp-start { box-shadow: inset 3px 0 0 #f59f00; }
+.pp-tag { display: inline-block; margin-left: 4px; padding: 1px 5px; border-radius: 6px; background: #fff4e0; color: #d9480f;
+  font-size: 0.62rem; font-weight: 700; font-style: normal; vertical-align: 1px; white-space: nowrap; }
+.pp-legend { display: inline-flex; align-items: center; gap: 5px; }
+.pp-legend i { width: 3px; height: 12px; border-radius: 2px; background: #f59f00; }
+.pm-ym-range { margin-left: 6px; font-size: 0.8rem; font-weight: 600; color: var(--ink-faint); }
+@media (max-width: 640px) {
+  .pp-tag { display: block; width: fit-content; margin: 2px 0 0; padding: 0 3px; font-size: 0.55rem; }
+  .pp-tag .pp-full { display: none; }
+  .sc-cal-head .sc-cal-title .pp-range { display: block; margin: 0; font-size: 0.72rem; }
+}
+.pp-sub { display: block; font-size: 0.7rem; font-weight: 600; color: var(--ink-faint); white-space: nowrap; }
