@@ -2354,20 +2354,23 @@ function renderPayForm(emp, cat, record) {
 
   /* 근로시간 자동 입력 — 새 기록은 선택한 급여월의 근태기록으로 미리 채운다 (직접 고친 칸은 건드리지 않음).
      수정 중인 기록은 저장된 값을 유지하고, [근태에서 불러오기]를 눌렀을 때만 덮어쓴다. */
+  /* 입력칸은 이 폼을 그릴 때의 요소를 붙잡아 둔다 — 불러오는 사이 다른 기록의 수정 폼으로 바뀌면
+     (id로 다시 찾으면 새 폼의 칸에 써버리므로) 결과를 버린다. */
   const autoKeys = ["basic", "night", "overtime"];
+  const hourEl = Object.fromEntries(autoKeys.map((k) => [k, $(`#pm-h-${k}`)]));
+  const note = $("#pm-h-note");
   const touched = new Set();
-  autoKeys.forEach((k) => { $(`#pm-h-${k}`).addEventListener("input", () => touched.add(k)); });
+  autoKeys.forEach((k) => { hourEl[k].addEventListener("input", () => touched.add(k)); });
   let loadSeq = 0;
   const loadHours = async (force) => {
     if (!selYm) return;
     const seq = ++loadSeq, ym = selYm;
-    const note = $("#pm-h-note");
     note.textContent = "근태기록을 불러오는 중...";
     let h;
-    try { h = await payHoursFromAttendance(emp.id, ym); } catch (e) { if (seq === loadSeq) note.textContent = "근태기록을 불러오지 못했습니다."; return; }
-    if (seq !== loadSeq || !document.getElementById("pm-h-note")) return;
+    try { h = await payHoursFromAttendance(emp.id, ym); } catch (e) { if (seq === loadSeq && note.isConnected) note.textContent = "근태기록을 불러오지 못했습니다."; return; }
+    if (seq !== loadSeq || !note.isConnected || ym !== selYm) return;
     autoKeys.forEach((k) => {
-      const el = $(`#pm-h-${k}`);
+      const el = hourEl[k];
       if (force || !touched.has(k)) { el.value = h.days ? String(h[k]) : ""; touched.delete(k); }
     });
     const md = (d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
@@ -2377,7 +2380,7 @@ function renderPayForm(emp, cat, record) {
       : `${md(h.start)}~${md(h.end)} 기간의 출퇴근 기록이 없습니다.`;
   };
   $("#pm-h-load").onclick = () => {
-    const filled = autoKeys.some((k) => $(`#pm-h-${k}`).value.trim() !== "");
+    const filled = autoKeys.some((k) => hourEl[k].value.trim() !== "");
     if (filled && !confirm("기본·야간·연장근로 시간을 근태기록 값으로 바꿀까요?")) return;
     loadHours(true);
   };
