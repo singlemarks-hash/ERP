@@ -441,7 +441,7 @@ function openDeptCutoverModal(log) {
   const reverted = log.status === "reverted";
   openModal(`
     <h3>10월 부서 개편 ${reverted ? "(되돌림)" : "완료"}</h3>
-    <p class="modal-desc">${esc((log.doneAt || "").slice(0, 16).replace("T", " "))} · ${esc(log.by || "")}님 접속 시 자동 실행${reverted ? ` · ${esc(log.revertedBy || "")}님이 되돌림` : ""}</p>
+    <p class="modal-desc">${esc(okrFeedTime(log.doneAt))} · ${esc(log.by || "")}님 접속 시 자동 실행${reverted ? ` · ${esc(log.revertedBy || "")}님이 되돌림` : ""}</p>
     <div class="cutover-sum">
       <div><b>부서 변경</b> ${deptCh.length}건
         <div class="cutover-list">${deptCh.map((c) => `${esc(c.label)} · ${esc(c.from || "-")} → ${esc(c.to)}`).join("<br>") || "없음"}</div></div>
