@@ -744,7 +744,8 @@ function leaveStatus(emp, lv, today) {
   today = today || todayKST();
   lv = lv || {};
   const used = sumDays(lv.records);
-  const adjust = sumDays(lv.adjusts);
+  // 연차 조정은 적용일이 된 날부터 반영 (미래 날짜로 넣은 조정은 그날까지 '예정')
+  const adjust = sumDays((lv.adjusts || []).filter((a) => !a.date || a.date <= today));
   if (!isAutoLeave(emp, lv)) {
     const base = Number(lv.allocated) || 0;
     const total = base + adjust;
@@ -4771,12 +4772,12 @@ async function renderLeaveAdmin() {
           const adjHtml = adjs.length ? `
             <div class="lva-sub">연차 조정</div>
             <table class="data lva-rec-table">
-              <tbody>${adjs.map((a) => `<tr>
-                <td>${esc(a.date || "-")}</td>
-                <td class="num"><b class="${a.days < 0 ? "c-red" : "c-green"}">${a.days > 0 ? "+" : ""}${fmtDays(a.days)}일</b></td>
-                <td>${esc(a.note || "")}</td>
+              <tbody>${adjs.map((a) => { const pending = a.date && a.date > todayKST(); return `<tr class="${pending ? "lva-pending" : ""}">
+                <td>${esc(a.date || "-")}${pending ? ` <span class="badge off">예정</span>` : ""}</td>
+                <td class="num"><b class="${pending ? "c-faint" : a.days < 0 ? "c-red" : "c-green"}">${a.days > 0 ? "+" : ""}${fmtDays(a.days)}일</b></td>
+                <td>${esc(a.note || "")}${pending ? ` <span class="c-faint">· ${esc(a.date.slice(5).replace("-", "/"))}부터 반영</span>` : ""}</td>
                 ${isAdmin() ? `<td class="num"><button class="icon-btn" title="조정 삭제" data-lvadj="${e.id}|${esc(a.id)}">${ICON_TRASH}</button></td>` : ""}
-              </tr>`).join("")}</tbody></table>` : "";
+              </tr>`; }).join("")}</tbody></table>` : "";
           const legacyNote = (st.auto && Number(lv.allocated) > 0
             ? `<div class="mini-note">자동 계산 전환 전 수동 할당: ${fmtDays(Number(lv.allocated))}일 — 차이가 있으면 [연차 조정]으로 맞춰 주세요.</div>` : "")
             ;
@@ -5104,7 +5105,8 @@ async function openLeaveAllocModal() {
     }
     await ref.set(next);
     closeModal();
-    toast(days ? `${e.name}님 연차를 ${days > 0 ? "+" : ""}${fmtDays(days)}일 조정했습니다.` : "저장했습니다.");
+    const adjDate = calVal("la-date") || todayKST();
+    toast(days ? `${e.name}님 연차 ${days > 0 ? "+" : ""}${fmtDays(days)}일 조정${adjDate > todayKST() ? ` — ${adjDate}부터 반영됩니다` : "했습니다"}.` : "저장했습니다.");
     renderLeaveAdmin();
   };
 }
