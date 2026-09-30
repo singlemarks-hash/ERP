@@ -2218,6 +2218,10 @@ function openDatePicker(anchor, dateStr, onPick, opts) {
   render();
 }
 
+/* 급여명세서 근로시간 칸 (매월 직접 입력, 비우면 명세서에 '—') */
+const PAY_HOUR_FIELDS = [["basic", "기본근로시간수"], ["night", "야간근로시간수"], ["holiday", "휴일근로시간수"], ["overtime", "연장근로시간수"]];
+const payHourText = (v) => (v === null || v === undefined || v === "" || isNaN(Number(v))) ? "—" : String(Math.round(Number(v) * 100) / 100);
+
 function renderPayForm(emp, cat, record) {
   const isEdit = !!record;
   const payItems = isEdit ? record.payments.map((p) => [p.label, p.amount])
@@ -2254,6 +2258,12 @@ function renderPayForm(emp, cat, record) {
     <div class="pb-total pb-total-deduct"><span>총 공제</span><b id="pm-deduct-total"></b></div>
 
     <div class="pb-net"><span>이번 달 실수령</span><b id="pm-net"></b></div>
+
+    <div class="pb-section"><span>근로시간</span></div>
+    <div class="pm-hours">${PAY_HOUR_FIELDS.map(([k, label]) => `
+      <label class="pm-hour"><span>${label.replace("시간수", "")}</span>
+        <input type="text" inputmode="decimal" id="pm-h-${k}" placeholder="—" value="${esc(record?.hours?.[k] ?? "")}" /><em>시간</em></label>`).join("")}
+    </div>
     <label class="field" style="margin-top:14px"><span class="field-label">메모</span><textarea id="pm-note" class="pm-note" rows="3" placeholder="예: 식대 포함, 연말정산 반영">${esc(record?.note || "")}</textarea></label>`;
 
   const syncDates = () => {
@@ -2314,6 +2324,14 @@ function renderPayForm(emp, cat, record) {
     const collect = (sel) => [...$("#pm-form-card").querySelectorAll(`${sel} .pi-row`)]
       .map((row) => ({ label: row.querySelector(".pi-label").value.trim(), amount: parseAmount(row.querySelector(".pi-amount").value) }))
       .filter((p) => p.label);
+    const hours = {};
+    for (const [k, label] of PAY_HOUR_FIELDS) {
+      const raw = $(`#pm-h-${k}`).value.replace(/,/g, "").replace(/시간|h/gi, "").trim();
+      if (raw === "") { hours[k] = null; continue; }
+      const n = Number(raw);
+      if (!(n >= 0) || n > 744) { toast(`${label}을 0~744 사이 숫자로 입력하세요.`); $(`#pm-h-${k}`).focus(); return; }
+      hours[k] = Math.round(n * 100) / 100;
+    }
     const data = {
       empId: emp.id,
       name: emp.name,
@@ -2321,6 +2339,7 @@ function renderPayForm(emp, cat, record) {
       payDate: selDate,
       payments: collect("#pm-pay-items"),
       deductions: collect("#pm-deduct-items"),
+      hours,
       note: $("#pm-note").value.trim()
     };
     if (!data.payments.length) { toast("지급 내역을 1개 이상 입력하세요."); return; }
@@ -2660,9 +2679,9 @@ async function buildPayslipPdf(emp, r) {
   // 근로시간
   top = table({
     startY: top,
-    head: [["기본근로시간수", "야간근로시간수", "휴일근로시간수", "연장근로시간수"]],
+    head: [PAY_HOUR_FIELDS.map(([, label]) => label)],
     columnStyles: { 0: { cellWidth: W * 0.25, halign: "center" }, 1: { cellWidth: W * 0.25, halign: "center" }, 2: { cellWidth: W * 0.25, halign: "center" }, 3: { cellWidth: W * 0.25, halign: "center" } },
-    body: [["—", "—", "—", "—"]]
+    body: [PAY_HOUR_FIELDS.map(([k]) => payHourText(r.hours?.[k]))]
   }) + 8;
 
   // 계산 방법
@@ -2790,7 +2809,7 @@ function printPayslip(emp, r) {
   <table>
     <colgroup><col style="width:25%"/><col style="width:25%"/><col style="width:25%"/><col style="width:25%"/></colgroup>
     <tr><th>기본근로시간수</th><th>야간근로시간수</th><th>휴일근로시간수</th><th>연장근로시간수</th></tr>
-    <tr><td class="center">—</td><td class="center">—</td><td class="center">—</td><td class="center">—</td></tr>
+    <tr>${PAY_HOUR_FIELDS.map(([k]) => `<td class="center">${payHourText(r.hours?.[k])}</td>`).join("")}</tr>
   </table>
 
   <div class="sec-title">계산 방법</div>

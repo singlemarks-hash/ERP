@@ -2209,3 +2209,10 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 /* 부서 개편 요약 */
 .cutover-sum { display: grid; gap: 12px; font-size: 0.86rem; margin-bottom: 14px; }
 .cutover-list { margin-top: 4px; font-size: 0.8rem; color: var(--ink-soft); line-height: 1.6; max-height: 140px; overflow-y: auto; background: #f7f8fa; border-radius: 8px; padding: 8px 10px; }
+/* 급여 입력 — 근로시간 (명세서 표기용) */
+.pb-sub { font-style: normal; font-weight: 400; font-size: 0.74rem; color: var(--ink-faint); margin-left: 6px; }
+.pm-hours { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 12px; }
+.pm-hour { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 2px 4px; font-size: 0.76rem; color: var(--ink-soft); }
+.pm-hour span { grid-column: 1 / -1; font-weight: 600; }
+.pm-hour input { min-width: 0; width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px 9px; font: inherit; font-size: 0.88rem; text-align: right; font-variant-numeric: tabular-nums; background: #fff; color: var(--ink); }
+.pm-hour em { font-style: normal; font-size: 0.74rem; color: var(--ink-faint); }
