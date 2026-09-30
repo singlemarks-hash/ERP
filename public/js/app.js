@@ -1,7 +1,6 @@
 /* 작은따옴표 ERP — 메인 애플리케이션 */
 "use strict";
 
-const DEPTS = ["대표", "경영지원본부", "오프라인사업부", "온라인사업부"];
 const EMP_TYPES = ["정직원(4대보험)", "3.3% 사업소득"];
 const GRADES = ["L0 (파트타이머)", "L1", "L2", "L3", "L4", "L5 (대표)"];
 const PAY_CATS = ["4대보험", "3.3%"];
@@ -28,7 +27,7 @@ const APPROVER_TIERS = [
 ];
 /* 기존 계정 이행용 기본값 — approverTier / otExempt가 아직 지정되지 않은 계정만 이름으로 판단한다.
    [직원 관리]에서 한 번 저장하면 이후로는 직원 문서의 값이 쓰인다. */
-const LEGACY_TIER_BY_NAME = { "권민호": 1, "안은비": 2, "장서영": 3 };
+const LEGACY_TIER_BY_NAME = { "권민호": 1, "장서영": 3 };
 const LEGACY_OT_EXEMPT_NAMES = ["권민호"];
 function approverTierOf(emp) {
   if (typeof emp?.approverTier === "number") return emp.approverTier;
@@ -76,6 +75,26 @@ const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 function kstNow() { return new Date(Date.now() + KST_OFFSET_MS); }
 function todayKST() { return kstNow().toISOString().slice(0, 10); }
 function ymNowKST() { return kstNow().toISOString().slice(0, 7); }
+
+/* ── 부서 개편 (2026-10-01 0시, 한국시간) ─────────────────────────────
+   온라인사업부 → 브랜딩전략부, 오프라인사업부 → F&B&C사업부.
+   · 9월 30일 이전에 쌓인 기록(출퇴근·신청·공지·9월 OKR)은 적힌 이름 그대로 둔다
+   · 대신 옛 이름과 새 이름은 어디서나 '같은 부서'로 취급한다 (로그인·공지 대상·필터·OKR 연결)
+   · 10월 1일부터 새로 저장하는 기록은 직원 정보가 아직 옛 이름이어도 새 이름으로 쓴다 */
+const DEPT_CUTOVER = "2026-10-01";
+const DEPT_RENAMES = { "온라인사업부": "브랜딩전략부", "오프라인사업부": "F&B&C사업부" };
+const DEPT_RENAMES_BACK = Object.fromEntries(Object.entries(DEPT_RENAMES).map(([a, b]) => [b, a]));
+const deptCutoverDone = () => todayKST() >= DEPT_CUTOVER;
+/* 비교용 기준 이름 (항상 새 이름) */
+const deptKey = (d) => DEPT_RENAMES[d] || d || "";
+const sameDept = (a, b) => !!a && deptKey(a) === deptKey(b);
+/* 지금 시점에 쓰는 이름 — 전환 전엔 옛 이름, 전환 후엔 새 이름 */
+const deptNow = (d) => (deptCutoverDone() ? deptKey(d) : (DEPT_RENAMES_BACK[d] || d)) || "";
+/* 같은 부서의 모든 표기 (Firestore 'in' 조회용) */
+const deptVariants = (d) => [...new Set([d, deptKey(d), DEPT_RENAMES_BACK[deptKey(d)]].filter(Boolean))];
+const DEPTS = ["대표", "경영지원본부", "오프라인사업부", "온라인사업부"].map(deptNow);
+/* 부서 정렬 순서 (옛·새 이름 모두 같은 자리) */
+const deptOrder = (d) => { const i = DEPTS.findIndex((x) => sameDept(x, d)); return i < 0 ? 99 : i; };
 /* "YYYY-MM-DD" 문자열의 월/일/요일 (시간대 무관) */
 function dateParts(ds) {
   const d = new Date(ds + "T00:00:00Z");
@@ -193,7 +212,7 @@ async function showLogin() {
 
   const deptSel = $("#login-dept");
   deptSel.innerHTML = '<option value="" disabled selected>부서 선택</option>' +
-    DEPTS.map((d) => `<option value="${d}">${d}</option>`).join("");
+    DEPTS.map((d) => `<option value="${esc(d)}">${esc(d)}</option>`).join("");
 
   // 직원이 한 명도 없으면 초기 설정 노출
   const any = await db.collection(COL.employees).limit(1).get();
@@ -204,7 +223,7 @@ async function showLogin() {
     nameSel.disabled = true;
     nameSel.innerHTML = '<option value="" disabled selected>불러오는 중...</option>';
     const qs = await db.collection(COL.employees)
-      .where("dept", "==", deptSel.value)
+      .where("dept", "in", deptVariants(deptSel.value))
       .where("status", "==", "재직").get();
     const emps = qs.docs.map((d) => ({ id: d.id, ...d.data() }))
       .sort((a, b) => a.name.localeCompare(b.name, "ko"));
@@ -343,10 +362,130 @@ function openBootstrapModal() {
 }
 
 /* ───────── 앱 셸 ───────── */
+/* ── 부서 개편 자동 전환 (10월 1일 이후 총괄 관리자 첫 접속 시 1회) ─────────────
+   1) 모든 직원의 옛 부서명 → 새 부서명   2) 윤세현: F&B&C사업부 · 특수관리자
+   3) 안은비 앞으로 대기 중인 휴가·근태 결재 → 윤세현
+   과거 기록(출퇴근·신청·공지·OKR)은 건드리지 않는다. 바꾸기 전 값을 meta 문서에 남겨 되돌릴 수 있게 한다.
+   모든 변경은 한 번의 batch 로 저장한다 (일부만 바뀌는 일이 없게). */
+const DEPT_CUTOVER_DOC = "deptCutover2026";
+const DEPT_CUTOVER_MOVE = { name: "윤세현", dept: "F&B&C사업부", role: "special" };
+const DEPT_CUTOVER_FROM_APPROVER = "안은비";
+async function runDeptCutover() {
+  const ref = db.collection(COL.meta).doc(DEPT_CUTOVER_DOC);
+  let claimed = false;
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const cur = snap.exists ? snap.data() : null;
+    // 이미 끝났거나 다른 관리자가 실행 중이면 건너뛴다 (실행 중 표시가 5분 넘게 남아 있으면 실패로 보고 다시 시도)
+    if (cur && (cur.status !== "running" || Date.now() - (cur.startedMs || 0) < 5 * 60e3)) return;
+    tx.set(ref, { status: "running", startedMs: Date.now(), by: me.name, byId: me.id });
+    claimed = true;
+  });
+  if (!claimed) return;
+
+  const empSnap = await db.collection(COL.employees).get();
+  const emps = empSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const changes = [];   // { col, id, label, field, from, to }
+  const skipped = [];
+  const next = {};      // 직원별 최종 값 (부서명 변경 뒤 윤세현 이동이 덮어쓴다)
+  const set = (col, id, label, field, from, to) => {
+    if (from === to) return;
+    changes.push({ col, id, label, field, from: from ?? null, to });
+    (next[col + "/" + id] = next[col + "/" + id] || { col, id, patch: {} }).patch[field] = to;
+  };
+  emps.forEach((e) => { if (DEPT_RENAMES[e.dept]) set(COL.employees, e.id, e.name, "dept", e.dept, DEPT_RENAMES[e.dept]); });
+
+  const movers = emps.filter((e) => e.name === DEPT_CUTOVER_MOVE.name && e.status === "재직");
+  const mover = movers.length === 1 ? movers[0] : null;
+  if (mover) {
+    const curDept = (next[COL.employees + "/" + mover.id]?.patch.dept) || mover.dept;
+    set(COL.employees, mover.id, mover.name, "dept", curDept, DEPT_CUTOVER_MOVE.dept);
+    set(COL.employees, mover.id, mover.name, "role", mover.role, DEPT_CUTOVER_MOVE.role);
+  } else {
+    skipped.push(`${DEPT_CUTOVER_MOVE.name}: 재직 중인 같은 이름 직원이 ${movers.length}명이라 부서·권한 변경과 결재 이관을 건너뛰었습니다.`);
+  }
+
+  if (mover) {
+    const fromIds = emps.filter((e) => e.name === DEPT_CUTOVER_FROM_APPROVER).map((e) => e.id);
+    for (const col of [COL.leaveRequests, COL.attRequests]) {
+      const qs = await db.collection(col).where("status", "==", "대기").get();
+      qs.docs.forEach((d) => {
+        const r = d.data();
+        const mine = r.approverId ? fromIds.includes(r.approverId) : r.approver === DEPT_CUTOVER_FROM_APPROVER;
+        if (!mine) return;
+        const label = `${r.name || "?"} ${col === COL.leaveRequests ? "휴가" : "근태"} 결재`;
+        set(col, d.id, label, "approverId", r.approverId || null, mover.id);
+        set(col, d.id, label, "approver", r.approver || null, mover.name);
+      });
+    }
+  }
+
+  const batch = db.batch();
+  Object.values(next).forEach(({ col, id, patch }) => batch.update(db.collection(col).doc(id), patch));
+  const log = { status: "done", startedMs: Date.now(), doneAt: new Date().toISOString(), by: me.name, byId: me.id, changes, skipped };
+  batch.set(ref, log);
+  await batch.commit();
+  // 내 정보가 바뀌었으면 반영하고 화면을 새로 그린다
+  const mineNext = next[COL.employees + "/" + me.id];
+  if (mineNext) Object.assign(me, mineNext.patch);
+  renderSidebar();
+  navigate(currentView, null, true);
+  openDeptCutoverModal(log);
+}
+/* 개편 결과 요약 + 되돌리기 */
+function openDeptCutoverModal(log) {
+  const ch = log.changes || [];
+  const deptCh = ch.filter((c) => c.col === COL.employees && c.field === "dept");
+  const roleCh = ch.filter((c) => c.col === COL.employees && c.field === "role");
+  const apprCh = ch.filter((c) => c.col !== COL.employees && c.field === "approverId");
+  const reverted = log.status === "reverted";
+  openModal(`
+    <h3>10월 부서 개편 ${reverted ? "(되돌림)" : "완료"}</h3>
+    <p class="modal-desc">${esc((log.doneAt || "").slice(0, 16).replace("T", " "))} · ${esc(log.by || "")}님 접속 시 자동 실행${reverted ? ` · ${esc(log.revertedBy || "")}님이 되돌림` : ""}</p>
+    <div class="cutover-sum">
+      <div><b>부서 변경</b> ${deptCh.length}건
+        <div class="cutover-list">${deptCh.map((c) => `${esc(c.label)} · ${esc(c.from || "-")} → ${esc(c.to)}`).join("<br>") || "없음"}</div></div>
+      <div><b>권한 변경</b> ${roleCh.length}건
+        <div class="cutover-list">${roleCh.map((c) => `${esc(c.label)} · ${esc(roleLabel(c.from) || "-")} → ${esc(roleLabel(c.to))}`).join("<br>") || "없음"}</div></div>
+      <div><b>결재 이관</b> ${apprCh.length}건
+        <div class="cutover-list">${apprCh.map((c) => esc(c.label)).join("<br>") || "없음"}</div></div>
+      ${(log.skipped || []).length ? `<div class="c-red">${log.skipped.map(esc).join("<br>")}</div>` : ""}
+    </div>
+    <div class="modal-actions">
+      ${reverted ? "" : `<button type="button" class="btn btn-danger btn-sm" id="co-revert">되돌리기</button>`}
+      <button type="button" class="btn btn-primary btn-sm" id="co-close">확인</button>
+    </div>`);
+  $("#co-close").onclick = closeModal;
+  const rb = $("#co-revert");
+  if (rb) rb.onclick = async () => {
+    if (!isAdmin()) return toast("총괄 관리자만 되돌릴 수 있습니다.");
+    if (!confirm("부서 개편을 되돌릴까요?\n직원 부서·권한과 결재자가 개편 전 값으로 돌아갑니다. (그 뒤 따로 바꾼 항목은 건드리지 않습니다)")) return;
+    rb.disabled = true;
+    const batch = db.batch();
+    const kept = [];
+    for (const c of ch.slice().reverse()) {
+      const snap = await db.collection(c.col).doc(c.id).get();
+      if (!snap.exists) continue;
+      if (snap.data()[c.field] !== c.to) { kept.push(`${c.label} (${c.field})`); continue; }   // 개편 뒤 다른 사람이 바꿈
+      batch.update(db.collection(c.col).doc(c.id), { [c.field]: c.from });
+    }
+    batch.set(db.collection(COL.meta).doc(DEPT_CUTOVER_DOC), { ...log, status: "reverted", revertedBy: me.name, revertedAt: new Date().toISOString(), keptOnRevert: kept });
+    await batch.commit();
+    closeModal();
+    toast(kept.length ? `되돌렸습니다. 개편 뒤 바뀐 ${kept.length}건은 그대로 두었습니다.` : "부서 개편을 되돌렸습니다.");
+    const meSnap = await db.collection(COL.employees).doc(me.id).get();
+    if (meSnap.exists) Object.assign(me, meSnap.data());
+    renderSidebar();
+    navigate(currentView, null, true);
+  };
+}
+
 function enterApp() {
   $("#login-screen").classList.add("hidden");
   $("#app-shell").classList.remove("hidden");
   renderSidebar();
+  // 부서 개편 자동 전환 — 10월 1일 이후 총괄 관리자가 처음 접속할 때 한 번만 실행
+  if (isAdmin() && deptCutoverDone()) runDeptCutover().catch((e) => console.warn("dept cutover", e));
   // 새로고침·주소 직접 입력 시 해시에 담긴 화면으로 복원한다 (없으면 홈)
   const start = parseHash();
   navigate(start.view, start.sub, true);
@@ -881,7 +1020,7 @@ function leaveHistoryCells(h) {
 function canPostNotice() { return me && me.role !== "member"; }
 function noticeTargetsMe(n) {
   if (n.scope === "all") return true;
-  if (n.scope === "dept") return (n.depts || []).includes(me.dept);
+  if (n.scope === "dept") return (n.depts || []).some((d) => sameDept(d, me.dept));
   if (n.scope === "personal") return (n.targetIds || []).includes(me.id);
   return false;
 }
@@ -1537,7 +1676,7 @@ function openGrantModal(sys, emps) {
   const grantIds = new Set(sys.grantIds || []);
   const byDept = DEPTS.map((d) => ({
     dept: d,
-    list: emps.filter((e) => e.dept === d).sort((a, b) => a.name.localeCompare(b.name, "ko"))
+    list: emps.filter((e) => sameDept(e.dept, d)).sort((a, b) => a.name.localeCompare(b.name, "ko"))
   })).filter((g) => g.list.length);
 
   openModal(`
@@ -1637,7 +1776,7 @@ function gradeN(e) { return e.grade ? Number(String(e.grade).replace(/[^0-9]/g, 
 function sortByGrade(emps) {
   return emps.slice().sort((a, b) =>
     gradeN(b) - gradeN(a) ||
-    DEPTS.indexOf(a.dept) - DEPTS.indexOf(b.dept) ||
+    deptOrder(a.dept) - deptOrder(b.dept) ||
     (a.joinDate || "9999").localeCompare(b.joinDate || "9999") ||
     a.name.localeCompare(b.name, "ko"));
 }
@@ -2223,7 +2362,7 @@ async function renderPayHistoryAdmin(emp) {
         </select>
         ${isAll ? `<select id="pm-dept">
           <option value="" ${!pmDept ? "selected" : ""}>전체 소속</option>
-          ${DEPTS.map((d) => `<option value="${d}" ${d === pmDept ? "selected" : ""}>${d}</option>`).join("")}
+          ${DEPTS.map((d) => `<option value="${esc(d)}" ${sameDept(d, pmDept) ? "selected" : ""}>${esc(d)}</option>`).join("")}
         </select>` : ""}
       </span>
     </div>
@@ -2237,7 +2376,7 @@ async function renderPayHistoryAdmin(emp) {
   let records = await loadPayRecordsForYear(pmYear,
     emp ? ((r) => r.empId === emp.id || r.name === emp.name) : null);
   if (pmMonth) records = records.filter((r) => Number(r.ym.slice(5, 7)) === pmMonth);
-  if (isAll && pmDept) records = records.filter((r) => deptOf(r) === pmDept);
+  if (isAll && pmDept) records = records.filter((r) => sameDept(deptOf(r), pmDept));
 
   const sumNet = records.reduce((s, r) => s + r.net, 0);
   const sumPay = records.reduce((s, r) => s + r.payTotal, 0);
@@ -2852,7 +2991,7 @@ async function renderLeave() {
     const data = {
       empId: me.id,
       name: me.name,
-      dept: me.dept || "",
+      dept: deptNow(me.dept),
       date: start,
       endDate: end,
       days: isHalf ? 0.5 : Number($("#lr-days").value),
@@ -3571,7 +3710,7 @@ async function renderAttRecord() {
       onConfirm: async () => {
         const shiftOfDay = shifts.find((s) => s.date === recDate && s.empId === me.id);
         await db.collection(COL.attendance).doc(myRec.id).set({
-          empId: me.id, name: me.name, dept: me.dept || "", date: recDate, inAt: t,
+          empId: me.id, name: me.name, dept: deptNow(me.dept), date: recDate, inAt: t,
           // 기록 시점의 가산 제외 설정을 함께 남긴다 (나중에 설정이 바뀌어도 과거 기록 유지)
           otExempt: isOtExemptEmp(me)
         }, { merge: true });
@@ -3656,7 +3795,7 @@ function openOtRequestModal({ date, kind, mins, shift, emps, onDone }) {
     const sel = $("#otr-appr");
     await db.collection(COL.attRequests).add({
       type: "overtime", otKind: kind,
-      empId: me.id, name: me.name, dept: me.dept || "",
+      empId: me.id, name: me.name, dept: deptNow(me.dept),
       approverId: sel.value,
       approver: sel.options[sel.selectedIndex].text.replace(" (본인 승인)", ""),
       status: "대기", date,
@@ -3819,7 +3958,7 @@ function bindAttReqSection() {
     if (!type) { toast("추가근무 또는 근무변경을 먼저 선택하세요."); return; }
     const sel = $("#atr-approver");
     const base = {
-      type, empId: me.id, name: me.name, dept: me.dept || "",
+      type, empId: me.id, name: me.name, dept: deptNow(me.dept),
       approverId: sel.value,                                   // 결재 라우팅은 직원 ID 기준
       approver: sel.options[sel.selectedIndex].text.replace(" (본인 승인)", ""),
       status: "대기",
@@ -4522,7 +4661,7 @@ async function renderAttendAdmin() {
         await db.collection(COL.notices).add({
           title: `근무 변경 안내 (${r.name})`,
           body: r.text || "",
-          scope: "dept", depts: [r.dept], targetIds: [],
+          scope: "dept", depts: [deptNow(r.dept)], targetIds: [],
           authorId: me.id, authorName: me.name,
           ackIds: [me.id],   // 결재자 본인은 이미 확인한 것으로 처리
           createdAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -4531,7 +4670,7 @@ async function renderAttendAdmin() {
       } else {
         // 추가근무는 승인 즉시 신청자의 해당 날짜 근무 이력에 반영한다 (승인분만 급여 가산 대상)
         await db.collection(COL.attendance).doc(`${r.empId}_${r.date}`).set({
-          empId: r.empId, name: r.name, dept: r.dept || "", date: r.date,
+          empId: r.empId, name: r.name, dept: deptNow(r.dept), date: r.date,
           otApprovedMin: firebase.firestore.FieldValue.increment(Number(r.mins) || 0)
         }, { merge: true });
         toast(`${r.name}님의 추가근무 ${r.mins}분(가산 ${fmtH(r.hours || 0)}h)을 승인해 근무 이력에 반영했습니다.`);
@@ -4692,7 +4831,7 @@ function openAttEditModal(emp, date, att, shiftOf = () => null) {
     // 관리자가 대신 입력할 때는 항상 출근·퇴근을 함께 확정 저장한다.
     // 휴게 차감 여부도 기록에 직접 저장 (일정 설정과 무관하게 이 기록에 확정 적용)
     const data = {
-      empId: emp.id, name: emp.name, dept: emp.dept || "", date: selDate,
+      empId: emp.id, name: emp.name, dept: deptNow(emp.dept), date: selDate,
       inAt, outAt, outDate: nextDay ? nextDateStr(selDate) : selDate,
       breakIncluded: $("#ae-brk").checked
     };
@@ -4722,7 +4861,7 @@ async function renderLeaveAdmin() {
   const lvMap = {};
   lvSnap.docs.forEach((d) => (lvMap[d.id] = d.data()));
   const emps = empSnap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) =>
-    DEPTS.indexOf(a.dept) - DEPTS.indexOf(b.dept) || a.name.localeCompare(b.name, "ko"));
+    deptOrder(a.dept) - deptOrder(b.dept) || a.name.localeCompare(b.name, "ko"));
   // 입사기념일이 지난 직원은 이전 주기를 history 로 넘기고 월차 이월분을 정리한다
   for (const e of emps) {
     if (lvMap[e.id] || isAutoLeave(e, null)) lvMap[e.id] = await maybeResetLeave(e.id, lvMap[e.id] || { records: [] }, e);
@@ -5243,11 +5382,11 @@ async function openNoticeModal(notice) {
 
       <div id="nf-dept-box" class="grant-list ${scope === "dept" ? "" : "hidden"}" style="max-height:150px">
         ${DEPTS.map((d) => `<label class="grant-row">
-          <input type="checkbox" data-nfdept="${d}" ${(notice?.depts || []).includes(d) ? "checked" : ""} /><span>${d}</span></label>`).join("")}
+          <input type="checkbox" data-nfdept="${esc(d)}" ${(notice?.depts || []).some((x) => sameDept(x, d)) ? "checked" : ""} /><span>${esc(d)}</span></label>`).join("")}
       </div>
       <div id="nf-emp-box" class="grant-list ${scope === "personal" ? "" : "hidden"}" style="max-height:220px">
         ${DEPTS.map((d) => {
-          const list = emps.filter((e) => e.dept === d);
+          const list = emps.filter((e) => sameDept(e.dept, d));
           return list.length ? `<div class="grant-dept">${d}</div>` + list.map((e) => `
             <label class="grant-row"><input type="checkbox" data-nfemp="${e.id}" ${(notice?.targetIds || []).includes(e.id) ? "checked" : ""} />
             <span>${esc(e.name)}</span><em>${esc(e.position || "")}</em></label>`).join("") : "";
@@ -5309,8 +5448,15 @@ async function renderEmployees() {
   const main = $("#main");
   main.innerHTML = pageHead("ADMIN", "직원 관리",
     "직원 등록·수정, 부서 배정, 권한(역할) 조정, 비밀번호 초기화를 할 수 있습니다.",
-    `<button class="btn btn-primary btn-sm" id="emp-add">+ 직원 등록</button>`) + `<div id="emp-body">불러오는 중...</div>`;
+    `${isAdmin() && deptCutoverDone() ? `<button class="btn btn-ghost btn-sm" id="emp-cutover">10월 부서 개편 내역</button>` : ""}
+     <button class="btn btn-primary btn-sm" id="emp-add">+ 직원 등록</button>`) + `<div id="emp-body">불러오는 중...</div>`;
   $("#emp-add").onclick = () => openEmployeeModal(null);
+  const cutBtn = $("#emp-cutover");
+  if (cutBtn) cutBtn.onclick = async () => {
+    const snap = await db.collection(COL.meta).doc(DEPT_CUTOVER_DOC).get();
+    if (!snap.exists) return toast("아직 부서 개편이 실행되지 않았습니다. 총괄 관리자가 다시 접속하면 자동으로 실행됩니다.");
+    openDeptCutoverModal(snap.data());
+  };
 
   const snap = await db.collection(COL.employees).get();
   // 직급순 정렬 후 퇴사자는 맨 아래로 (재직자 먼저)
@@ -5321,7 +5467,7 @@ async function renderEmployees() {
   const active = emps.filter((e) => e.status === "재직");
   const retired = emps.filter((e) => e.status !== "재직");
   const typeCount = (kw) => active.filter((e) => (e.empType || "").includes(kw)).length;
-  const maxDept = Math.max(1, ...DEPTS.map((d) => active.filter((e) => e.dept === d).length));
+  const maxDept = Math.max(1, ...DEPTS.map((d) => active.filter((e) => sameDept(e.dept, d)).length));
   const deptTones = ["plum", "", "gold", "ok"]; // 대표/경영지원/오프라인/온라인
 
   const statsHtml = `
@@ -5339,7 +5485,7 @@ async function renderEmployees() {
       </div>
       <div class="type-bars" style="margin-top:16px">
         ${DEPTS.map((d, i) => {
-          const list = active.filter((e) => e.dept === d);
+          const list = active.filter((e) => sameDept(e.dept, d));
           return `<div class="type-bar dept-bar">
             <span>${d}</span>
             <div class="bar ${deptTones[i]}"><i style="width:${Math.round((list.length / maxDept) * 100)}%"></i></div>
@@ -5420,7 +5566,7 @@ function openEmployeeModal(emp) {
       <div class="grid-2">
         <label class="field"><span class="field-label">이름</span><input id="ef-name" required value="${esc(emp?.name || "")}" /></label>
         <label class="field"><span class="field-label">부서</span>
-          <select id="ef-dept">${DEPTS.map((d) => `<option ${emp?.dept === d ? "selected" : ""}>${d}</option>`).join("")}</select></label>
+          <select id="ef-dept">${DEPTS.map((d) => `<option value="${esc(d)}" ${sameDept(emp?.dept, d) ? "selected" : ""}>${esc(d)}</option>`).join("")}</select></label>
         <label class="field"><span class="field-label">직급 (L0~L5)</span>
           <select id="ef-grade"><option value="">미지정</option>${GRADES.map((g) => `<option value="${g.split(" ")[0]}" ${emp?.grade === g.split(" ")[0] ? "selected" : ""}>${g}</option>`).join("")}</select></label>
         <label class="field"><span class="field-label">직책 (예: 본부장, 부장)</span><input id="ef-pos" value="${esc(emp?.position || "")}" /></label>
@@ -5514,7 +5660,7 @@ async function renderMonitor() {
     db.collection(COL.systems).get()
   ]);
   const emps = empSnap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) =>
-    DEPTS.indexOf(a.dept) - DEPTS.indexOf(b.dept) || a.name.localeCompare(b.name, "ko"));
+    deptOrder(a.dept) - deptOrder(b.dept) || a.name.localeCompare(b.name, "ko"));
   const systems = sysSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
     .sort((a, b) => (a.order || 0) - (b.order || 0));
 
@@ -5627,10 +5773,9 @@ const OKR_UNITS = ["%", "개", "건", "원", "명"];
 const OKR_LEVEL_LABELS = ["회사", "부서", "팀", "개인"];
 const OKR_DEPT_COLORS = {
   "경영지원본부": "#f76707",
-  "오프라인사업부": "#1fa45b",
+  "F&B&C사업부": "#1fa45b",
   "대표": "#191f28",
-  "브랜딩디렉터": "#7048e8",
-  "온라인사업부": "#3182f6"
+  "브랜딩전략부": "#7048e8"
 };
 const ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
 
@@ -5746,7 +5891,7 @@ function okrFeedTime(iso) {
 }
 /* 부서 식별 띠 색 — 회사 O는 블랙(대표 컬러) */
 function okrStripeColor(o) {
-  return OKR_DEPT_COLORS[o.parentId ? o.dept : "대표"] || "#d9dee3";
+  return OKR_DEPT_COLORS[o.parentId ? deptKey(o.dept) : "대표"] || "#d9dee3";
 }
 
 async function loadOkrData() {
@@ -6070,13 +6215,14 @@ function renderOkrMine(okrs, emps, idx) {
 /* ── 부서 OKR — 부서 노드 + 문맥용 상위 노드를 트리로 ── */
 function renderOkrDept(okrs, emps, idx) {
   const body = $("#okr-body");
-  const depts = [...new Set(okrs.map((o) => o.dept).filter(Boolean))].sort();
-  if (!renderOkrDept._dept || !depts.includes(renderOkrDept._dept)) {
-    renderOkrDept._dept = depts.includes(me.dept) ? me.dept : (depts[0] || "");
+  const depts = [...new Set(okrs.map((o) => deptNow(o.dept)).filter(Boolean))].sort();
+  if (!renderOkrDept._dept || !depts.some((d) => sameDept(d, renderOkrDept._dept))) {
+    const mine = depts.find((d) => sameDept(d, me.dept));
+    renderOkrDept._dept = mine || depts[0] || "";
   }
   const dept = renderOkrDept._dept;
   const visible = new Set();
-  okrs.filter((o) => o.dept === dept || !o.parentId).forEach((o) => {
+  okrs.filter((o) => sameDept(o.dept, dept) || !o.parentId).forEach((o) => {
     let cur = o;
     const seen = new Set();
     while (cur && !seen.has(cur.id)) {
@@ -6133,7 +6279,7 @@ function renderOkrStatus(okrs, emps, idx) {
       <div class="os-num ${num ? "warn" : ""}">${num}</div><div class="os-label">${label}${list.length ? ' <span class="os-more">▾</span>' : ""}</div>
       ${list.length ? `<div class="os-pop"><div class="osp-title">${title} ${list.length}건</div>${statItems(list)}</div>` : ""}
     </div>`;
-  const legendDepts = [...new Set(okrs.map((o) => o.parentId ? o.dept : "대표").filter(Boolean))]
+  const legendDepts = [...new Set(okrs.map((o) => o.parentId ? deptKey(o.dept) : "대표").filter(Boolean))]
     .filter((d) => OKR_DEPT_COLORS[d]);
   // 전체 OKR = O(목표) 개수. KR은 세지 않는다. 미진행 = 1%도 진행되지 않은 것
   const done = okrs.filter((o) => idx.progressOf(o.id) >= 100).length;
@@ -6153,7 +6299,7 @@ function renderOkrStatus(okrs, emps, idx) {
         ${canEditCompanyOkr() && !idx.roots.length && !okrReadonly ? `<button class="btn btn-primary btn-sm" id="okr-add-root" style="margin-left:auto">회사 OKR 만들기</button>` : ""}
       </div>
       ${legendDepts.length ? `<div class="okr-legend">${legendDepts.map((d) =>
-        `<span class="okr-legend-item"><i style="background:${OKR_DEPT_COLORS[d]}"></i>${esc(d)}</span>`).join("")}</div>` : ""}
+        `<span class="okr-legend-item"><i style="background:${OKR_DEPT_COLORS[d]}"></i>${esc(deptNow(d))}</span>`).join("")}</div>` : ""}
       ${okrTreeHtml(idx, null, { collapsible: true, krCollapsed: true, meTag: true }) || `<div class="empty">등록된 OKR이 없습니다.${canEditCompanyOkr() ? " 회사 최상위 O부터 만들어 주세요." : ""}</div>`}
       ${idx.orphans.length ? `
         <div class="okr-orphans">
@@ -6212,7 +6358,7 @@ function openOkrModal(okrs, emps, idx) {
   const parentOptionsHtml = (dept) => {
     const out = [];
     const walk = (o) => {
-      if (!o.parentId || o.dept === dept) {
+      if (!o.parentId || sameDept(o.dept, dept)) {
         out.push(`<option value="${o.id}" ${o.id === preselect ? "selected" : ""}>[${idx.levelLabel(o.id)}] ${esc(o.title)}</option>`);
       }
       idx.childrenOf(o.id).forEach(walk);
@@ -6249,9 +6395,9 @@ function openOkrModal(okrs, emps, idx) {
   const parentSel = $("#of-parent");
   const ownerDept = () => {
     const sel = $("#of-owner");
-    if (!sel) return me.dept || "";
+    if (!sel) return deptNow(me.dept);
     const e = emps.find((x) => x.id === sel.value);
-    return e ? (e.dept || "") : "";
+    return e ? deptNow(e.dept) : "";
   };
   const sync = () => {
     const isRoot = parentSel.value === "__root";
@@ -6300,13 +6446,13 @@ function openOkrModal(okrs, emps, idx) {
     }
     let ownerId = null, ownerName = "", dept = "";
     if (parentId) {
-      ownerId = me.id; ownerName = me.name || ""; dept = me.dept || "";
+      ownerId = me.id; ownerName = me.name || ""; dept = deptNow(me.dept);
       const sel = $("#of-owner");
       if (canManageOps() && sel) {
         const e = emps.find((x) => x.id === sel.value);
-        if (e) { ownerId = e.id; ownerName = e.name || ""; dept = e.dept || ""; }
+        if (e) { ownerId = e.id; ownerName = e.name || ""; dept = deptNow(e.dept); }
       }
-      if (parent.parentId && parent.dept !== dept) return toast("담당자 부서의 OKR에만 연결할 수 있습니다.");
+      if (parent.parentId && !sameDept(parent.dept, dept)) return toast("담당자 부서의 OKR에만 연결할 수 있습니다.");
     }
     try {
       await db.collection(COL.okrs).add({

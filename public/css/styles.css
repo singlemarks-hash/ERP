@@ -2206,3 +2206,6 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 .lva-status:empty { display: none; }
 .la-quick { display: flex; gap: 6px; flex-wrap: wrap; margin: -6px 0 12px; }
 .la-manual-toggle { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--ink-soft); margin: 4px 0 12px; }
+/* 부서 개편 요약 */
+.cutover-sum { display: grid; gap: 12px; font-size: 0.86rem; margin-bottom: 14px; }
+.cutover-list { margin-top: 4px; font-size: 0.8rem; color: var(--ink-soft); line-height: 1.6; max-height: 140px; overflow-y: auto; background: #f7f8fa; border-radius: 8px; padding: 8px 10px; }
