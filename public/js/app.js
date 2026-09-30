@@ -1808,7 +1808,7 @@ function normalizePayRow(r) {
   const deductTotal = deductions.reduce((s, p) => s + p.amount, 0);
   return {
     id: r.id, empId: r.empId || null, name: r.name || "", category: r.category === "사대보험" ? "4대보험" : (r.category || ""),
-    payDate: r.payDate || "", note: r.note || "",
+    payDate: r.payDate || "", note: r.note || "", hours: r.hours || null,
     payments, deductions, payTotal, deductTotal, net: payTotal - deductTotal
   };
 }
@@ -2220,7 +2220,8 @@ function openDatePicker(anchor, dateStr, onPick, opts) {
 
 /* 급여명세서 근로시간 칸 (매월 직접 입력, 비우면 명세서에 '—') */
 const PAY_HOUR_FIELDS = [["basic", "기본근로시간수"], ["night", "야간근로시간수"], ["holiday", "휴일근로시간수"], ["overtime", "연장근로시간수"]];
-const payHourText = (v) => (v === null || v === undefined || v === "" || isNaN(Number(v))) ? "—" : String(Math.round(Number(v) * 100) / 100);
+const payHourEmpty = (v) => v === null || v === undefined || v === "" || isNaN(Number(v));
+const payHourText = (v) => payHourEmpty(v) ? "0" : String(Math.round(Number(v) * 100) / 100);
 
 function renderPayForm(emp, cat, record) {
   const isEdit = !!record;
@@ -2262,7 +2263,7 @@ function renderPayForm(emp, cat, record) {
     <div class="pb-section"><span>근로시간</span></div>
     <div class="pm-hours">${PAY_HOUR_FIELDS.map(([k, label]) => `
       <label class="pm-hour"><span>${label.replace("시간수", "")}</span>
-        <input type="text" inputmode="decimal" id="pm-h-${k}" placeholder="—" value="${esc(record?.hours?.[k] ?? "")}" /><em>시간</em></label>`).join("")}
+        <input type="text" inputmode="decimal" id="pm-h-${k}" placeholder="0" value="${esc(record?.hours?.[k] ?? "")}" /><em>시간</em></label>`).join("")}
     </div>
     <label class="field" style="margin-top:14px"><span class="field-label">메모</span><textarea id="pm-note" class="pm-note" rows="3" placeholder="예: 식대 포함, 연말정산 반영">${esc(record?.note || "")}</textarea></label>`;
 
@@ -2681,7 +2682,9 @@ async function buildPayslipPdf(emp, r) {
     startY: top,
     head: [PAY_HOUR_FIELDS.map(([, label]) => label)],
     columnStyles: { 0: { cellWidth: W * 0.25, halign: "center" }, 1: { cellWidth: W * 0.25, halign: "center" }, 2: { cellWidth: W * 0.25, halign: "center" }, 3: { cellWidth: W * 0.25, halign: "center" } },
-    body: [PAY_HOUR_FIELDS.map(([k]) => payHourText(r.hours?.[k]))]
+    body: [PAY_HOUR_FIELDS.map(([k]) => payHourEmpty(r.hours?.[k])
+      ? { content: "0", styles: { textColor: [190, 195, 202] } }
+      : payHourText(r.hours?.[k]))]
   }) + 8;
 
   // 계산 방법
@@ -2809,7 +2812,7 @@ function printPayslip(emp, r) {
   <table>
     <colgroup><col style="width:25%"/><col style="width:25%"/><col style="width:25%"/><col style="width:25%"/></colgroup>
     <tr><th>기본근로시간수</th><th>야간근로시간수</th><th>휴일근로시간수</th><th>연장근로시간수</th></tr>
-    <tr>${PAY_HOUR_FIELDS.map(([k]) => `<td class="center">${payHourText(r.hours?.[k])}</td>`).join("")}</tr>
+    <tr>${PAY_HOUR_FIELDS.map(([k]) => `<td class="center"${payHourEmpty(r.hours?.[k]) ? ' style="color:#bec3ca"' : ""}>${payHourText(r.hours?.[k])}</td>`).join("")}</tr>
   </table>
 
   <div class="sec-title">계산 방법</div>
