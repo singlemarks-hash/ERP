@@ -2233,3 +2233,7 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
   .sc-cal-head .sc-cal-title .pp-range { font-size: 0.72rem; }
 }
 .pp-sub { display: block; font-size: 0.7rem; font-weight: 600; color: var(--ink-faint); white-space: nowrap; }
+.pb-hours-head { display: flex; justify-content: space-between; align-items: center; }
+.pm-h-note { margin: -2px 0 10px; font-size: 0.74rem; line-height: 1.5; color: var(--ink-faint); }
+.pm-h-note:empty { display: none; }
+.pm-h-note b { color: #d9480f; font-weight: 600; }

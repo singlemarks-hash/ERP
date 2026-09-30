@@ -2298,7 +2298,8 @@ function renderPayForm(emp, cat, record) {
 
     <div class="pb-net"><span>이번 달 실수령</span><b id="pm-net"></b></div>
 
-    <div class="pb-section"><span>근로시간</span></div>
+    <div class="pb-section pb-hours-head"><span>근로시간</span><button type="button" class="btn btn-ghost btn-sm" id="pm-h-load">근태에서 불러오기</button></div>
+    <div class="pm-h-note" id="pm-h-note"></div>
     <div class="pm-hours">${PAY_HOUR_FIELDS.map(([k, label]) => `
       <label class="pm-hour"><span>${label.replace("시간수", "")}</span>
         <input type="text" inputmode="decimal" id="pm-h-${k}" placeholder="0" value="${esc(record?.hours?.[k] ?? "")}" /><em>시간</em></label>`).join("")}
@@ -2313,7 +2314,8 @@ function renderPayForm(emp, cat, record) {
   };
   syncDates();
 
-  $("#pm-ym-btn").onclick = () => openMonthPicker($("#pm-ym-btn"), selYm, (v) => { selYm = v; syncDates(); });
+  let onYmChange = () => {};
+  $("#pm-ym-btn").onclick = () => openMonthPicker($("#pm-ym-btn"), selYm, (v) => { const changed = v !== selYm; selYm = v; syncDates(); if (changed) onYmChange(); });
   $("#pm-d-btn").onclick = () => openDatePicker($("#pm-d-btn"), selDate || (selYm ? `${selYm}-10` : ""), (v) => { selDate = v; syncDates(); });
   $("#pm-form-card").querySelectorAll("[data-payday]").forEach((b) => {
     b.onclick = () => {
@@ -2354,6 +2356,38 @@ function renderPayForm(emp, cat, record) {
   };
   $("#pm-add-pay").onclick = () => addItem("#pm-pay-items", "pay");
   $("#pm-add-deduct").onclick = () => addItem("#pm-deduct-items", "deduct");
+
+  /* 근로시간 자동 입력 — 새 기록은 선택한 급여월의 근태기록으로 미리 채운다 (직접 고친 칸은 건드리지 않음).
+     수정 중인 기록은 저장된 값을 유지하고, [근태에서 불러오기]를 눌렀을 때만 덮어쓴다. */
+  const autoKeys = ["basic", "night", "overtime"];
+  const touched = new Set();
+  autoKeys.forEach((k) => { $(`#pm-h-${k}`).addEventListener("input", () => touched.add(k)); });
+  let loadSeq = 0;
+  const loadHours = async (force) => {
+    if (!selYm) return;
+    const seq = ++loadSeq, ym = selYm;
+    const note = $("#pm-h-note");
+    note.textContent = "근태기록을 불러오는 중...";
+    let h;
+    try { h = await payHoursFromAttendance(emp.id, ym); } catch (e) { if (seq === loadSeq) note.textContent = "근태기록을 불러오지 못했습니다."; return; }
+    if (seq !== loadSeq || !document.getElementById("pm-h-note")) return;
+    autoKeys.forEach((k) => {
+      const el = $(`#pm-h-${k}`);
+      if (force || !touched.has(k)) { el.value = h.days ? String(h[k]) : ""; touched.delete(k); }
+    });
+    const md = (d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+    const ongoing = todayKST() <= h.end;
+    note.innerHTML = h.days
+      ? `근태기록 ${md(h.start)}~${md(h.end)} · 출퇴근 ${h.days}일 기준으로 채웠습니다. 휴일근로는 직접 입력하세요.${ongoing ? ` <b>기간이 끝나지 않았습니다 — ${md(h.end)} 이후 다시 불러오세요.</b>` : ""}`
+      : `${md(h.start)}~${md(h.end)} 기간의 출퇴근 기록이 없습니다.`;
+  };
+  $("#pm-h-load").onclick = () => {
+    const filled = autoKeys.some((k) => $(`#pm-h-${k}`).value.trim() !== "");
+    if (filled && !confirm("기본·야간·연장근로 시간을 근태기록 값으로 바꿀까요?")) return;
+    loadHours(true);
+  };
+  if (!isEdit) loadHours(false);
+  onYmChange = () => { if (!isEdit) loadHours(false); };
 
   if (isEdit) $("#pm-cancel-edit").onclick = () => { pmEditId = null; pmEditYm = null; renderPayForm(emp, cat, null); };
 
@@ -3585,6 +3619,39 @@ function attNotes(att, shift, reqOf) {
     if (nh > 0) notes.push({ k: "night", h: nh, approved: true, label: `야간근무 ${fmtH(nh)}h` });
   }
   return notes;
+}
+/* 급여 근로시간 자동 산정 — 근태 화면과 같은 계산(attNotes·workedNetMin)을 그대로 쓴다.
+   기본: 예정 근무 안에서 실제 일한 시간 (조기출근·연장으로 감지된 분은 제외, 날짜별 10분 블록)
+   연장: 승인된 조기출근·연장·추가근무 가산 h
+   야간: 야간근무 가산 h (22:00~06:00)
+   휴일: 판단 기준이 없어 자동 산정하지 않는다 (직접 입력) */
+async function payHoursFromAttendance(empId, ym) {
+  const { start, end } = payPeriod(ym);
+  const [shiftSnap, attSnap] = await Promise.all([
+    db.collection(COL.shifts).where("date", ">=", start).where("date", "<=", end).get(),
+    db.collection(COL.attendance).where("date", ">=", start).where("date", "<=", end).get()
+  ]);
+  const shiftBy = {};
+  shiftSnap.docs.map((d) => d.data()).filter((x) => x.empId === empId).forEach((x) => { shiftBy[x.date] = x; });
+  const atts = attSnap.docs.map((d) => d.data())
+    .filter((a) => a.empId === empId && a.date >= start && a.date <= end && a.inAt && a.outAt);
+  let basic = 0, overtime = 0, night = 0;
+  atts.forEach((a) => {
+    const sh = shiftBy[a.date];
+    const net = workedNetMin(a, sh);
+    if (net === null) return;
+    const notes = attNotes(a, sh, null);
+    const extraMin = notes.filter((n) => (n.k === "earlyin" || n.k === "over") && n.mins).reduce((t, n) => t + n.mins, 0)
+      + (sh ? 0 : Number(a.otApprovedMin || 0));
+    basic += blockHours(Math.max(0, net - extraMin));
+    notes.forEach((n) => {
+      if (!n.approved || !n.h) return;
+      if (n.k === "earlyin" || n.k === "over") overtime += n.h;
+      else if (n.k === "night") night += n.h;
+    });
+  });
+  const r2 = (v) => Math.round(v * 100) / 100;
+  return { basic: r2(basic), night: r2(night), overtime: r2(overtime), days: atts.length, start, end };
 }
 /* 특이사항 칩 — 승인되지 않은 추가근무는 무채색으로 흐리게 표시한다.
    date를 넘기면 미신청 건이 결재 요청 버튼이 된다 (본인 근무 이력에서만 사용). */
