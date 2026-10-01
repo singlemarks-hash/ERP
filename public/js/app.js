@@ -6911,7 +6911,12 @@ function openOkrCycleModal(cycles, allOkrs) {
     <div class="modal-actions"><button type="button" class="btn btn-ghost btn-sm" id="cy-close">닫기</button></div>`);
   $("#cy-close").onclick = closeModal;
   // 새 사이클: 종료일은 시작일 이후로만
-  bindCalField("cy-start", (v) => { if (v && calVal("cy-end") && calVal("cy-end") < v) calSet("cy-end", ""); });
+  bindCalField("cy-start", (v) => {
+    if (v && calVal("cy-end") && calVal("cy-end") < v) {
+      calSet("cy-end", "");
+      $("#cy-end-label").innerHTML = '<span class="cal-ph">종료일</span>';
+    }
+  });
   bindCalField("cy-end", null, () => ({ min: calVal("cy-start") || "" }));
   // 기존 사이클: 시작일·종료일 각각 설정/해제
   document.querySelectorAll("[data-cy-date]").forEach((b) => {
