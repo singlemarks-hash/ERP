@@ -6093,11 +6093,15 @@ function okrDday(deadline) {
   const ms = new Date(deadline + "T00:00:00+09:00") - new Date(todayKST() + "T00:00:00+09:00");
   return Math.round(ms / 86400000);
 }
+/* 마감: 마감일이 지난 OKR·KR (마감일 당일까지는 진행 중) — 체크인 불가 */
+const OKR_CLOSED_TAG = `<span class="badge okr-closed">마감</span>`;
+const okrClosed = (o) => !!(o && o.deadline) && okrDday(o.deadline) < 0;
+const krClosed = (o, k) => okrClosed(o) || (!!(k && k.deadline) && okrDday(k.deadline) < 0);
 function okrDdayChip(deadline, prog) {
   const d = okrDday(deadline);
   if (d === null) return "";
+  if (d < 0) return (prog >= 100 ? `<span class="badge ok">달성</span> ` : "") + OKR_CLOSED_TAG;
   if (prog >= 100) return `<span class="badge ok">달성</span>`;
-  if (d < 0) return `<span class="badge warn">지연 D+${-d}</span>`;
   if (d <= 7) return `<span class="badge warn">D-${d}</span>`;
   return `<span class="badge off">D-${d}</span>`;
 }
@@ -6263,7 +6267,7 @@ function okrKrListHtml(o, idx, opts) {
   const isLeaf = !idx.childrenOf(o.id).length;
   // 기존 KR의 체크인·삭제는 권한만 있으면 항상 가능. 새 KR 추가만 '최하위 OKR'(회사 O 제외)로 제한
   const editable = !!opts.editable && !okrReadonly && canEditOkr(o);
-  const canAdd = editable && isLeaf && !!o.parentId;
+  const canAdd = editable && isLeaf && !!o.parentId && !okrClosed(o);   // 마감된 OKR엔 KR 추가 불가
   if (!krs.length && !canAdd) return "";
   const depth = opts.flat ? 0 : Math.min(idx.depthOf(o.id), 6);
   const color = okrStripeColor(o);
@@ -6282,11 +6286,11 @@ function okrKrListHtml(o, idx, opts) {
         return `
         <div class="okr-kr" data-kr="${k.id}">
           <span class="kr-dot" style="background:${color}"></span>
-          <span class="kr-title">${esc(k.title)}${k.deadline ? ` <em class="kr-due">~${esc(k.deadline.slice(5))}</em>` : ""}</span>
+          <span class="kr-title">${esc(k.title)}${k.deadline ? ` <em class="kr-due">~${esc(k.deadline.slice(5))}</em>` : ""}${krClosed(o, k) ? ` ${OKR_CLOSED_TAG}` : ""}</span>
           <span class="kr-num">${fmt(k.current || 0)} / ${fmt(k.target)} ${esc(k.unit || "")}</span>
           <div class="okr-prog"><div class="bar ${over ? "over" : ""}"><i style="width:${Math.min(100, p)}%"></i></div><span class="okr-pct ${over ? "over" : ""}">${p}%</span></div>
           <div class="okr-actions">
-            ${editable ? `<button class="btn btn-sm btn-okr-prog" data-kr-check="${o.id}|${k.id}">체크인</button>
+            ${editable ? `<button class="btn btn-sm btn-okr-prog" data-kr-check="${o.id}|${k.id}" ${krClosed(o, k) ? `disabled title="마감되어 체크인할 수 없습니다"` : ""}>체크인</button>
                           <button class="btn-icon danger" title="KR 삭제" data-kr-del="${o.id}|${k.id}">${ICON_TRASH}</button>` : ""}
           </div>
         </div>`;
@@ -6365,7 +6369,7 @@ function bindOkrActions(scope, okrs, emps, idx) {
       const [oid, kid] = b.dataset.krCheck.split("|");
       const o = idx.byId[oid];
       const k = (o.krs || []).find((x) => x.id === kid);
-      if (o && k) openOkrCheckinModal(o, k);
+      if (o && k && !krClosed(o, k)) openOkrCheckinModal(o, k);
     };
   });
   scope.querySelectorAll("[data-kr-del]").forEach((b) => {
@@ -6777,6 +6781,7 @@ function openOkrCheckinModal(okr, kr) {
     const cur = Number($("#op-cur").value);
     if (!(cur >= 0)) return toast("0 이상의 수치를 입력하세요.");
     if (cur === curVal) return toast("수치가 변경되지 않았습니다. 새 값을 입력하세요.");
+    if (kr ? krClosed(okr, kr) : okrClosed(okr)) { closeModal(); renderOkr(); return toast("마감된 OKR이라 체크인할 수 없습니다."); }
     const memo = $("#op-memo").value.trim();
     const entry = {
       empId: me.id, empName: me.name,

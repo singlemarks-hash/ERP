@@ -2257,3 +2257,8 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 .lv-reason { display: block; font-size: 0.74rem; color: var(--ink-faint); margin-top: 2px; white-space: normal; word-break: break-word; }
 .lv-reason-td { min-width: 140px; max-width: 280px; white-space: normal; word-break: break-word; font-size: 0.82rem; }
 @media (max-width: 1280px) { .lv-req .lr-reason { grid-column: 1 / -1; } }
+
+/* OKR 마감 (마감일 경과 — 체크인 불가) */
+.badge.okr-closed { background: var(--red-soft); color: var(--red); font-weight: 700; }
+.kr-title .badge.okr-closed { font-size: 0.66rem; padding: 1px 6px; vertical-align: 1px; }
+.btn-okr-prog:disabled { opacity: 0.45; cursor: not-allowed; }
