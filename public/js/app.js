@@ -6095,6 +6095,7 @@ function okrDday(deadline) {
 }
 /* 마감: 사이클 종료일이 지난 사이클의 OKR·KR — 체크인·KR 추가 불가.
    OKR·KR 마감일이 지난 것은 '지연'일 뿐, 사이클이 끝나기 전까지는 늦게라도 체크인할 수 있다. */
+/* '마감' 태그는 회사 OKR(최상위 O)과 사이클 표시줄에만 — 위계상 하위 OKR·KR도 함께 마감된 것으로 본다 */
 const OKR_CLOSED_TAG = `<span class="badge okr-closed">마감</span>`;
 let okrEndedCycleIds = new Set();   // renderOkr에서 채운다
 /* 사이클 기간 표기: "2026-10-01 ~ 2026-12-31" (한쪽만 있으면 그쪽만) */
@@ -6255,7 +6256,7 @@ function okrRowHtml(o, idx, opts) {
         <div class="okr-title-line">
           <span class="badge okr-lv d${Math.min(depth, 3)}">${idx.levelLabel(o.id)}</span>
           <b class="okr-title">${esc(o.title)}</b>
-          ${okrDdayChip(o.deadline, rolled, okrClosed(o))}
+          ${okrDdayChip(o.deadline, rolled, !o.parentId && okrClosed(o))}
         </div>
         <div class="okr-meta">
           ${o.parentId ? `<span>${mine && opts.meTag ? `<span class="badge me-tag">나</span>` : ""}${esc(o.ownerName || "-")}${o.dept ? ` · ${esc(o.dept)}` : ""}</span><span>${goal}</span>` : ""}
@@ -6303,7 +6304,7 @@ function okrKrListHtml(o, idx, opts) {
         return `
         <div class="okr-kr" data-kr="${k.id}">
           <span class="kr-dot" style="background:${color}"></span>
-          <span class="kr-title">${esc(k.title)}${k.deadline ? ` <em class="kr-due">~${esc(k.deadline.slice(5))}</em>` : ""}${krClosed(o) ? ` ${OKR_CLOSED_TAG}` : ""}</span>
+          <span class="kr-title">${esc(k.title)}${k.deadline ? ` <em class="kr-due">~${esc(k.deadline.slice(5))}</em>` : ""}</span>
           <span class="kr-num">${fmt(k.current || 0)} / ${fmt(k.target)} ${esc(k.unit || "")}</span>
           <div class="okr-prog"><div class="bar ${over ? "over" : ""}"><i style="width:${Math.min(100, p)}%"></i></div><span class="okr-pct ${over ? "over" : ""}">${p}%</span></div>
           <div class="okr-actions">
