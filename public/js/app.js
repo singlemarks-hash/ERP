@@ -203,6 +203,8 @@ function isSpecial() { return me && me.role === "special"; }
 function isManager() { return me && me.role === "manager"; }
 // 특수관리자: 사내 시스템·급여관리·직원 관리 조회/수정 가능
 function canManageOps() { return isAdmin() || isSpecial(); }
+/* 급여관리 열람 범위 — 특수관리자는 본인 소속 부서 직원만 (총괄 관리자는 전체). null = 제한 없음 */
+function payScopeDept() { return isSpecial() ? (me.dept || "-") : null; }
 
 /* 권한 서열 — 숫자가 클수록 상위 권한.
    근무 일정에만 존재하는 단기알바 등 역할이 없는 인원은 일반과 동일하게 본다. */
@@ -2023,15 +2025,19 @@ async function renderPayroll() {
   if (!canManageOps()) return navigate("payhistory", null, true);
   if (!pmYear) pmYear = kstNow().getUTCFullYear();
   const main = $("#main");
+  const scopeDept = payScopeDept();
   main.innerHTML = pageHead("ADMIN", "급여관리",
-    "직원을 선택해 월별 급여를 기록하거나, 전체 직원 기록을 종합 조회합니다. 정기 급여일은 매월 10일 · 15일입니다.") +
+    scopeDept
+      ? `${deptNow(scopeDept)} 직원의 월별 급여를 기록하고 조회합니다. 정기 급여일은 매월 10일 · 15일입니다.`
+      : "직원을 선택해 월별 급여를 기록하거나, 전체 직원 기록을 종합 조회합니다. 정기 급여일은 매월 10일 · 15일입니다.") +
     `<div id="pm-body"><div class="empty">불러오는 중...</div></div>`;
 
   const empSnap = await db.collection(COL.employees).where("status", "==", "재직").get();
-  const emps = sortByGrade(empSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+  const emps = sortByGrade(empSnap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    .filter((e) => !scopeDept || sameDept(e.dept, scopeDept));
   pmEmps = emps;
   if (!emps.length) {
-    $("#pm-body").innerHTML = `<div class="empty">재직 직원이 없습니다. [직원 관리]에서 먼저 직원을 등록하세요.</div>`;
+    $("#pm-body").innerHTML = `<div class="empty">${scopeDept ? `${esc(deptNow(scopeDept))} 소속 재직 직원이 없습니다.` : "재직 직원이 없습니다. [직원 관리]에서 먼저 직원을 등록하세요."}</div>`;
     return;
   }
   if (pmEmpId && !emps.some((e) => e.id === pmEmpId)) pmEmpId = "";
@@ -2043,7 +2049,7 @@ async function renderPayroll() {
       <div class="pm-emp-bar">
         <label class="field" style="margin:0;min-width:230px"><span class="field-label">직원 선택</span>
           <select id="pm-emp">
-            <option value="" ${!pmEmpId ? "selected" : ""}>전체 직원 (종합 조회)</option>
+            <option value="" ${!pmEmpId ? "selected" : ""}>${scopeDept ? `${esc(deptNow(scopeDept))} 전체 (종합 조회)` : "전체 직원 (종합 조회)"}</option>
             ${emps.map((e) =>
               `<option value="${e.id}" ${e.id === pmEmpId ? "selected" : ""}>${esc(e.name)} (${esc(e.dept)}${e.grade ? " · " + esc(e.grade) : ""})</option>`).join("")}
           </select></label>
@@ -2053,7 +2059,7 @@ async function renderPayroll() {
             <span class="badge">${catForEmp(emp)}</span>
             ${emp.grade ? `<span class="badge">${esc(emp.grade)}</span>` : ""}
             ${emp.position ? `<span class="badge">${esc(emp.position)}</span>` : ""}`
-            : `<span class="badge admin">전체 직원 종합</span>`}
+            : `<span class="badge admin">${scopeDept ? `${esc(deptNow(scopeDept))} 종합` : "전체 직원 종합"}</span>`}
         </div>
         ${emp ? `<div class="pm-copy">
           <span class="pm-copy-item"><span id="pm-copytitle">${esc(emp.name)} ${kstNow().getUTCMonth() + 1}월 급여명세서_작은따옴표</span>
@@ -2452,7 +2458,7 @@ async function renderPayHistoryAdmin(emp) {
           ${Array.from({ length: 12 }, (_, i) => i + 1).map((m) =>
             `<option value="${m}" ${m === pmMonth ? "selected" : ""}>${m}월</option>`).join("")}
         </select>
-        ${isAll ? `<select id="pm-dept">
+        ${isAll && !payScopeDept() ? `<select id="pm-dept">
           <option value="" ${!pmDept ? "selected" : ""}>전체 소속</option>
           ${DEPTS.map((d) => `<option value="${esc(d)}" ${sameDept(d, pmDept) ? "selected" : ""}>${esc(d)}</option>`).join("")}
         </select>` : ""}
@@ -2468,7 +2474,9 @@ async function renderPayHistoryAdmin(emp) {
   let records = await loadPayRecordsForYear(pmYear,
     emp ? ((r) => r.empId === emp.id || r.name === emp.name) : null);
   if (pmMonth) records = records.filter((r) => Number(r.ym.slice(5, 7)) === pmMonth);
-  if (isAll && pmDept) records = records.filter((r) => sameDept(deptOf(r), pmDept));
+  if (isAll && pmDept && !payScopeDept()) records = records.filter((r) => sameDept(deptOf(r), pmDept));
+  // 특수관리자: 소속 부서 직원(pmEmps) 기록만
+  if (payScopeDept()) records = records.filter((r) => pmEmps.some((e) => e.id === r.empId || (!r.empId && e.name === r.name)));
 
   const sumNet = records.reduce((s, r) => s + r.net, 0);
   const sumPay = records.reduce((s, r) => s + r.payTotal, 0);
