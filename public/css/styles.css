@@ -2250,3 +2250,10 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
   .ph-table .ph-tg-td { width: 1%; }
   .ph-detail-tr > td { padding: 0 6px; }
 }
+
+/* 휴가 신청 사유 (선택 입력) */
+.lv-req .lr-reason { grid-column: 1 / -2; }
+.field-opt { font-style: normal; font-weight: 600; font-size: 0.7rem; color: var(--ink-faint); margin-left: 4px; }
+.lv-reason { display: block; font-size: 0.74rem; color: var(--ink-faint); margin-top: 2px; white-space: normal; word-break: break-word; }
+.lv-reason-td { min-width: 140px; max-width: 280px; white-space: normal; word-break: break-word; font-size: 0.82rem; }
+@media (max-width: 1280px) { .lv-req .lr-reason { grid-column: 1 / -1; } }

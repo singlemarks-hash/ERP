@@ -3024,7 +3024,7 @@ async function renderLeave() {
 
   const history = [
     ...records.map((r) => ({ ...r, status: "승인" })),
-    ...myReqs.filter((r) => r.status !== "승인").map((r) => ({ id: r.id, empId: r.empId, date: r.date, endDate: r.endDate, type: r.type, days: r.days, status: r.status }))
+    ...myReqs.filter((r) => r.status !== "승인").map((r) => ({ id: r.id, empId: r.empId, date: r.date, endDate: r.endDate, type: r.type, days: r.days, status: r.status, reason: r.reason || "" }))
   ].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 8);
   const statusBadge = (s) => s === "승인" ? '<span class="badge ok">승인</span>'
     : s === "대기" ? '<span class="badge warn">대기</span>' : '<span class="badge rej">반려</span>';
@@ -3068,6 +3068,8 @@ async function renderLeave() {
           <button type="button" class="cal-input" id="lr-end-btn"><span id="lr-end-label"></span>${CAL_ICON}</button></div>
         <label class="field"><span class="field-label">일수 (0.5 단위)</span>
           <input id="lr-days" type="number" step="0.5" min="0.5" required value="1" /></label>
+        <label class="field lr-reason"><span class="field-label">사유 <em class="field-opt">선택사항</em></span>
+          <input id="lr-reason" maxlength="200" placeholder="예: 가족 행사, 병원 진료" /></label>
         <button type="submit" class="btn btn-primary" id="lr-submit">신청하기</button>
       </form>
     </div>
@@ -3089,7 +3091,7 @@ async function renderLeave() {
         ${history.length ? `<div class="table-wrap"><table class="data pay-table">
           <thead><tr><th>기간</th><th>유형</th><th class="num">일수</th><th>상태</th><th></th></tr></thead>
           <tbody>${history.map((r) => `<tr>
-            <td>${fmtPeriod(r.date, r.endDate)}</td><td>${esc(r.type)}</td>
+            <td>${fmtPeriod(r.date, r.endDate)}</td><td>${esc(r.type)}${r.reason ? `<span class="lv-reason">${esc(r.reason)}</span>` : ""}</td>
             <td class="num">${r.days}일</td><td>${statusBadge(r.status)}</td>
             <td class="num">${r.id ? reqCancelBtn(r) : ""}</td>
           </tr>`).join("")}</tbody></table></div>`
@@ -3168,6 +3170,7 @@ async function renderLeave() {
       endDate: end,
       days: isHalf ? 0.5 : Number($("#lr-days").value),
       type: lrType,
+      reason: $("#lr-reason").value.trim(),                        // 선택 입력 — 결재자에게 표시
       approverId: lrAppr.value,                                    // 결재 라우팅은 직원 ID 기준
       approver: lrAppr.options[lrAppr.selectedIndex].text.replace(" (본인 승인)", ""),
       status: "대기",
@@ -5100,9 +5103,10 @@ async function renderLeaveAdmin() {
       <div class="card-title"><div>내 결재 대기 <span class="badge warn">${reqs.length}건</span>
         <div class="ct-desc">나를 결재자로 지정한 신청만 표시됩니다.</div></div></div>
       ${reqs.length ? `<div class="table-wrap"><table class="data pay-table">
-        <thead><tr><th>직원</th><th>신청일시</th><th>기간</th><th>유형</th><th>결재자</th><th class="num">일수</th><th></th></tr></thead>
+        <thead><tr><th>직원</th><th>신청일시</th><th>기간</th><th>유형</th><th>사유</th><th>결재자</th><th class="num">일수</th><th></th></tr></thead>
         <tbody>${reqs.map((r) => `<tr>
           <td><b>${esc(r.name)}</b></td><td>${fmtTs(r.createdAt)}</td><td>${fmtPeriod(r.date, r.endDate)}</td><td>${esc(r.type)}</td>
+          <td class="lv-reason-td">${r.reason ? esc(r.reason) : '<span class="c-faint">-</span>'}</td>
           <td>${esc(r.approver || "-")}</td>
           <td class="num">${r.days}일</td>
           <td style="white-space:nowrap">
