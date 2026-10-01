@@ -205,8 +205,8 @@ function isManager() { return me && me.role === "manager"; }
 function canManageOps() { return isAdmin() || isSpecial(); }
 /* 급여관리 열람 범위 — 특수관리자는 본인 소속 부서 직원만 (총괄 관리자는 전체). null = 제한 없음 */
 function payScopeDept() { return isSpecial() ? (me.dept || "-") : null; }
-/* 근태관리·연차관리 열람 범위 — 매니저는 본인 소속 부서 직원만. null = 제한 없음 */
-function mgrScopeDept() { return isManager() ? (me.dept || "-") : null; }
+/* 근태관리·연차관리 열람 범위 — 매니저·특수관리자는 본인 소속 부서 직원만 (총괄은 전체). null = 제한 없음 */
+function mgrScopeDept() { return isManager() || isSpecial() ? (me.dept || "-") : null; }
 /* 연차 사용 기록 추가·삭제: 총괄 관리자는 전체, 매니저는 소속 부서 직원만 (연차 조정은 총괄만) */
 function canEditLeaveUseOf(emp) { return isAdmin() || (isManager() && !!emp && sameDept(emp.dept, me.dept)); }
 
