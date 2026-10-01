@@ -205,6 +205,10 @@ function isManager() { return me && me.role === "manager"; }
 function canManageOps() { return isAdmin() || isSpecial(); }
 /* 급여관리 열람 범위 — 특수관리자는 본인 소속 부서 직원만 (총괄 관리자는 전체). null = 제한 없음 */
 function payScopeDept() { return isSpecial() ? (me.dept || "-") : null; }
+/* 근태관리·연차관리 열람 범위 — 매니저는 본인 소속 부서 직원만. null = 제한 없음 */
+function mgrScopeDept() { return isManager() ? (me.dept || "-") : null; }
+/* 연차 사용 기록 추가·삭제: 총괄 관리자는 전체, 매니저는 소속 부서 직원만 (연차 조정은 총괄만) */
+function canEditLeaveUseOf(emp) { return isAdmin() || (isManager() && !!emp && sameDept(emp.dept, me.dept)); }
 
 /* 권한 서열 — 숫자가 클수록 상위 권한.
    근무 일정에만 존재하는 단기알바 등 역할이 없는 인원은 일반과 동일하게 본다. */
@@ -4676,8 +4680,13 @@ async function renderAttendAdmin() {
 
   // 직원 목록: 재직 직원 + (이번 달 근무 기록이 있는 외부 인원)
   const people = new Map();
-  emps.forEach((e) => people.set(e.id, { id: e.id, name: e.name, dept: e.dept, role: e.role }));
+  const scopeDept = mgrScopeDept();
+  const empIds = new Set(emps.map((e) => e.id));
+  emps.filter((e) => !scopeDept || sameDept(e.dept, scopeDept))
+    .forEach((e) => people.set(e.id, { id: e.id, name: e.name, dept: e.dept, role: e.role }));
   [...shifts, ...atts].forEach((x) => {
+    if (empIds.has(x.empId)) return; // 재직 직원은 위에서 범위에 맞춰 처리
+    if (scopeDept && x.dept && !sameDept(x.dept, scopeDept)) return; // 다른 부서로 기록된 퇴사자 등
     // 단기알바 등 직원 명단에 없는 인원은 일반 권한과 동일하게 취급한다.
     if (x.empId && !people.has(x.empId)) people.set(x.empId, { id: x.empId, name: x.name, dept: x.dept || "-", role: "member" });
   });
@@ -4991,9 +5000,9 @@ async function renderLeaveAdmin() {
   if (!isAdmin() && !isSpecial() && !isManager() && me.role !== "executive") return navigate("leave", null, true);
   const main = $("#main");
   main.innerHTML = pageHead("ADMIN", "연차관리",
-    "휴가 신청 승인과 전 직원 연차 현황을 관리합니다.",
-    isAdmin() ? `<button class="btn btn-primary btn-sm" id="lv-use">+ 사용 기록 추가</button>
-                 <button class="btn btn-ghost btn-sm" id="lv-alloc">연차 조정</button>` : "") +
+    mgrScopeDept() ? `휴가 신청 승인과 ${deptNow(mgrScopeDept())} 연차 현황을 관리합니다.` : "휴가 신청 승인과 전 직원 연차 현황을 관리합니다.",
+    (isAdmin() || isManager() ? `<button class="btn btn-primary btn-sm" id="lv-use">+ 사용 기록 추가</button>` : "") +
+    (isAdmin() ? `<button class="btn btn-ghost btn-sm" id="lv-alloc">연차 조정</button>` : "")) +
     `<div id="lva-body"><div class="empty">불러오는 중...</div></div>`;
 
   const [empSnap, lvSnap, reqSnap] = await Promise.all([
@@ -5003,8 +5012,9 @@ async function renderLeaveAdmin() {
   ]);
   const lvMap = {};
   lvSnap.docs.forEach((d) => (lvMap[d.id] = d.data()));
-  const emps = empSnap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) =>
-    deptOrder(a.dept) - deptOrder(b.dept) || a.name.localeCompare(b.name, "ko"));
+  const emps = empSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    .filter((e) => !mgrScopeDept() || sameDept(e.dept, mgrScopeDept()))
+    .sort((a, b) => deptOrder(a.dept) - deptOrder(b.dept) || a.name.localeCompare(b.name, "ko"));
   // 입사기념일이 지난 직원은 이전 주기를 history 로 넘기고 월차 이월분을 정리한다
   for (const e of emps) {
     if (lvMap[e.id] || isAutoLeave(e, null)) lvMap[e.id] = await maybeResetLeave(e.id, lvMap[e.id] || { records: [] }, e);
@@ -5037,7 +5047,7 @@ async function renderLeaveAdmin() {
     </div>
     <div id="lva-cal"><div class="card"><div class="empty">일정 캘린더 불러오는 중...</div></div></div>
     <div class="card">
-      <div class="card-title"><div>전 직원 연차 현황<div class="ct-desc">직원을 누르면 발생·조정·사용 내역이 펼쳐집니다. 입사일 기준 자동 계산은 [연차 조정]에서 직원별로 켤 수 있습니다.</div></div></div>
+      <div class="card-title"><div>${mgrScopeDept() ? `${esc(deptNow(mgrScopeDept()))} 연차 현황` : "전 직원 연차 현황"}<div class="ct-desc">직원을 누르면 발생·조정·사용 내역이 펼쳐집니다.${isAdmin() ? " 입사일 기준 자동 계산은 [연차 조정]에서 직원별로 켤 수 있습니다." : ""}</div></div></div>
       <div class="table-wrap"><table class="data lva-table">
         <thead><tr><th>이름</th><th>부서</th><th>입사일</th><th>구분</th><th class="num">발생</th><th class="num">사용</th><th class="num">잔여</th><th>다음 발생</th><th>사용률</th></tr></thead>
         <tbody>${emps.map((e) => {
@@ -5066,12 +5076,12 @@ async function renderLeaveAdmin() {
           const recHtml = recs.length ? `
             <div class="lva-sub">사용 기록</div>`+`
             <table class="data lva-rec-table">
-              <thead><tr><th>기간</th><th>유형</th><th class="num">일수</th>${isAdmin() ? "<th></th>" : ""}</tr></thead>
+              <thead><tr><th>기간</th><th>유형</th><th class="num">일수</th>${canEditLeaveUseOf(e) ? "<th></th>" : ""}</tr></thead>
               <tbody>${recs.map((r) => `<tr>
                 <td>${fmtPeriod(r.date, r.endDate)}</td>
                 <td>${esc(r.type || "-")}</td>
                 <td class="num">${r.days}일</td>
-                ${isAdmin() ? `<td class="num"><button class="icon-btn" title="기록 삭제 (연차 복구)"
+                ${canEditLeaveUseOf(e) ? `<td class="num"><button class="icon-btn" title="기록 삭제 (연차 복구)"
                   data-lvarec="${e.id}|${esc(r.date)}|${esc(r.endDate || "")}|${esc(r.type || "")}|${r.days || 0}">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/><path d="M10 11v6M14 11v6"/></svg></button></td>` : ""}
               </tr>`).join("")}</tbody>
@@ -5129,13 +5139,13 @@ async function renderLeaveAdmin() {
       renderLeaveAdmin();
     };
   });
-  // 총괄 관리자: 이력에서 개별 기록 삭제 (잔여 연차 복구)
+  // 총괄 관리자·매니저(소속 부서): 이력에서 개별 기록 삭제 (잔여 연차 복구)
   $("#lva-body").querySelectorAll("[data-lvarec]").forEach((b) => {
     b.onclick = async () => {
-      if (!isAdmin() || b.disabled) return;
-      b.disabled = true;
       const [empId, date, endDate, type, days] = b.dataset.lvarec.split("|");
       const emp = emps.find((e) => e.id === empId);
+      if (!canEditLeaveUseOf(emp) || b.disabled) return;
+      b.disabled = true;
       if (!confirm(`${emp ? emp.name : "?"}님의 ${fmtPeriod(date, endDate || date)} ${type} ${days}일 기록을 삭제할까요?\n삭제하면 잔여 연차가 복구됩니다.`)) { b.disabled = false; return; }
       const ref = db.collection(COL.leaves).doc(empId);
       const snap = await ref.get();
@@ -5152,10 +5162,8 @@ async function renderLeaveAdmin() {
     };
   });
 
-  if (isAdmin()) {
-    $("#lv-use").onclick = openLeaveUseModal;
-    $("#lv-alloc").onclick = openLeaveAllocModal;
-  }
+  if (isAdmin() || isManager()) $("#lv-use").onclick = openLeaveUseModal;
+  if (isAdmin()) $("#lv-alloc").onclick = openLeaveAllocModal;
 
   // 결재 승인/반려 — 나를 결재자로 지정한 신청만 목록에 있으므로 권한 추가 확인 불필요
   {
@@ -5209,7 +5217,8 @@ async function loadActiveEmployees() {
 }
 
 async function openLeaveUseModal() {
-  const emps = await loadActiveEmployees();
+  // 매니저는 소속 부서 직원에게만 사용 기록을 추가할 수 있다
+  const emps = (await loadActiveEmployees()).filter((e) => canEditLeaveUseOf(e));
   openModal(`
     <h3>연차 사용 기록 추가</h3>
     <form id="lvu-form">
@@ -5279,7 +5288,8 @@ async function openLeaveUseModal() {
     cur.records.push(rec);
     await ref.set(cur);
     closeModal();
-    renderLeave();
+    toast(`${emp.name}님의 연차 사용 기록을 추가했습니다.`);
+    if (currentView === "leaveadmin") renderLeaveAdmin(); else renderLeave();
   };
 }
 
