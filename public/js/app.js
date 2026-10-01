@@ -133,7 +133,8 @@ const deptNow = (d) => (deptCutoverDone() ? deptKey(d) : (DEPT_RENAMES_BACK[DEPT
 /* 같은 부서의 모든 표기 (Firestore 'in' 조회용) */
 const deptVariants = (d) => [...new Set([d, deptKey(d), DEPT_RENAMES_BACK[deptKey(d)],
   ...Object.keys(DEPT_ALIASES).filter((a) => DEPT_ALIASES[a] === deptKey(d))].filter(Boolean))];
-const DEPTS = ["대표", "경영지원본부", "오프라인사업부", "온라인사업부"].map(deptNow);
+/* 부서 표시 순서: 대표 → 브랜드 전략부 → 경영지원본부 → F&B&C사업부 (모든 목록·필터·정렬 공통) */
+const DEPTS = ["대표", "온라인사업부", "경영지원본부", "오프라인사업부"].map(deptNow);
 /* 부서 정렬 순서 (옛·새 이름 모두 같은 자리) */
 const deptOrder = (d) => { const i = DEPTS.findIndex((x) => sameDept(x, d)); return i < 0 ? 99 : i; };
 /* "YYYY-MM-DD" 문자열의 월/일/요일 (시간대 무관) */
@@ -5687,8 +5688,8 @@ async function renderEmployees() {
   const active = emps.filter((e) => e.status === "재직");
   const retired = emps.filter((e) => e.status !== "재직");
   const typeCount = (kw) => active.filter((e) => (e.empType || "").includes(kw)).length;
-  // 부서 막대: 대표 → 브랜드 전략부 → 경영지원본부 → F&B&C사업부 (OKR과 같은 부서 색)
-  const barDepts = ["대표", "브랜드 전략부", "경영지원본부", "F&B&C사업부"].map(deptNow);
+  // 부서 막대: DEPTS 순서, OKR과 같은 부서 색
+  const barDepts = DEPTS;
   const maxDept = Math.max(1, ...barDepts.map((d) => active.filter((e) => sameDept(e.dept, d)).length));
 
   const statsHtml = `
@@ -6436,7 +6437,8 @@ function renderOkrMine(okrs, emps, idx) {
 /* ── 부서 OKR — 부서 노드 + 문맥용 상위 노드를 트리로 ── */
 function renderOkrDept(okrs, emps, idx) {
   const body = $("#okr-body");
-  const depts = [...new Set(okrs.map((o) => deptNow(o.dept)).filter(Boolean))].sort();
+  const depts = [...new Set(okrs.map((o) => deptNow(o.dept)).filter(Boolean))]
+    .sort((a, b) => deptOrder(a) - deptOrder(b) || a.localeCompare(b, "ko"));
   if (!renderOkrDept._dept || !depts.some((d) => sameDept(d, renderOkrDept._dept))) {
     const mine = depts.find((d) => sameDept(d, me.dept));
     renderOkrDept._dept = mine || depts[0] || "";
@@ -6501,7 +6503,8 @@ function renderOkrStatus(okrs, emps, idx) {
       ${list.length ? `<div class="os-pop"><div class="osp-title">${title} ${list.length}건</div>${statItems(list)}</div>` : ""}
     </div>`;
   const legendDepts = [...new Set(okrs.map((o) => o.parentId ? deptKey(o.dept) : "대표").filter(Boolean))]
-    .filter((d) => OKR_DEPT_COLORS[d]);
+    .filter((d) => OKR_DEPT_COLORS[d])
+    .sort((a, b) => deptOrder(a) - deptOrder(b));
   // 전체 OKR = O(목표) 개수. KR은 세지 않는다. 미진행 = 1%도 진행되지 않은 것
   const done = okrs.filter((o) => idx.progressOf(o.id) >= 100).length;
   const idle = okrs.filter((o) => idx.progressOf(o.id) < 1).length;
