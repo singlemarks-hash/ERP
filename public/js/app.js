@@ -3140,15 +3140,14 @@ async function renderLeave() {
   $("#lr-start-btn").onclick = () => openDatePicker($("#lr-start-btn"), lrStart, (v) => {
     if (!v) return;
     lrStart = v;
-    if (lrEnd < lrStart || $("#lr-type").value === "반차") lrEnd = lrStart;
+    lrEnd = lrStart;   // 보통 1일 연차 — 시작일을 고르면 종료일도 같은 날로 맞춘다 (여러 날이면 종료일만 다시 고르면 됨)
     lrSync(); lrAutoDays();
   });
   $("#lr-end-btn").onclick = () => openDatePicker($("#lr-end-btn"), lrEnd, (v) => {
     if (!v || $("#lr-type").value === "반차") return;
-    lrEnd = v;
-    if (lrEnd < lrStart) { toast("종료일이 시작일보다 빠릅니다."); lrEnd = lrStart; }
+    lrEnd = v < lrStart ? lrStart : v;
     lrSync(); lrAutoDays();
-  });
+  }, { min: lrStart });   // 시작일 이전 날짜는 고를 수 없음
 
   bindReqCancel($("#lv-body"), COL.leaveRequests, renderLeave);
   $("#lv-req-form").onsubmit = async (ev) => {
@@ -5310,11 +5309,11 @@ async function openLeaveUseModal() {
     </form>`);
   $("#lu-cancel").onclick = closeModal;
   bindCalField("lu-date", (v) => {
-    // 반차는 종료일을 시작일에 고정, 그 외에는 종료일이 시작일보다 빠르지 않게 맞춘다
-    if (v && (isHalfUse() || calVal("lu-end") < v)) calSet("lu-end", v);
+    // 시작일을 고르면 종료일도 같은 날로 (보통 1일 사용 — 여러 날이면 종료일만 다시 고른다)
+    if (v) calSet("lu-end", v);
     luAutoDays();
   });
-  bindCalField("lu-end", luAutoDays);
+  bindCalField("lu-end", luAutoDays, () => ({ min: calVal("lu-date") || "" }));
 
   // 유형이 '반차'면 일수를 0.5로 고정하고 종료일·일수 입력을 잠근다
   function isHalfUse() { return $("#lu-type").value === "반차"; }
