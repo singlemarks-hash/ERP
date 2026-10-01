@@ -5667,7 +5667,7 @@ async function renderEmployees() {
   const main = $("#main");
   main.innerHTML = pageHead("ADMIN", "직원 관리",
     canEdit ? "직원 등록·수정, 부서 배정, 권한(역할) 조정, 비밀번호 초기화를 할 수 있습니다."
-      : isManager() ? `${deptNow(me.dept)} 직원 목록과 재직 현황을 조회합니다.` : "직원 목록과 재직 현황을 조회합니다.",
+      : "직원 목록과 재직 현황을 조회합니다.",
     `${isAdmin() && deptCutoverDone() ? `<button class="btn btn-ghost btn-sm" id="emp-cutover">10월 부서 개편 내역</button>` : ""}
      ${canEdit ? `<button class="btn btn-primary btn-sm" id="emp-add">+ 직원 등록</button>` : ""}`) + `<div id="emp-body">불러오는 중...</div>`;
   if (canEdit) $("#emp-add").onclick = () => openEmployeeModal(null);
@@ -5680,19 +5680,16 @@ async function renderEmployees() {
 
   const snap = await db.collection(COL.employees).get();
   // 직급순 정렬 후 퇴사자는 맨 아래로 (재직자 먼저)
-  // 매니저는 소속 부서 직원만 조회
-  const empScope = isManager() ? (me.dept || "-") : null;
-  const sorted = sortByGrade(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
-    .filter((e) => !empScope || sameDept(e.dept, empScope));
+  const sorted = sortByGrade(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
   const emps = [...sorted.filter((e) => e.status === "재직"), ...sorted.filter((e) => e.status !== "재직")];
 
   /* ── 재직 현황 요약 ── */
   const active = emps.filter((e) => e.status === "재직");
   const retired = emps.filter((e) => e.status !== "재직");
   const typeCount = (kw) => active.filter((e) => (e.empType || "").includes(kw)).length;
-  const barDepts = DEPTS.filter((d) => !empScope || sameDept(d, empScope));
+  // 부서 막대: 대표 → 브랜드 전략부 → 경영지원본부 → F&B&C사업부 (OKR과 같은 부서 색)
+  const barDepts = ["대표", "브랜드 전략부", "경영지원본부", "F&B&C사업부"].map(deptNow);
   const maxDept = Math.max(1, ...barDepts.map((d) => active.filter((e) => sameDept(e.dept, d)).length));
-  const deptTones = ["plum", "", "gold", "ok"]; // 대표/경영지원/오프라인/온라인
 
   const statsHtml = `
     <div class="card">
@@ -5712,7 +5709,7 @@ async function renderEmployees() {
           const list = active.filter((e) => sameDept(e.dept, d));
           return `<div class="type-bar dept-bar">
             <span>${d}</span>
-            <div class="bar ${deptTones[DEPTS.indexOf(d)]}"><i style="width:${Math.round((list.length / maxDept) * 100)}%"></i></div>
+            <div class="bar"><i style="width:${Math.round((list.length / maxDept) * 100)}%;background:${OKR_DEPT_COLORS[deptKey(d)] || "var(--blue)"}"></i></div>
             <span class="tb-num">${list.length}명${list.length ? ` · ${list.map((e) => esc(e.name)).join(", ")}` : ""}</span>
           </div>`;
         }).join("")}
