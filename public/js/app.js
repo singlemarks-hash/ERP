@@ -4256,7 +4256,7 @@ async function renderAttCalendar() {
     const ppEnd = d === PAY_CUT_DAY && isPeriodYm(atCalYm);
     const ppStart = d === PAY_CUT_DAY + 1 && isPeriodYm(ymShift(atCalYm, 1));
     return `<button type="button" class="sc-cell at-cell ${ds < today ? "past" : ""} ${ds === today ? "today" : ""} ${ppEnd ? "pp-end" : ""} ${ppStart ? "pp-start" : ""}" data-atd="${ds}">
-      <span class="d ${dow === 0 ? "sun" : dow === 6 ? "sat" : ""}">${d}${ppEnd ? `<em class="pp-tag" title="${mm}월 급여 마감"><span class="pp-full">${mm}월 급여 </span>마감</em>` : ""}</span>
+      <span class="d ${dow === 0 ? "sun" : dow === 6 ? "sat" : ""}">${d}${ppEnd ? `<em class="pp-tag" title="${mm}월 근태 마감"><span class="pp-full">${mm}월 근태 </span>마감</em>` : ""}</span>
       <span class="at-ents">${groups}</span>
     </button>`;
   };
@@ -4280,7 +4280,7 @@ async function renderAttCalendar() {
       </div>
       <div class="at-legend">
         ${monthEmps.map(([id, nm]) => `<span class="at-legend-item ${shiftColor(id)}">${String(id).startsWith("temp:") ? TEMP_BADGE : ""}${esc(nm)}</span>`).join("")}
-        ${isPeriodYm(ymShift(atCalYm, 1)) ? `<span class="at-legend-note pp-legend"><i></i>급여월은 8일 ~ 다음 달 7일</span>` : ""}
+        ${isPeriodYm(ymShift(atCalYm, 1)) ? `<span class="at-legend-note pp-legend"><i></i>근태 기간은 8일 ~ 다음 달 7일</span>` : ""}
         <span class="at-legend-note">${REST_ICON} 휴게 1시간 차감 · 날짜를 누르면 상세${canEditShiftCal() ? "·등록" : ""} 화면이 열립니다</span>
       </div>
     </div>`;
