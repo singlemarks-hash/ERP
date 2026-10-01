@@ -6102,6 +6102,9 @@ const cyclePeriodText = (c) => !c ? "" : (c.startDate || c.endDate) ? `${c.start
 const cycleEnded = (c) => !!(c && c.endDate) && todayKST() > c.endDate;   // 종료일 당일까지는 진행 중
 const okrClosed = (o) => !!(o && o.cycleId) && okrEndedCycleIds.has(o.cycleId);
 const krClosed = (o) => okrClosed(o);
+/* ⚠ 임시 해제 스위치 — false 인 동안은 마감·보관 사이클에서도 체크인(수치 수정)을 허용한다.
+   다시 잠그려면 true 로 바꾸면 된다. ('마감' 태그 표시는 스위치와 무관하게 유지) */
+const OKR_LOCK_CLOSED = false;
 function okrDdayChip(deadline, prog, closed) {
   const tag = closed ? ` ${OKR_CLOSED_TAG}` : "";
   const d = okrDday(deadline);
@@ -6276,9 +6279,11 @@ function okrKrListHtml(o, idx, opts) {
   // 기존 KR의 체크인·삭제는 권한만 있으면 항상 가능. 새 KR 추가만 '최하위 OKR'(회사 O 제외)로 제한
   const editable = !!opts.editable && !okrReadonly && canEditOkr(o);
   // 마감·보관된 사이클: 체크인 버튼은 자리에 그대로 두고 비활성화 (수정 불가임을 바로 알 수 있게)
-  const lockedReason = !!opts.editable && canEditOkr(o)
+  const canCheckin = !!opts.editable && canEditOkr(o);
+  const lockedReason = canCheckin && OKR_LOCK_CLOSED
     ? (krClosed(o) ? "사이클이 종료되어 체크인할 수 없습니다" : okrReadonly ? "보관된 사이클이라 체크인할 수 없습니다" : "")
     : "";
+  const showCheckin = editable || (canCheckin && !OKR_LOCK_CLOSED);   // 잠금 해제 중엔 보관 사이클에서도 체크인
   const canAdd = editable && isLeaf && !!o.parentId && !okrClosed(o);   // 종료된 사이클엔 KR 추가 불가
   if (!krs.length && !canAdd) return "";
   const depth = opts.flat ? 0 : Math.min(idx.depthOf(o.id), 6);
@@ -6302,8 +6307,9 @@ function okrKrListHtml(o, idx, opts) {
           <span class="kr-num">${fmt(k.current || 0)} / ${fmt(k.target)} ${esc(k.unit || "")}</span>
           <div class="okr-prog"><div class="bar ${over ? "over" : ""}"><i style="width:${Math.min(100, p)}%"></i></div><span class="okr-pct ${over ? "over" : ""}">${p}%</span></div>
           <div class="okr-actions">
-            ${lockedReason && !editable ? `<button class="btn btn-sm btn-okr-prog" disabled title="${lockedReason}">체크인</button>` : ""}
-            ${editable ? `<button class="btn btn-sm btn-okr-prog" data-kr-check="${o.id}|${k.id}" ${lockedReason ? `disabled title="${lockedReason}"` : ""}>체크인</button>
+            ${lockedReason && !showCheckin ? `<button class="btn btn-sm btn-okr-prog" disabled title="${lockedReason}">체크인</button>` : ""}
+            ${showCheckin ? `<button class="btn btn-sm btn-okr-prog" data-kr-check="${o.id}|${k.id}" ${lockedReason ? `disabled title="${lockedReason}"` : ""}>체크인</button>` : ""}
+            ${editable ? `
                           <button class="btn-icon danger" title="KR 삭제" data-kr-del="${o.id}|${k.id}">${ICON_TRASH}</button>` : ""}
           </div>
         </div>`;
@@ -6382,7 +6388,7 @@ function bindOkrActions(scope, okrs, emps, idx) {
       const [oid, kid] = b.dataset.krCheck.split("|");
       const o = idx.byId[oid];
       const k = (o.krs || []).find((x) => x.id === kid);
-      if (o && k && !krClosed(o)) openOkrCheckinModal(o, k);
+      if (o && k && !(OKR_LOCK_CLOSED && krClosed(o))) openOkrCheckinModal(o, k);
     };
   });
   scope.querySelectorAll("[data-kr-del]").forEach((b) => {
@@ -6794,7 +6800,7 @@ function openOkrCheckinModal(okr, kr) {
     const cur = Number($("#op-cur").value);
     if (!(cur >= 0)) return toast("0 이상의 수치를 입력하세요.");
     if (cur === curVal) return toast("수치가 변경되지 않았습니다. 새 값을 입력하세요.");
-    if (okrClosed(okr)) { closeModal(); renderOkr(); return toast("사이클이 종료되어 체크인할 수 없습니다."); }
+    if (OKR_LOCK_CLOSED && okrClosed(okr)) { closeModal(); renderOkr(); return toast("사이클이 종료되어 체크인할 수 없습니다."); }
     const memo = $("#op-memo").value.trim();
     const entry = {
       empId: me.id, empName: me.name,
