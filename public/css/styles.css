@@ -2262,3 +2262,16 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 .badge.okr-closed { background: var(--red-soft); color: var(--red); font-weight: 700; }
 .kr-title .badge.okr-closed { font-size: 0.66rem; padding: 1px 6px; vertical-align: 1px; }
 .btn-okr-prog:disabled { opacity: 0.45; cursor: not-allowed; }
+/* OKR 사이클 종료일 */
+.ocb-end { font-size: 0.78rem; color: var(--ink-faint); font-weight: 600; }
+.okr-cycle-bar .badge.okr-closed { margin-left: 2px; }
+.cycle-row .cy-end-btn { white-space: nowrap; font-size: 0.78rem; padding: 5px 9px; }
+.cycle-new { display: grid; grid-template-columns: minmax(0, 1fr) 150px auto; align-items: stretch; }
+.cycle-new input, .cycle-new .cal-input { min-width: 0; height: 40px; }
+.cycle-new .cal-input { padding: 0 10px; font-size: 0.85rem; }
+.cycle-new .btn { white-space: nowrap; }
+@media (max-width: 640px) {
+  .cycle-row { flex-wrap: wrap; }
+  .cycle-new { grid-template-columns: 1fr 1fr; }
+  .cycle-new .btn { grid-column: 1 / -1; }
+}

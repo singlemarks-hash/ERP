@@ -6093,15 +6093,20 @@ function okrDday(deadline) {
   const ms = new Date(deadline + "T00:00:00+09:00") - new Date(todayKST() + "T00:00:00+09:00");
   return Math.round(ms / 86400000);
 }
-/* 마감: 마감일이 지난 OKR·KR (마감일 당일까지는 진행 중) — 체크인 불가 */
+/* 마감: 사이클 종료일이 지난 사이클의 OKR·KR — 체크인·KR 추가 불가.
+   OKR·KR 마감일이 지난 것은 '지연'일 뿐, 사이클이 끝나기 전까지는 늦게라도 체크인할 수 있다. */
 const OKR_CLOSED_TAG = `<span class="badge okr-closed">마감</span>`;
-const okrClosed = (o) => !!(o && o.deadline) && okrDday(o.deadline) < 0;
-const krClosed = (o, k) => okrClosed(o) || (!!(k && k.deadline) && okrDday(k.deadline) < 0);
-function okrDdayChip(deadline, prog) {
+let okrEndedCycleIds = new Set();   // renderOkr에서 채운다
+const cycleEnded = (c) => !!(c && c.endDate) && todayKST() > c.endDate;   // 종료일 당일까지는 진행 중
+const okrClosed = (o) => !!(o && o.cycleId) && okrEndedCycleIds.has(o.cycleId);
+const krClosed = (o) => okrClosed(o);
+function okrDdayChip(deadline, prog, closed) {
+  const tag = closed ? ` ${OKR_CLOSED_TAG}` : "";
   const d = okrDday(deadline);
-  if (d === null) return "";
-  if (d < 0) return (prog >= 100 ? `<span class="badge ok">달성</span> ` : "") + OKR_CLOSED_TAG;
-  if (prog >= 100) return `<span class="badge ok">달성</span>`;
+  if (d === null) return tag.trim();
+  if (prog >= 100) return `<span class="badge ok">달성</span>${tag}`;
+  if (d < 0) return `<span class="badge warn">지연 D+${-d}</span>${tag}`;
+  if (closed) return OKR_CLOSED_TAG;
   if (d <= 7) return `<span class="badge warn">D-${d}</span>`;
   return `<span class="badge off">D-${d}</span>`;
 }
@@ -6166,12 +6171,13 @@ async function renderOkr() {
   // 기본은 총괄이 활성화한 사이클. 누구나 '지난 사이클 보기'로 보관된 사이클을 조회(읽기 전용)할 수 있다
   if (okrViewCycleId && !cycles.some((c) => c.id === okrViewCycleId)) okrViewCycleId = null;
   const viewing = okrViewCycleId ? cycles.find((c) => c.id === okrViewCycleId) : active;
+  okrEndedCycleIds = new Set(cycles.filter(cycleEnded).map((c) => c.id));
   okrReadonly = cycles.length > 0 && (!viewing || viewing.id !== okrActiveCycleId);
   const okrs = cycles.length ? allOkrs.filter((o) => viewing && o.cycleId === viewing.id) : allOkrs;
 
   const bar = $("#okr-cycle-bar");
   const cycleName = viewing
-    ? `<b class="ocb-name">${esc(viewing.name)}</b>${viewing.id === okrActiveCycleId ? `<span class="badge ok">현재</span>` : `<span class="badge off">보관됨 · 조회 전용</span>`}`
+    ? `<b class="ocb-name">${esc(viewing.name)}</b>${viewing.id === okrActiveCycleId ? `<span class="badge ok">현재</span>` : `<span class="badge off">보관됨 · 조회 전용</span>`}${viewing.endDate ? `<span class="ocb-end">~ ${esc(viewing.endDate)}</span>` : ""}${cycleEnded(viewing) ? OKR_CLOSED_TAG : ""}`
     : `<span class="ocb-none">${cycles.length ? "활성화된 사이클이 없습니다 — 사이클 관리에서 활성화하세요." : "아직 사이클이 없습니다 — 첫 사이클을 만들어 시작하세요."}</span>`;
   const pastCycles = cycles.filter((c) => c.id !== okrActiveCycleId);
   // 사이클이 있으면 항상 표시 — 지난 사이클이 없어도 자리는 보여 기능이 있다는 걸 알 수 있게
@@ -6244,7 +6250,7 @@ function okrRowHtml(o, idx, opts) {
         <div class="okr-title-line">
           <span class="badge okr-lv d${Math.min(depth, 3)}">${idx.levelLabel(o.id)}</span>
           <b class="okr-title">${esc(o.title)}</b>
-          ${okrDdayChip(o.deadline, rolled)}
+          ${okrDdayChip(o.deadline, rolled, okrClosed(o))}
         </div>
         <div class="okr-meta">
           ${o.parentId ? `<span>${mine && opts.meTag ? `<span class="badge me-tag">나</span>` : ""}${esc(o.ownerName || "-")}${o.dept ? ` · ${esc(o.dept)}` : ""}</span><span>${goal}</span>` : ""}
@@ -6267,7 +6273,7 @@ function okrKrListHtml(o, idx, opts) {
   const isLeaf = !idx.childrenOf(o.id).length;
   // 기존 KR의 체크인·삭제는 권한만 있으면 항상 가능. 새 KR 추가만 '최하위 OKR'(회사 O 제외)로 제한
   const editable = !!opts.editable && !okrReadonly && canEditOkr(o);
-  const canAdd = editable && isLeaf && !!o.parentId && !okrClosed(o);   // 마감된 OKR엔 KR 추가 불가
+  const canAdd = editable && isLeaf && !!o.parentId && !okrClosed(o);   // 종료된 사이클엔 KR 추가 불가
   if (!krs.length && !canAdd) return "";
   const depth = opts.flat ? 0 : Math.min(idx.depthOf(o.id), 6);
   const color = okrStripeColor(o);
@@ -6286,11 +6292,11 @@ function okrKrListHtml(o, idx, opts) {
         return `
         <div class="okr-kr" data-kr="${k.id}">
           <span class="kr-dot" style="background:${color}"></span>
-          <span class="kr-title">${esc(k.title)}${k.deadline ? ` <em class="kr-due">~${esc(k.deadline.slice(5))}</em>` : ""}${krClosed(o, k) ? ` ${OKR_CLOSED_TAG}` : ""}</span>
+          <span class="kr-title">${esc(k.title)}${k.deadline ? ` <em class="kr-due">~${esc(k.deadline.slice(5))}</em>` : ""}${krClosed(o) ? ` ${OKR_CLOSED_TAG}` : ""}</span>
           <span class="kr-num">${fmt(k.current || 0)} / ${fmt(k.target)} ${esc(k.unit || "")}</span>
           <div class="okr-prog"><div class="bar ${over ? "over" : ""}"><i style="width:${Math.min(100, p)}%"></i></div><span class="okr-pct ${over ? "over" : ""}">${p}%</span></div>
           <div class="okr-actions">
-            ${editable ? `<button class="btn btn-sm btn-okr-prog" data-kr-check="${o.id}|${k.id}" ${krClosed(o, k) ? `disabled title="마감되어 체크인할 수 없습니다"` : ""}>체크인</button>
+            ${editable ? `<button class="btn btn-sm btn-okr-prog" data-kr-check="${o.id}|${k.id}" ${krClosed(o) ? `disabled title="사이클이 종료되어 체크인할 수 없습니다"` : ""}>체크인</button>
                           <button class="btn-icon danger" title="KR 삭제" data-kr-del="${o.id}|${k.id}">${ICON_TRASH}</button>` : ""}
           </div>
         </div>`;
@@ -6369,7 +6375,7 @@ function bindOkrActions(scope, okrs, emps, idx) {
       const [oid, kid] = b.dataset.krCheck.split("|");
       const o = idx.byId[oid];
       const k = (o.krs || []).find((x) => x.id === kid);
-      if (o && k && !krClosed(o, k)) openOkrCheckinModal(o, k);
+      if (o && k && !krClosed(o)) openOkrCheckinModal(o, k);
     };
   });
   scope.querySelectorAll("[data-kr-del]").forEach((b) => {
@@ -6721,7 +6727,7 @@ async function addKr(o, kr) {
     toast("KR을 추가했습니다.");
     renderOkr();
   } catch (e) {
-    toast("저장에 실패했습니다. 잠시 후 다시 시도하세요.");
+    okrSaveFailToast(e);
   }
 }
 async function deleteKr(o, krId) {
@@ -6734,7 +6740,7 @@ async function deleteKr(o, krId) {
     toast("KR을 삭제했습니다.");
     renderOkr();
   } catch (e) {
-    toast("삭제에 실패했습니다. 잠시 후 다시 시도하세요.");
+    console.error("KR 삭제 실패", e); toast(`삭제에 실패했습니다. 잠시 후 다시 시도하세요. (${(e && (e.code || e.message)) || "알 수 없는 오류"})`);
   }
 }
 
@@ -6781,14 +6787,17 @@ function openOkrCheckinModal(okr, kr) {
     const cur = Number($("#op-cur").value);
     if (!(cur >= 0)) return toast("0 이상의 수치를 입력하세요.");
     if (cur === curVal) return toast("수치가 변경되지 않았습니다. 새 값을 입력하세요.");
-    if (kr ? krClosed(okr, kr) : okrClosed(okr)) { closeModal(); renderOkr(); return toast("마감된 OKR이라 체크인할 수 없습니다."); }
+    if (okrClosed(okr)) { closeModal(); renderOkr(); return toast("사이클이 종료되어 체크인할 수 없습니다."); }
     const memo = $("#op-memo").value.trim();
     const entry = {
       empId: me.id, empName: me.name,
       value: cur, pct: Math.round(pctOf(cur) * 10) / 10,
       memo, at: new Date().toISOString()
     };
-    if (kr) { entry.krId = kr.id; entry.krTitle = kr.title; }
+    if (kr) { entry.krId = kr.id; entry.krTitle = kr.title || ""; }
+    const submitBtn = $("#okr-prog-form button[type=submit]");
+    if (submitBtn.disabled) return;
+    submitBtn.disabled = true;
     try {
       await mutateOkr(okr.id, (latest) => {
         const patch = { checkins: [...(latest.checkins || []).slice(-29), entry] };   // 최근 30건 보관
@@ -6804,21 +6813,48 @@ function openOkrCheckinModal(okr, kr) {
       toast("체크인을 저장했습니다.");
       renderOkr();
     } catch (e) {
-      toast("저장에 실패했습니다. 잠시 후 다시 시도하세요.");
+      submitBtn.disabled = false;
+      okrSaveFailToast(e);
     }
   };
 }
 
 /* OKR 문서를 최신 상태로 다시 읽어 고치는 트랜잭션 — krs/checkins 배열을 통째로 쓰므로
    렌더 시점의 낡은 사본으로 남의 변경을 덮어쓰지 않도록 한다 */
+/* Firestore는 undefined 값을 거부한다 — 평범한 객체·배열 안의 undefined 필드를 걷어낸다 */
+function stripUndef(v) {
+  if (Array.isArray(v)) return v.map(stripUndef);
+  if (v && Object.getPrototypeOf(v) === Object.prototype) {
+    return Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined).map(([k, x]) => [k, stripUndef(x)]));
+  }
+  return v;
+}
 async function mutateOkr(id, fn) {
   const ref = db.collection(COL.okrs).doc(id);
-  await db.runTransaction(async (tx) => {
-    const snap = await tx.get(ref);
+  const stamp = () => firebase.firestore.FieldValue.serverTimestamp();
+  try {
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw new Error("not-found");
+      const patch = fn({ id: snap.id, ...snap.data() });
+      if (patch) tx.update(ref, { ...stripUndef(patch), updatedAt: stamp() });
+    });
+  } catch (e) {
+    if (e && (e.message === "not-found" || e.message === "kr-gone")) throw e;
+    // 일부 네트워크(롱폴링 등)에서 트랜잭션만 실패하는 경우 — 서버에서 최신값을 다시 읽어 한 번 더 저장한다
+    console.warn("OKR 트랜잭션 실패 → 일반 저장으로 재시도", e);
+    const snap = await ref.get();
     if (!snap.exists) throw new Error("not-found");
     const patch = fn({ id: snap.id, ...snap.data() });
-    if (patch) tx.update(ref, { ...patch, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
-  });
+    if (patch) await ref.update({ ...stripUndef(patch), updatedAt: stamp() });
+  }
+}
+/* 저장 실패 안내 — 원인 파악을 위해 오류 코드를 함께 보여준다 */
+function okrSaveFailToast(e) {
+  console.error("OKR 저장 실패", e);
+  if (e && e.message === "kr-gone") return toast("이미 삭제된 KR입니다. 화면을 새로고침하세요.");
+  if (e && e.message === "not-found") return toast("이미 삭제된 OKR입니다. 화면을 새로고침하세요.");
+  toast(`저장에 실패했습니다. 잠시 후 다시 시도하세요. (${(e && (e.code || e.message)) || "알 수 없는 오류"})`);
 }
 
 async function deleteOkr(okr, idx) {
@@ -6849,6 +6885,8 @@ function openOkrCycleModal(cycles, allOkrs) {
         <div class="cycle-row">
           <b>${esc(c.name)}</b>
           <span class="cy-meta">OKR ${countOf(c.id)}개</span>
+          <button type="button" class="btn btn-ghost btn-sm cy-end-btn" data-cy-end="${c.id}" title="종료일 다음 날부터 이 사이클의 체크인이 마감됩니다">${c.endDate ? `~ ${esc(c.endDate)}` : "종료일 설정"}</button>
+          ${cycleEnded(c) ? OKR_CLOSED_TAG : ""}
           ${c.active
             ? `<span class="badge ok">활성</span>`
             : `<button class="btn btn-ghost btn-sm" data-cy-act="${c.id}">활성화</button>`}
@@ -6858,10 +6896,31 @@ function openOkrCycleModal(cycles, allOkrs) {
     </div>
     <form id="cycle-form" class="cycle-new">
       <input id="cy-name" required maxlength="30" placeholder="예: 2026 4Q" />
+      ${calField("cy-end", "").replace("날짜 선택", "종료일 (선택)")}
       <button type="submit" class="btn btn-primary btn-sm">사이클 만들기</button>
     </form>
+    <div class="mini-note">종료일(선택)이 지나면 그 사이클의 OKR에 '마감'이 붙고 체크인이 막힙니다. 종료일 당일까지는 체크인할 수 있습니다.</div>
     <div class="modal-actions"><button type="button" class="btn btn-ghost btn-sm" id="cy-close">닫기</button></div>`);
   $("#cy-close").onclick = closeModal;
+  bindCalField("cy-end");
+  document.querySelectorAll("[data-cy-end]").forEach((b) => {
+    b.onclick = () => {
+      const c = cycles.find((x) => x.id === b.dataset.cyEnd);
+      if (!c) return;
+      openDatePicker(b, c.endDate || "", async (v) => {
+        try {
+          await db.collection(COL.okrCycles).doc(c.id).update({ endDate: v || null });
+          c.endDate = v || null;
+          b.textContent = v ? `~ ${v}` : "종료일 설정";
+          toast(v ? `'${c.name}' 종료일을 ${v}로 정했습니다.` : `'${c.name}' 종료일을 지웠습니다.`);
+          renderOkr();
+          openOkrCycleModal(cycles, allOkrs);
+        } catch (e) {
+          toast("종료일 저장에 실패했습니다. 잠시 후 다시 시도하세요.");
+        }
+      });
+    };
+  });
 
   $("#cycle-form").onsubmit = async (ev) => {
     ev.preventDefault();
@@ -6871,6 +6930,7 @@ function openOkrCycleModal(cycles, allOkrs) {
     try {
       const ref = await db.collection(COL.okrCycles).add({
         name,
+        endDate: calVal("cy-end") || null,
         active: cycles.length === 0,   // 첫 사이클은 바로 활성화
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
       });
