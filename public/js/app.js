@@ -115,21 +115,24 @@ const payYmTitle = (ym) => {
 };
 
 /* ── 부서 개편 (2026-10-01 0시, 한국시간) ─────────────────────────────
-   온라인사업부 → 브랜딩전략부, 오프라인사업부 → F&B&C사업부.
+   온라인사업부 → 브랜드 전략부, 오프라인사업부 → F&B&C사업부.
    · 9월 30일 이전에 쌓인 기록(출퇴근·신청·공지·9월 OKR)은 적힌 이름 그대로 둔다
    · 대신 옛 이름과 새 이름은 어디서나 '같은 부서'로 취급한다 (로그인·공지 대상·필터·OKR 연결)
    · 10월 1일부터 새로 저장하는 기록은 직원 정보가 아직 옛 이름이어도 새 이름으로 쓴다 */
 const DEPT_CUTOVER = "2026-10-01";
-const DEPT_RENAMES = { "온라인사업부": "브랜딩전략부", "오프라인사업부": "F&B&C사업부" };
+const DEPT_RENAMES = { "온라인사업부": "브랜드 전략부", "오프라인사업부": "F&B&C사업부" };
 const DEPT_RENAMES_BACK = Object.fromEntries(Object.entries(DEPT_RENAMES).map(([a, b]) => [b, a]));
+/* 잘못 적었던 이름 → 바른 이름 (10/1 개편 때 '브랜딩전략부'로 저장된 값도 같은 부서로 본다) */
+const DEPT_ALIASES = { "브랜딩전략부": "브랜드 전략부" };
 const deptCutoverDone = () => todayKST() >= DEPT_CUTOVER;
 /* 비교용 기준 이름 (항상 새 이름) */
-const deptKey = (d) => DEPT_RENAMES[d] || d || "";
+const deptKey = (d) => DEPT_ALIASES[d] || DEPT_RENAMES[d] || d || "";
 const sameDept = (a, b) => !!a && deptKey(a) === deptKey(b);
 /* 지금 시점에 쓰는 이름 — 전환 전엔 옛 이름, 전환 후엔 새 이름 */
-const deptNow = (d) => (deptCutoverDone() ? deptKey(d) : (DEPT_RENAMES_BACK[d] || d)) || "";
+const deptNow = (d) => (deptCutoverDone() ? deptKey(d) : (DEPT_RENAMES_BACK[DEPT_ALIASES[d] || d] || d)) || "";
 /* 같은 부서의 모든 표기 (Firestore 'in' 조회용) */
-const deptVariants = (d) => [...new Set([d, deptKey(d), DEPT_RENAMES_BACK[deptKey(d)]].filter(Boolean))];
+const deptVariants = (d) => [...new Set([d, deptKey(d), DEPT_RENAMES_BACK[deptKey(d)],
+  ...Object.keys(DEPT_ALIASES).filter((a) => DEPT_ALIASES[a] === deptKey(d))].filter(Boolean))];
 const DEPTS = ["대표", "경영지원본부", "오프라인사업부", "온라인사업부"].map(deptNow);
 /* 부서 정렬 순서 (옛·새 이름 모두 같은 자리) */
 const deptOrder = (d) => { const i = DEPTS.findIndex((x) => sameDept(x, d)); return i < 0 ? 99 : i; };
@@ -203,8 +206,20 @@ function isSpecial() { return me && me.role === "special"; }
 function isManager() { return me && me.role === "manager"; }
 // 특수관리자: 사내 시스템·급여관리·직원 관리 조회/수정 가능
 function canManageOps() { return isAdmin() || isSpecial(); }
-/* 급여관리 열람 범위 — 특수관리자는 본인 소속 부서 직원만 (총괄 관리자는 전체). null = 제한 없음 */
-function payScopeDept() { return isSpecial() ? (me.dept || "-") : null; }
+/* 급여관리 열람 범위 — 특수관리자·매니저는 본인 소속 부서 직원만 (총괄 관리자는 전체). null = 제한 없음
+   매니저는 그중 매니저 이하(매니저·일반) 직원만, 조회 전용 */
+function payScopeDept() { return isSpecial() || isManager() ? (me.dept || "-") : null; }
+/* 직원 관리: 매니저 이상은 조회, 편집(등록·수정·비밀번호 초기화·삭제)은 총괄·특수관리자만 */
+function canViewEmployees() { return !!me && (canManageOps() || roleRank(me.role) >= roleRank("manager")); }
+function canEditEmployees() { return canManageOps(); }
+function canViewPayroll() { return canManageOps() || isManager(); }
+function canEditPayroll() { return canManageOps(); }
+function payVisibleEmp(e) {
+  const sd = payScopeDept();
+  if (sd && !sameDept(e.dept, sd)) return false;
+  if (isManager() && roleRank(e.role) > roleRank("manager")) return false;
+  return true;
+}
 /* 근태관리·연차관리 열람 범위 — 매니저·특수관리자는 본인 소속 부서 직원만 (총괄은 전체). null = 제한 없음 */
 function mgrScopeDept() { return isManager() || isSpecial() ? (me.dept || "-") : null; }
 /* 연차 사용 기록 추가·삭제: 총괄 관리자는 전체, 매니저는 소속 부서 직원만 (연차 조정은 총괄만) */
@@ -510,7 +525,8 @@ function openDeptCutoverModal(log) {
     for (const c of ch.slice().reverse()) {
       const snap = await db.collection(c.col).doc(c.id).get();
       if (!snap.exists) continue;
-      if (snap.data()[c.field] !== c.to) { kept.push(`${c.label} (${c.field})`); continue; }   // 개편 뒤 다른 사람이 바꿈
+      const curV = snap.data()[c.field];
+      if (curV !== c.to && !(c.field === "dept" && sameDept(curV, c.to))) { kept.push(`${c.label} (${c.field})`); continue; }   // 개편 뒤 다른 사람이 바꿈
       batch.update(db.collection(c.col).doc(c.id), { [c.field]: c.from });
     }
     batch.set(db.collection(COL.meta).doc(DEPT_CUTOVER_DOC), { ...log, status: "reverted", revertedBy: me.name, revertedAt: new Date().toISOString(), keptOnRevert: kept });
@@ -524,12 +540,59 @@ function openDeptCutoverModal(log) {
   };
 }
 
+/* 부서명 오타 정리 (브랜딩전략부 → 브랜드 전략부) — 총괄 관리자 접속 시 한 번만.
+   개편 때 저장된 잘못된 이름을 직원·출퇴근·신청·OKR·공지 대상에서 바른 이름으로 바꾸고, 바꾼 내역을 meta에 남긴다. */
+const DEPT_ALIAS_DOC = "deptAliasFix2026";
+async function runDeptAliasFix() {
+  const ref = db.collection(COL.meta).doc(DEPT_ALIAS_DOC);
+  let claimed = false;
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const cur = snap.exists ? snap.data() : null;
+    if (cur && (cur.status !== "running" || Date.now() - (cur.startedMs || 0) < 5 * 60e3)) return;
+    tx.set(ref, { status: "running", startedMs: Date.now(), by: me.name, byId: me.id });
+    claimed = true;
+  });
+  if (!claimed) return;
+  const changes = [];
+  const ops = [];
+  for (const col of [COL.employees, COL.attendance, COL.leaveRequests, COL.attRequests, COL.okrs]) {
+    for (const [from, to] of Object.entries(DEPT_ALIASES)) {
+      const qs = await db.collection(col).where("dept", "==", from).get();
+      qs.docs.forEach((d) => {
+        const x = d.data();
+        changes.push({ col, id: d.id, label: x.name || x.title || d.id, field: "dept", from, to });
+        ops.push([db.collection(col).doc(d.id), { dept: to }]);
+      });
+    }
+  }
+  const ntSnap = await db.collection(COL.notices).get();
+  ntSnap.docs.forEach((d) => {
+    const depts = d.data().depts || [];
+    if (!depts.some((x) => DEPT_ALIASES[x])) return;
+    const next = depts.map((x) => DEPT_ALIASES[x] || x);
+    changes.push({ col: COL.notices, id: d.id, label: d.data().title || d.id, field: "depts", from: depts, to: next });
+    ops.push([db.collection(COL.notices).doc(d.id), { depts: next }]);
+  });
+  // 배치는 500건 제한 — 나눠서 쓴다
+  for (let i = 0; i < ops.length; i += 400) {
+    const batch = db.batch();
+    ops.slice(i, i + 400).forEach(([r, patch]) => batch.update(r, patch));
+    await batch.commit();
+  }
+  await ref.set({ status: "done", startedMs: Date.now(), doneAt: new Date().toISOString(), by: me.name, byId: me.id, changes });
+  if (DEPT_ALIASES[me.dept]) me.dept = DEPT_ALIASES[me.dept];
+  if (changes.length) { renderSidebar(); navigate(currentView, null, true); }
+}
+
 function enterApp() {
   $("#login-screen").classList.add("hidden");
   $("#app-shell").classList.remove("hidden");
   renderSidebar();
   // 부서 개편 자동 전환 — 10월 1일 이후 총괄 관리자가 처음 접속할 때 한 번만 실행
-  if (isAdmin() && deptCutoverDone()) runDeptCutover().catch((e) => console.warn("dept cutover", e));
+  if (isAdmin() && deptCutoverDone()) {
+    runDeptCutover().then(runDeptAliasFix).catch((e) => console.warn("dept cutover", e));
+  }
   // 새로고침·주소 직접 입력 시 해시에 담긴 화면으로 복원한다 (없으면 홈)
   const start = parseHash();
   navigate(start.view, start.sub, true);
@@ -618,10 +681,10 @@ function renderSidebar() {
     `<button class="nav-item" data-view="${i.id}">${ICONS[i.ico]}${i.label}</button>`).join("");
   const adminItems = [];
   if (canManageOps()) adminItems.push({ id: "systems", ico: "grid", label: "사내 시스템" });
-  if (canManageOps()) adminItems.push({ id: "paymanage", ico: "ledger", label: "급여관리" });
+  if (canViewPayroll()) adminItems.push({ id: "paymanage", ico: "ledger", label: "급여관리" });
   if (isAdmin() || isSpecial() || isManager()) adminItems.push({ id: "attendadmin", ico: "clock", label: "근태관리" });
   if (isAdmin() || isSpecial() || isManager() || me.role === "executive") adminItems.push({ id: "leaveadmin", ico: "leave", label: "연차관리" });
-  if (canManageOps()) adminItems.push({ id: "employees", ico: "employees", label: "직원 관리" });
+  if (canViewEmployees()) adminItems.push({ id: "employees", ico: "employees", label: "직원 관리" });
   if (isAdmin()) adminItems.push({ id: "monitor", ico: "monitor", label: "권한 모니터링" });
   if (adminItems.length) {
     html += `<div class="nav-label">관리자 메뉴</div>` +
@@ -2026,19 +2089,21 @@ let pmEmps = [];
 function ymNow() { return ymNowKST(); }
 
 async function renderPayroll() {
-  if (!canManageOps()) return navigate("payhistory", null, true);
+  if (!canViewPayroll()) return navigate("payhistory", null, true);
   if (!pmYear) pmYear = kstNow().getUTCFullYear();
   const main = $("#main");
   const scopeDept = payScopeDept();
   main.innerHTML = pageHead("ADMIN", "급여관리",
-    scopeDept
+    !canEditPayroll()
+      ? `${deptNow(scopeDept)} 매니저·일반 직원의 급여 기록을 조회합니다. 정기 급여일은 매월 10일 · 15일입니다.`
+      : scopeDept
       ? `${deptNow(scopeDept)} 직원의 월별 급여를 기록하고 조회합니다. 정기 급여일은 매월 10일 · 15일입니다.`
       : "직원을 선택해 월별 급여를 기록하거나, 전체 직원 기록을 종합 조회합니다. 정기 급여일은 매월 10일 · 15일입니다.") +
     `<div id="pm-body"><div class="empty">불러오는 중...</div></div>`;
 
   const empSnap = await db.collection(COL.employees).where("status", "==", "재직").get();
   const emps = sortByGrade(empSnap.docs.map((d) => ({ id: d.id, ...d.data() })))
-    .filter((e) => !scopeDept || sameDept(e.dept, scopeDept));
+    .filter(payVisibleEmp);
   pmEmps = emps;
   if (!emps.length) {
     $("#pm-body").innerHTML = `<div class="empty">${scopeDept ? `${esc(deptNow(scopeDept))} 소속 재직 직원이 없습니다.` : "재직 직원이 없습니다. [직원 관리]에서 먼저 직원을 등록하세요."}</div>`;
@@ -2065,7 +2130,7 @@ async function renderPayroll() {
             ${emp.position ? `<span class="badge">${esc(emp.position)}</span>` : ""}`
             : `<span class="badge admin">${scopeDept ? `${esc(deptNow(scopeDept))} 종합` : "전체 직원 종합"}</span>`}
         </div>
-        ${emp ? `<div class="pm-copy">
+        ${emp && canEditPayroll() ? `<div class="pm-copy">
           <span class="pm-copy-item"><span id="pm-copytitle">${esc(emp.name)} ${kstNow().getUTCMonth() + 1}월 급여명세서_작은따옴표</span>
             <button type="button" class="copy-btn" data-copy="pm-copytitle" title="복사">copy</button></span>
           ${emp.email ? `<span class="pm-copy-item">email : <span id="pm-copymail">${esc(emp.email)}</span>
@@ -2073,7 +2138,7 @@ async function renderPayroll() {
         </div>` : ""}
       </div>
     </div>
-    ${emp ? `
+    ${emp && canEditPayroll() ? `
     <div class="pm-grid">
       <div class="card" id="pm-form-card"></div>
       <div class="card" id="pm-history-card"></div>
@@ -2098,7 +2163,7 @@ async function renderPayroll() {
     };
   });
 
-  if (emp) {
+  if (emp && canEditPayroll()) {
     // 수정 대기 상태면 해당 레코드를 불러와 폼에 채운다
     if (pmEditId && pmEditYm) {
       const snap = await db.collection(COL.payroll).doc(pmEditYm).collection("rows").doc(pmEditId).get();
@@ -2506,7 +2571,7 @@ async function renderPayHistoryAdmin(emp) {
         <td><button class="row-menu-btn" data-pm-menu="${r.id}" data-ym="${r.ym}" title="메뉴">&#8943;</button></td>
       </tr>`).join("")}</tbody>
     </table></div>`
-    : `<div class="empty">${scope} 기록이 없습니다.${emp ? " 왼쪽에서 첫 기록을 저장하세요." : ""}</div>`;
+    : `<div class="empty">${scope} 기록이 없습니다.${emp && canEditPayroll() ? " 왼쪽에서 첫 기록을 저장하세요." : ""}</div>`;
 
   attachPayHover($("#pm-history"), records);
   $("#pm-history").querySelectorAll("[data-pm-menu]").forEach((b) => {
@@ -2521,7 +2586,7 @@ async function renderPayHistoryAdmin(emp) {
           icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>',
           onClick: () => printPayslip(recEmp, r)
         },
-        {
+        ...(!canEditPayroll() ? [] : [{
           label: "수정",
           icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.8 2.8 0 0 1 4 4L8 20l-5 1 1-5L17 3Z"/></svg>',
           onClick: () => {
@@ -2542,7 +2607,7 @@ async function renderPayHistoryAdmin(emp) {
             if (pmEditId === r.id) { pmEditId = null; pmEditYm = null; }
             renderPayHistoryAdmin(emp);
           }
-        }
+        }])
       ]);
     };
   });
@@ -5597,13 +5662,14 @@ async function openNoticeModal(notice) {
 
 /* ───────── 직원 관리 (admin) ───────── */
 async function renderEmployees() {
-  if (!canManageOps()) return navigate("home", null, true);
+  if (!canViewEmployees()) return navigate("home", null, true);
+  const canEdit = canEditEmployees(); // 매니저·임원 열람은 조회 전용
   const main = $("#main");
   main.innerHTML = pageHead("ADMIN", "직원 관리",
-    "직원 등록·수정, 부서 배정, 권한(역할) 조정, 비밀번호 초기화를 할 수 있습니다.",
+    canEdit ? "직원 등록·수정, 부서 배정, 권한(역할) 조정, 비밀번호 초기화를 할 수 있습니다." : "직원 목록과 재직 현황을 조회합니다.",
     `${isAdmin() && deptCutoverDone() ? `<button class="btn btn-ghost btn-sm" id="emp-cutover">10월 부서 개편 내역</button>` : ""}
-     <button class="btn btn-primary btn-sm" id="emp-add">+ 직원 등록</button>`) + `<div id="emp-body">불러오는 중...</div>`;
-  $("#emp-add").onclick = () => openEmployeeModal(null);
+     ${canEdit ? `<button class="btn btn-primary btn-sm" id="emp-add">+ 직원 등록</button>` : ""}`) + `<div id="emp-body">불러오는 중...</div>`;
+  if (canEdit) $("#emp-add").onclick = () => openEmployeeModal(null);
   const cutBtn = $("#emp-cutover");
   if (cutBtn) cutBtn.onclick = async () => {
     const snap = await db.collection(COL.meta).doc(DEPT_CUTOVER_DOC).get();
@@ -5650,10 +5716,10 @@ async function renderEmployees() {
 
   $("#emp-body").innerHTML = statsHtml + `<div class="card"><div class="table-wrap">
     ${emps.length ? `<table class="data pay-table"><thead><tr>
-      <th>이름</th><th>부서</th><th>직급</th><th>직책</th><th>이메일</th><th>입사일</th><th>고용 구분</th><th>역할</th><th>비밀번호</th><th>상태</th><th></th>
+      <th>이름</th><th>부서</th><th>직급</th><th>직책</th><th>이메일</th><th>입사일</th><th>고용 구분</th><th>역할</th><th>비밀번호</th><th>상태</th>${canEdit ? "<th></th>" : ""}
     </tr></thead><tbody>
     ${emps.map((e) => `<tr class="${e.status !== "재직" ? "emp-retired" : ""}">
-      <td>${e.hrUrl
+      <td>${e.hrUrl && canEdit
         ? `<a class="emp-link" href="${esc(e.hrUrl)}" target="_blank" rel="noopener" title="인사정보 열기"><b>${esc(e.name)}</b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6M10 14 21 3"/></svg></a>`
         : `<b>${esc(e.name)}</b>`}</td><td>${esc(e.dept)}</td><td>${esc(e.grade || "-")}</td><td>${esc(e.position || "-")}</td>
       <td>${esc(e.email || "-")}</td>
@@ -5662,11 +5728,11 @@ async function renderEmployees() {
       <td><span class="badge ${e.role}">${roleLabel(e.role)}</span></td>
       <td>${e.passwordHash ? '<span class="badge ok">설정됨</span>' : '<span class="badge warn">미설정</span>'}</td>
       <td>${e.status === "재직" ? '<span class="badge ok">재직</span>' : '<span class="badge off">퇴사</span>'}</td>
-      <td style="white-space:nowrap">
+      ${canEdit ? `<td style="white-space:nowrap">
         <button class="icon-btn" data-empedit="${e.id}" title="수정"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.8 2.8 0 0 1 4 4L8 20l-5 1 1-5L17 3Z"/></svg></button>
         ${e.passwordHash ? `<button class="icon-btn" data-pwreset="${e.id}" title="비밀번호 초기화"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4.5"/><path d="m11 12 9-9m-4 4 3 3"/></svg></button>` : ""}
         ${e.id !== me.id ? `<button class="icon-btn danger" data-empdel="${e.id}" title="삭제"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/><path d="M10 11v6M14 11v6"/></svg></button>` : ""}
-      </td>
+      </td>` : ""}
     </tr>`).join("")}</tbody></table>` : `<div class="empty">등록된 직원이 없습니다.</div>`}
   </div></div>`;
 
@@ -5928,7 +5994,7 @@ const OKR_DEPT_COLORS = {
   "경영지원본부": "#f76707",
   "F&B&C사업부": "#1fa45b",
   "대표": "#191f28",
-  "브랜딩전략부": "#7048e8"
+  "브랜드 전략부": "#7048e8"
 };
 const ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
 
