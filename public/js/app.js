@@ -6880,17 +6880,18 @@ function openOkrCycleModal(cycles, allOkrs) {
   if (!isAdmin()) return;
   const countOf = (cid) => allOkrs.filter((o) => (o.cycleId || null) === cid).length;
   openModal(`
+    <div class="cycle-modal"></div>
     <h3>사이클 관리</h3>
-    <p class="modal-desc">분기·연도 단위로 사이클을 만들어 운영하세요. '활성' 사이클 하나만 전 직원에게 보이고, 나머지는 보관됩니다.</p>
+    <p class="modal-desc">분기·월 단위로 사이클을 만들어 운영하세요. '활성' 사이클 하나만 전 직원에게 보이고, 나머지는 보관됩니다.</p>
     <div class="cycle-list">
       ${cycles.length ? cycles.map((c) => `
         <div class="cycle-row">
-          <b>${esc(c.name)}</b>
+          <b class="cy-name" title="${esc(c.name)}">${esc(c.name)}</b>
           <span class="cy-meta">OKR ${countOf(c.id)}개</span>
           <span class="cy-period">
-            <button type="button" class="btn btn-ghost btn-sm cy-end-btn" data-cy-date="${c.id}|startDate" title="사이클 시작일">${c.startDate ? esc(c.startDate) : "시작일"}</button>
+            <button type="button" class="btn btn-ghost btn-sm cy-end-btn ${c.startDate ? "" : "empty"}" data-cy-date="${c.id}|startDate" title="사이클 시작일">${c.startDate ? esc(c.startDate) : "시작일"}</button>
             <span class="cy-tilde">~</span>
-            <button type="button" class="btn btn-ghost btn-sm cy-end-btn" data-cy-date="${c.id}|endDate" title="종료일 다음 날부터 이 사이클의 체크인이 마감됩니다">${c.endDate ? esc(c.endDate) : "종료일"}</button>
+            <button type="button" class="btn btn-ghost btn-sm cy-end-btn ${c.endDate ? "" : "empty"}" data-cy-date="${c.id}|endDate" title="종료일 다음 날부터 이 사이클의 체크인이 마감됩니다">${c.endDate ? esc(c.endDate) : "종료일"}</button>
           </span>
           ${cycleEnded(c) ? OKR_CLOSED_TAG : ""}
           ${c.active
@@ -6901,12 +6902,12 @@ function openOkrCycleModal(cycles, allOkrs) {
         : `<div class="empty">아직 사이클이 없습니다. 첫 사이클을 만들면 자동으로 활성화되고 기존 OKR이 담깁니다.</div>`}
     </div>
     <form id="cycle-form" class="cycle-new">
-      <input id="cy-name" required maxlength="30" placeholder="예: 2026 4Q" />
+      <input id="cy-name" required maxlength="30" placeholder="예: 2026년 11월" />
       ${calField("cy-start", "").replace("날짜 선택", "시작일")}
       ${calField("cy-end", "").replace("날짜 선택", "종료일")}
       <button type="submit" class="btn btn-primary btn-sm">사이클 만들기</button>
     </form>
-    <div class="mini-note">사이클 기간(시작일 ~ 종료일)을 정하세요. 종료일이 지나면 그 사이클의 OKR에 '마감'이 붙고 체크인이 막힙니다. 종료일 당일까지는 체크인할 수 있습니다.</div>
+    <div class="mini-note">종료일이 지나면 그 사이클의 OKR에 '마감'이 붙고 체크인이 막힙니다. 종료일 당일까지는 체크인할 수 있습니다.${cycles.some((c) => !c.startDate || !c.endDate) ? " 주황색 날짜 버튼은 아직 기간이 비어 있는 사이클입니다." : ""}</div>
     <div class="modal-actions"><button type="button" class="btn btn-ghost btn-sm" id="cy-close">닫기</button></div>`);
   $("#cy-close").onclick = closeModal;
   // 새 사이클: 종료일은 시작일 이후로만
@@ -6939,7 +6940,8 @@ function openOkrCycleModal(cycles, allOkrs) {
     const name = $("#cy-name").value.trim();
     if (!name) return toast("사이클 이름을 입력하세요.");
     if (cycles.some((c) => c.name === name)) return toast("같은 이름의 사이클이 이미 있습니다.");
-    if (calVal("cy-start") && calVal("cy-end") && calVal("cy-end") < calVal("cy-start")) return toast("종료일은 시작일 이후여야 합니다.");
+    if (!calVal("cy-start") || !calVal("cy-end")) return toast("시작일과 종료일을 모두 입력하세요.");
+    if (calVal("cy-end") < calVal("cy-start")) return toast("종료일은 시작일 이후여야 합니다.");
     try {
       const ref = await db.collection(COL.okrCycles).add({
         name,

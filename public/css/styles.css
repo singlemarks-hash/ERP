@@ -1967,8 +1967,9 @@ button.att-note.req:hover { background: var(--blue-soft); color: var(--blue-deep
 .os-num.warn { color: var(--amber); }
 .os-label { font-size: 0.78rem; color: var(--ink-soft); margin-top: 4px; }
 .cycle-list { display: grid; gap: 8px; margin-bottom: 14px; }
-.cycle-row { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 0.88rem; }
-.cycle-row b { flex: 1; word-break: keep-all; overflow-wrap: break-word; }
+.cycle-row { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 0.88rem; white-space: nowrap; }
+.cycle-row .cy-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cycle-row .btn, .cycle-row .badge { white-space: nowrap; flex-shrink: 0; }
 .cy-meta { font-size: 0.78rem; color: var(--ink-soft); white-space: nowrap; }
 .cycle-new { display: flex; gap: 8px; margin-bottom: 6px; }
 .cycle-new input {
@@ -2266,13 +2267,28 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 .ocb-end { font-size: 0.78rem; color: var(--ink-faint); font-weight: 600; }
 .okr-cycle-bar .badge.okr-closed { margin-left: 2px; }
 .cycle-row .cy-end-btn { white-space: nowrap; font-size: 0.78rem; padding: 5px 9px; }
-.cycle-new { display: grid; grid-template-columns: 1fr 1fr; align-items: stretch; }
-.cycle-new #cy-name, .cycle-new .btn { grid-column: 1 / -1; }
+.cycle-new { display: grid; grid-template-columns: minmax(0, 1fr) 132px 132px auto; align-items: stretch; }
 .cy-period { display: inline-flex; align-items: center; gap: 4px; }
 .cy-tilde { color: var(--ink-faint); font-size: 0.8rem; }
 .cycle-new input, .cycle-new .cal-input { min-width: 0; height: 40px; }
 .cycle-new .cal-input { padding: 0 10px; font-size: 0.85rem; }
 .cycle-new .btn { white-space: nowrap; }
 @media (max-width: 640px) {
-  .cycle-row { flex-wrap: wrap; }
+}
+
+/* 사이클 관리 창: 넓게, 줄바꿈 없이 한 줄 */
+.modal:has(.cycle-modal) { max-width: 640px; }
+.cycle-row .cy-end-btn.empty { background: var(--amber-soft); color: var(--amber); font-size: 0.78rem; min-width: 82px; justify-content: center; }
+.cycle-new .cal-input { white-space: nowrap; overflow: hidden; }
+@media (max-width: 640px) {
+  /* 좁은 화면: 이름·상태 한 줄 + 기간 한 줄로 '구조적으로' 나눈다 (글자 줄바꿈 없음) */
+  .cycle-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; grid-template-areas: "name closed status del" "period period period meta"; row-gap: 8px; }
+  .cycle-row .cy-name { grid-area: name; }
+  .cycle-row .cy-meta { grid-area: meta; justify-self: end; align-self: center; }
+  .cycle-row .cy-period { grid-area: period; }
+  .cycle-row .badge.ok, .cycle-row [data-cy-act] { grid-area: status; }
+  .cycle-row [data-cy-del] { grid-area: del; }
+  .cycle-row .okr-closed { grid-area: closed; }
+  .cycle-new { grid-template-columns: 1fr 1fr; }
+  .cycle-new #cy-name, .cycle-new .btn { grid-column: 1 / -1; }
 }
