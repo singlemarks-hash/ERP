@@ -6275,6 +6275,10 @@ function okrKrListHtml(o, idx, opts) {
   const isLeaf = !idx.childrenOf(o.id).length;
   // 기존 KR의 체크인·삭제는 권한만 있으면 항상 가능. 새 KR 추가만 '최하위 OKR'(회사 O 제외)로 제한
   const editable = !!opts.editable && !okrReadonly && canEditOkr(o);
+  // 마감·보관된 사이클: 체크인 버튼은 자리에 그대로 두고 비활성화 (수정 불가임을 바로 알 수 있게)
+  const lockedReason = !!opts.editable && canEditOkr(o)
+    ? (krClosed(o) ? "사이클이 종료되어 체크인할 수 없습니다" : okrReadonly ? "보관된 사이클이라 체크인할 수 없습니다" : "")
+    : "";
   const canAdd = editable && isLeaf && !!o.parentId && !okrClosed(o);   // 종료된 사이클엔 KR 추가 불가
   if (!krs.length && !canAdd) return "";
   const depth = opts.flat ? 0 : Math.min(idx.depthOf(o.id), 6);
@@ -6298,7 +6302,8 @@ function okrKrListHtml(o, idx, opts) {
           <span class="kr-num">${fmt(k.current || 0)} / ${fmt(k.target)} ${esc(k.unit || "")}</span>
           <div class="okr-prog"><div class="bar ${over ? "over" : ""}"><i style="width:${Math.min(100, p)}%"></i></div><span class="okr-pct ${over ? "over" : ""}">${p}%</span></div>
           <div class="okr-actions">
-            ${editable ? `<button class="btn btn-sm btn-okr-prog" data-kr-check="${o.id}|${k.id}" ${krClosed(o) ? `disabled title="사이클이 종료되어 체크인할 수 없습니다"` : ""}>체크인</button>
+            ${lockedReason && !editable ? `<button class="btn btn-sm btn-okr-prog" disabled title="${lockedReason}">체크인</button>` : ""}
+            ${editable ? `<button class="btn btn-sm btn-okr-prog" data-kr-check="${o.id}|${k.id}" ${lockedReason ? `disabled title="${lockedReason}"` : ""}>체크인</button>
                           <button class="btn-icon danger" title="KR 삭제" data-kr-del="${o.id}|${k.id}">${ICON_TRASH}</button>` : ""}
           </div>
         </div>`;

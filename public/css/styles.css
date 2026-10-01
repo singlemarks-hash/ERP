@@ -2262,7 +2262,7 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 /* OKR 마감 (마감일 경과 — 체크인 불가) */
 .badge.okr-closed { background: var(--red-soft); color: var(--red); font-weight: 700; }
 .kr-title .badge.okr-closed { font-size: 0.66rem; padding: 1px 6px; vertical-align: 1px; }
-.btn-okr-prog:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-okr-prog:disabled, .btn-okr-prog:disabled:hover { background: #e5e8eb; color: #8b95a1; border-color: #e5e8eb; box-shadow: none; opacity: 1; cursor: not-allowed; pointer-events: auto; }
 /* OKR 사이클 종료일 */
 .ocb-end { font-size: 0.78rem; color: var(--ink-faint); font-weight: 600; }
 .okr-cycle-bar .badge.okr-closed { margin-left: 2px; }
