@@ -5994,7 +5994,7 @@ let okrActiveCycleId = null;  // 활성 사이클 (새 OKR이 담기는 곳)
 let okrViewCycleId = null;    // 지난 사이클을 골라 보는 중이면 그 id (null = 활성 사이클)
 let okrReadonly = false;      // 활성 사이클이 아닌 것을 보는 중이면 true (조회만)
 const okrOpenState = new Map(); // 접기/펼치기 상태 (키 → true/false, 없으면 화면 기본값)
-const OKR_UNITS = ["%", "개", "건", "원", "명"];
+const OKR_UNITS = ["%", "개", "건", "원", "명", "회", "점"];
 const OKR_LEVEL_LABELS = ["회사", "부서", "팀", "개인"];
 const OKR_DEPT_COLORS = {
   "경영지원본부": "#f76707",
