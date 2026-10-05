@@ -5672,15 +5672,8 @@ async function renderEmployees() {
   main.innerHTML = pageHead("ADMIN", "직원 관리",
     canEdit ? "직원 등록·수정, 부서 배정, 권한(역할) 조정, 비밀번호 초기화를 할 수 있습니다."
       : "직원 목록과 재직 현황을 조회합니다.",
-    `${isAdmin() && deptCutoverDone() ? `<button class="btn btn-ghost btn-sm" id="emp-cutover">10월 부서 개편 내역</button>` : ""}
-     ${canEdit ? `<button class="btn btn-primary btn-sm" id="emp-add">+ 직원 등록</button>` : ""}`) + `<div id="emp-body">불러오는 중...</div>`;
+    `${canEdit ? `<button class="btn btn-primary btn-sm" id="emp-add">+ 직원 등록</button>` : ""}`) + `<div id="emp-body">불러오는 중...</div>`;
   if (canEdit) $("#emp-add").onclick = () => openEmployeeModal(null);
-  const cutBtn = $("#emp-cutover");
-  if (cutBtn) cutBtn.onclick = async () => {
-    const snap = await db.collection(COL.meta).doc(DEPT_CUTOVER_DOC).get();
-    if (!snap.exists) return toast("아직 부서 개편이 실행되지 않았습니다. 총괄 관리자가 다시 접속하면 자동으로 실행됩니다.");
-    openDeptCutoverModal(snap.data());
-  };
 
   const snap = await db.collection(COL.employees).get();
   // 직급순 정렬 후 퇴사자는 맨 아래로 (재직자 먼저)
