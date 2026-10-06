@@ -4393,7 +4393,7 @@ async function renderAttCalendar() {
         <div class="at-cal-inner">
           <div class="sc-dow">${["일", "월", "화", "수", "목", "금", "토"].map((d, i) =>
             `<span class="${i === 0 ? "sun" : i === 6 ? "sat" : ""}">${d}</span>`).join("")}</div>
-          <div class="sc-grid at">${cells.map((d, i) => cellHtml(d, i)).join("")}</div>
+          <div class="sc-grid at ${shifts.length ? "" : "empty-month"}">${cells.map((d, i) => cellHtml(d, i)).join("")}</div>
         </div>
       </div>
       <div class="at-legend">

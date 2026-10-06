@@ -2312,6 +2312,6 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 @media (max-width: 640px) {
   .sc-cal-head #at-pdf { position: static; right: auto; flex: none; padding: 7px 8px; font-size: 0.74rem; }
   .sc-cal-head #at-pdf .pdf-long { display: none; }
-  /* 최소 정사각형, 일정이 많으면 세로로 늘어남 (overflow: clip 이어야 내용 높이만큼 커진다) */
-  .sc-grid.at .sc-cell { min-height: auto; aspect-ratio: 1 / 1; overflow: clip; }
+  /* 일정이 하나도 없는 달만 칸을 정사각형으로 (누르기 쉽게). 일정이 있는 달은 기존처럼 내용 높이대로 */
+  .sc-grid.at.empty-month .sc-cell { min-height: auto; aspect-ratio: 1 / 1; }
 }
