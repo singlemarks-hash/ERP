@@ -1649,7 +1649,8 @@ tr.att-carry td { background: #fff9db; }
 button.att-note { border: none; font-family: inherit; cursor: pointer; }
 button.att-note.req { border: 1px dashed #ced4da; }
 button.att-note.req:hover { background: var(--blue-soft); color: var(--blue-deep); border-color: var(--blue); }
-.att-note.late, .att-note.earlyout { background: var(--red-soft); color: var(--red); }
+.att-note.late { background: #fff0e6; color: #e8590c; }          /* 지각: 오렌지 */
+.att-note.earlyout { background: #e3e9f7; color: #1e3a8a; }      /* 조기퇴근: 네이비 블루 (조기출근 하늘색과 구분) */
 .att-note.earlyin { background: var(--blue-soft); color: var(--blue-deep); }
 .att-note.over { background: #e6f4ec; color: var(--green); }
 .att-note.night { background: #e5dbff; color: #6741d9; }
