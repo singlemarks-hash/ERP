@@ -4,6 +4,9 @@
 const EMP_TYPES = ["정직원(4대보험)", "3.3% 사업소득"];
 const GRADES = ["L0 (파트타이머)", "L1", "L2", "L3", "L4", "L5 (대표)"];
 const PAY_CATS = ["4대보험", "3.3%"];
+/* 직책 추천 목록 (직접 입력도 가능). 파트장 = 팀장 아래 직책 — 권한은 일반과 같고 직급은 L2로 본다 */
+const POSITIONS = ["대표", "본부장", "부장", "팀장", "파트장"];
+const POSITION_MIN_GRADE = { "파트장": "L2" };
 const LEAVE_TYPES = ["연차", "반차", "병가", "경조", "기타"];
 const SESSION_KEY = "quote_erp_session_v1";
 
@@ -5788,7 +5791,8 @@ function openEmployeeModal(emp) {
           <select id="ef-dept">${DEPTS.map((d) => `<option value="${esc(d)}" ${sameDept(emp?.dept, d) ? "selected" : ""}>${esc(d)}</option>`).join("")}</select></label>
         <label class="field"><span class="field-label">직급 (L0~L5)</span>
           <select id="ef-grade"><option value="">미지정</option>${GRADES.map((g) => `<option value="${g.split(" ")[0]}" ${emp?.grade === g.split(" ")[0] ? "selected" : ""}>${g}</option>`).join("")}</select></label>
-        <label class="field"><span class="field-label">직책 (예: 본부장, 부장)</span><input id="ef-pos" value="${esc(emp?.position || "")}" /></label>
+        <label class="field"><span class="field-label">직책 (목록에서 선택 또는 직접 입력)</span><input id="ef-pos" list="ef-pos-list" autocomplete="off" placeholder="예: 팀장, 파트장" value="${esc(emp?.position || "")}" />
+          <datalist id="ef-pos-list">${POSITIONS.map((x) => `<option value="${x}"></option>`).join("")}</datalist></label>
         <div class="field"><span class="field-label">입사일</span>${calField("ef-join", emp?.joinDate || "")}</div>
         <div class="field"><span class="field-label">생년월일 (명세서용)</span>${calField("ef-birth", emp?.birthDate || "")}</div>
       </div>
@@ -5834,6 +5838,12 @@ function openEmployeeModal(emp) {
   $("#ef-dept").onchange = () => { $("#ef-role").value = roleForDept($("#ef-dept").value); };
   if (!emp) $("#ef-role").value = roleForDept($("#ef-dept").value);
 
+  // 파트장 등 최소 직급이 있는 직책을 고르면 직급이 그보다 낮거나 비어 있을 때 맞춰 준다 (L2)
+  $("#ef-pos").addEventListener("input", () => {
+    const min = POSITION_MIN_GRADE[$("#ef-pos").value.trim()];
+    const g = $("#ef-grade");
+    if (min && (!g.value || g.value < min)) { g.value = min; toast(`파트장은 직급 ${min}로 설정됩니다.`); }
+  });
   $("#emp-form").onsubmit = async (ev) => {
     ev.preventDefault();
     const data = {
