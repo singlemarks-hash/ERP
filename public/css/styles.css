@@ -2315,3 +2315,13 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
   /* 일정이 하나도 없는 달만 칸을 정사각형으로 (누르기 쉽게). 일정이 있는 달은 기존처럼 내용 높이대로 */
   .sc-grid.at.empty-month .sc-cell { min-height: auto; aspect-ratio: 1 / 1; }
 }
+
+/* 모바일 근무 캘린더 헤더: [오늘] ··· [‹ 2026년 10월 ›] ··· [PDF] — 월 이동은 가운데에 촘촘히 */
+@media (max-width: 640px) {
+  .sc-cal-head:has(#at-pdf) { display: grid; grid-template-columns: 1fr auto auto auto 1fr; gap: 2px; align-items: center; }
+  .sc-cal-head:has(#at-pdf) #at-now { grid-column: 1; grid-row: 1; justify-self: start; }
+  .sc-cal-head:has(#at-pdf) #at-prev { grid-column: 2; grid-row: 1; }
+  .sc-cal-head:has(#at-pdf) .sc-cal-title { grid-column: 3; grid-row: 1; flex: none; min-width: 0; padding: 0 4px; white-space: nowrap; }
+  .sc-cal-head:has(#at-pdf) #at-next { grid-column: 4; grid-row: 1; }
+  .sc-cal-head:has(#at-pdf) #at-pdf { grid-column: 5; grid-row: 1; justify-self: end; }
+}
