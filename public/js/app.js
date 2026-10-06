@@ -5671,6 +5671,8 @@ async function openNoticeModal(notice) {
 async function renderEmployees() {
   if (!canViewEmployees()) return navigate("home", null, true);
   const canEdit = canEditEmployees(); // 특수관리자·임원 열람·매니저는 조회 전용 (퇴사자 숨김)
+  // 고용 구분·역할·비밀번호·상태는 개인정보 — 총괄 관리자·특수관리자만. 임원 열람·매니저는 입사일까지만
+  const fullCols = isAdmin() || isSpecial();
   const main = $("#main");
   main.innerHTML = pageHead("ADMIN", "직원현황",
     canEdit ? "직원 등록·수정, 부서 배정, 권한(역할) 조정, 비밀번호 초기화를 할 수 있습니다."
@@ -5697,10 +5699,10 @@ async function renderEmployees() {
       <div class="lv-stats">
         <div class="lv-stat"><span class="lv-ico t-blue">${LV_ICONS.used}</span>
           <div><div class="s-label">재직 인원</div><div class="s-value">${active.length}명</div></div></div>
-        <div class="lv-stat"><span class="lv-ico t-green">${ICONS.employees ? `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>` : ""}</span>
+        ${fullCols ? `<div class="lv-stat"><span class="lv-ico t-green">${ICONS.employees ? `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>` : ""}</span>
           <div><div class="s-label">4대보험 / 3.3%</div><div class="s-value">${typeCount("4대보험") + typeCount("사대보험")} / ${typeCount("3.3")}</div></div></div>
         <div class="lv-stat"><span class="lv-ico t-amber">${LV_ICONS.pending}</span>
-          <div><div class="s-label">비밀번호 미설정</div><div class="s-value">${active.filter((e) => !e.passwordHash).length}명</div></div></div>
+          <div><div class="s-label">비밀번호 미설정</div><div class="s-value">${active.filter((e) => !e.passwordHash).length}명</div></div></div>` : ""}
         ${canEdit ? `<div class="lv-stat"><span class="lv-ico t-purple">${LV_ICONS.remain}</span>
           <div><div class="s-label">퇴사자</div><div class="s-value">${retired.length}명</div></div></div>` : ""}
       </div>
@@ -5718,7 +5720,7 @@ async function renderEmployees() {
 
   $("#emp-body").innerHTML = statsHtml + `<div class="card"><div class="table-wrap">
     ${emps.length ? `<table class="data pay-table"><thead><tr>
-      <th>이름</th><th>부서</th><th>직급</th><th>직책</th><th>이메일</th><th>입사일</th><th>고용 구분</th><th>역할</th><th>비밀번호</th><th>상태</th>${canEdit ? "<th></th>" : ""}
+      <th>이름</th><th>부서</th><th>직급</th><th>직책</th><th>이메일</th><th>입사일</th>${fullCols ? "<th>고용 구분</th><th>역할</th><th>비밀번호</th><th>상태</th>" : ""}${canEdit ? "<th></th>" : ""}
     </tr></thead><tbody>
     ${emps.map((e) => `<tr class="${e.status !== "재직" ? "emp-retired" : ""}">
       <td>${e.hrUrl && canEdit
@@ -5726,10 +5728,10 @@ async function renderEmployees() {
         : `<b>${esc(e.name)}</b>`}</td><td>${esc(e.dept)}</td><td>${esc(e.grade || "-")}</td><td>${esc(e.position || "-")}</td>
       <td>${esc(e.email || "-")}</td>
       <td>${e.joinDate ? `${esc(e.joinDate)} <em class="tenure">${tenureYM(e.joinDate)} 근무</em><span class="tenure-days">${workDaysLabel(e.joinDate).replace(/[()]/g, "")}</span>` : "-"}</td>
-      <td>${empTypeShort(e.empType)}</td>
+      ${fullCols ? `<td>${empTypeShort(e.empType)}</td>
       <td><span class="badge ${e.role}">${roleLabel(e.role)}</span></td>
       <td>${e.passwordHash ? '<span class="badge ok">설정됨</span>' : '<span class="badge warn">미설정</span>'}</td>
-      <td>${e.status === "재직" ? '<span class="badge ok">재직</span>' : '<span class="badge off">퇴사</span>'}</td>
+      <td>${e.status === "재직" ? '<span class="badge ok">재직</span>' : '<span class="badge off">퇴사</span>'}</td>` : ""}
       ${canEdit ? `<td style="white-space:nowrap">
         <button class="icon-btn" data-empedit="${e.id}" title="수정"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.8 2.8 0 0 1 4 4L8 20l-5 1 1-5L17 3Z"/></svg></button>
         ${e.passwordHash ? `<button class="icon-btn" data-pwreset="${e.id}" title="비밀번호 초기화"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4.5"/><path d="m11 12 9-9m-4 4 3 3"/></svg></button>` : ""}
