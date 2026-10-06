@@ -2307,3 +2307,11 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
   .sc-cell .d .hol-tag .hol-long { display: none; }
   .sc-cell .d .hol-tag .hol-short { display: inline; }
 }
+
+/* 모바일 근무 캘린더: PDF 버튼을 헤더 흐름에 넣어 연·월과 겹치지 않게, 빈 날짜 칸도 최소 정사각형 */
+@media (max-width: 640px) {
+  .sc-cal-head #at-pdf { position: static; right: auto; flex: none; padding: 7px 8px; font-size: 0.74rem; }
+  .sc-cal-head #at-pdf .pdf-long { display: none; }
+  /* 최소 정사각형, 일정이 많으면 세로로 늘어남 (overflow: clip 이어야 내용 높이만큼 커진다) */
+  .sc-grid.at .sc-cell { min-height: auto; aspect-ratio: 1 / 1; overflow: clip; }
+}

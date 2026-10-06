@@ -4387,7 +4387,7 @@ async function renderAttCalendar() {
         <b class="sc-cal-title">${yy}년 ${mm}월</b>
         <button type="button" class="cal-nav" id="at-next">&rsaquo;</button>
         <button type="button" class="btn btn-ghost btn-sm" id="at-now">오늘</button>
-        <button type="button" class="btn btn-ghost btn-sm" id="at-pdf" title="이 달 근무 캘린더를 PDF로 저장">PDF 저장</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="at-pdf" title="이 달 근무 캘린더를 PDF로 저장">PDF<span class="pdf-long"> 저장</span></button>
       </div>
       <div class="at-cal-scroll">
         <div class="at-cal-inner">
