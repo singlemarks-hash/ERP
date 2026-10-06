@@ -210,9 +210,9 @@ function canManageOps() { return isAdmin() || isSpecial(); }
 /* 급여관리 열람 범위 — 특수관리자·매니저는 본인 소속 부서 직원만 (총괄 관리자는 전체). null = 제한 없음
    매니저는 그중 매니저 이하(매니저·일반) 직원만, 조회 전용 */
 function payScopeDept() { return isSpecial() || isManager() ? (me.dept || "-") : null; }
-/* 직원 관리: 매니저 이상은 조회, 편집(등록·수정·비밀번호 초기화·삭제)은 총괄·특수관리자만 */
+/* 직원 관리: 매니저 이상은 조회(재직자만), 편집(등록·수정·비밀번호 초기화·삭제)과 퇴사자 조회는 총괄 관리자만 */
 function canViewEmployees() { return !!me && (canManageOps() || roleRank(me.role) >= roleRank("manager")); }
-function canEditEmployees() { return canManageOps(); }
+function canEditEmployees() { return isAdmin(); }   // 등록·수정·비밀번호 초기화·삭제는 총괄 관리자만
 function canViewPayroll() { return canManageOps() || isManager(); }
 function canEditPayroll() { return canManageOps(); }
 function payVisibleEmp(e) {
@@ -5667,7 +5667,7 @@ async function openNoticeModal(notice) {
 /* ───────── 직원 관리 (admin) ───────── */
 async function renderEmployees() {
   if (!canViewEmployees()) return navigate("home", null, true);
-  const canEdit = canEditEmployees(); // 매니저·임원 열람은 조회 전용
+  const canEdit = canEditEmployees(); // 특수관리자·임원 열람·매니저는 조회 전용 (퇴사자 숨김)
   const main = $("#main");
   main.innerHTML = pageHead("ADMIN", "직원 관리",
     canEdit ? "직원 등록·수정, 부서 배정, 권한(역할) 조정, 비밀번호 초기화를 할 수 있습니다."
@@ -5678,7 +5678,7 @@ async function renderEmployees() {
   const snap = await db.collection(COL.employees).get();
   // 직급순 정렬 후 퇴사자는 맨 아래로 (재직자 먼저)
   const sorted = sortByGrade(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-  const emps = [...sorted.filter((e) => e.status === "재직"), ...sorted.filter((e) => e.status !== "재직")];
+  const emps = [...sorted.filter((e) => e.status === "재직"), ...(canEdit ? sorted.filter((e) => e.status !== "재직") : [])];
 
   /* ── 재직 현황 요약 ── */
   const active = emps.filter((e) => e.status === "재직");
@@ -5698,8 +5698,8 @@ async function renderEmployees() {
           <div><div class="s-label">4대보험 / 3.3%</div><div class="s-value">${typeCount("4대보험") + typeCount("사대보험")} / ${typeCount("3.3")}</div></div></div>
         <div class="lv-stat"><span class="lv-ico t-amber">${LV_ICONS.pending}</span>
           <div><div class="s-label">비밀번호 미설정</div><div class="s-value">${active.filter((e) => !e.passwordHash).length}명</div></div></div>
-        <div class="lv-stat"><span class="lv-ico t-purple">${LV_ICONS.remain}</span>
-          <div><div class="s-label">퇴사자</div><div class="s-value">${retired.length}명</div></div></div>
+        ${canEdit ? `<div class="lv-stat"><span class="lv-ico t-purple">${LV_ICONS.remain}</span>
+          <div><div class="s-label">퇴사자</div><div class="s-value">${retired.length}명</div></div></div>` : ""}
       </div>
       <div class="type-bars" style="margin-top:16px">
         ${barDepts.map((d) => {
@@ -5777,6 +5777,7 @@ async function renderEmployees() {
 }
 
 function openEmployeeModal(emp) {
+  if (!canEditEmployees()) return;
   openModal(`
     <h3>${emp ? "직원 정보 수정" : "직원 등록"}</h3>
     <p class="modal-desc">관리자 권한(총괄 관리자)은 지정된 담당자에게만 부여하세요. 관리자 메뉴는 총괄 관리자에게만 표시됩니다.</p>
