@@ -79,6 +79,32 @@ function kstNow() { return new Date(Date.now() + KST_OFFSET_MS); }
 function todayKST() { return kstNow().toISOString().slice(0, 10); }
 function ymNowKST() { return kstNow().toISOString().slice(0, 7); }
 
+/* ── 법정 유급휴일 (관공서 공휴일·대체공휴일·근로자의 날) — 휴일근로 산정·날짜 표기용
+   새 해가 오면 여기에 추가한다. 임시공휴일도 지정되면 추가. */
+const HOLIDAYS = {
+  "2026-01-01": "신정", "2026-02-16": "설날 연휴", "2026-02-17": "설날", "2026-02-18": "설날 연휴",
+  "2026-03-01": "삼일절", "2026-03-02": "대체공휴일", "2026-05-01": "근로자의 날", "2026-05-05": "어린이날",
+  "2026-05-24": "부처님오신날", "2026-05-25": "대체공휴일", "2026-06-03": "지방선거", "2026-06-06": "현충일",
+  "2026-08-15": "광복절", "2026-08-17": "대체공휴일",
+  "2026-09-24": "추석 연휴", "2026-09-25": "추석", "2026-09-26": "추석 연휴", "2026-10-03": "개천절",
+  "2026-10-05": "대체공휴일", "2026-10-09": "한글날", "2026-12-25": "성탄절",
+  "2027-01-01": "신정", "2027-02-06": "설날 연휴", "2027-02-07": "설날", "2027-02-08": "설날 연휴",
+  "2027-02-09": "대체공휴일", "2027-03-01": "삼일절", "2027-05-01": "근로자의 날", "2027-05-05": "어린이날",
+  "2027-05-13": "부처님오신날", "2027-06-06": "현충일", "2027-08-15": "광복절", "2027-08-16": "대체공휴일",
+  "2027-09-14": "추석 연휴", "2027-09-15": "추석", "2027-09-16": "추석 연휴", "2027-10-03": "개천절",
+  "2027-10-04": "대체공휴일", "2027-10-09": "한글날", "2027-10-11": "대체공휴일", "2027-12-25": "성탄절",
+  "2027-12-27": "대체공휴일"
+};
+const holidayName = (ds) => HOLIDAYS[ds] || "";
+/* 날짜 옆 작은 휴일 이름 */
+const HOLIDAY_SHORT = { "대체공휴일": "대체", "추석 연휴": "추석", "설날 연휴": "설날", "근로자의 날": "근로자", "부처님오신날": "부처님", "지방선거": "선거" };
+const holidayTag = (ds) => {
+  const n = HOLIDAYS[ds];
+  if (!n) return "";
+  // 좁은 화면(달력 칸)에서는 짧은 이름
+  return `<span class="hol-tag" title="${n}"><span class="hol-long">${n}</span><span class="hol-short">${HOLIDAY_SHORT[n] || n}</span></span>`;
+};
+
 /* ── 급여월(산정기간) ─────────────────────────────────────────────
    2026년 10월 급여부터 급여월 M = (M-1)월 8일 ~ M월 7일. (10월 급여 = 9/8~10/7)
    그 이전 급여월은 기존대로 1일~말일. 저장 데이터는 바꾸지 않고 규칙으로만 계산한다. */
@@ -2435,7 +2461,7 @@ function renderPayForm(emp, cat, record) {
      수정 중인 기록은 저장된 값을 유지하고, [근태에서 불러오기]를 눌렀을 때만 덮어쓴다. */
   /* 입력칸은 이 폼을 그릴 때의 요소를 붙잡아 둔다 — 불러오는 사이 다른 기록의 수정 폼으로 바뀌면
      (id로 다시 찾으면 새 폼의 칸에 써버리므로) 결과를 버린다. */
-  const autoKeys = ["basic", "night", "overtime"];
+  const autoKeys = ["basic", "night", "holiday", "overtime"];
   const hourEl = Object.fromEntries(autoKeys.map((k) => [k, $(`#pm-h-${k}`)]));
   const note = $("#pm-h-note");
   const touched = new Set();
@@ -2455,12 +2481,12 @@ function renderPayForm(emp, cat, record) {
     const md = (d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
     const ongoing = todayKST() <= h.end;
     note.innerHTML = h.days
-      ? `근태기록 ${md(h.start)}~${md(h.end)} · 출퇴근 ${h.days}일 기준으로 채웠습니다. 휴일근로는 직접 입력하세요.${ongoing ? ` <b>기간이 끝나지 않았습니다 — ${md(h.end)} 이후 다시 불러오세요.</b>` : ""}`
+      ? `근태기록 ${md(h.start)}~${md(h.end)} · 출퇴근 ${h.days}일 기준으로 채웠습니다.${ongoing ? ` <b>기간이 끝나지 않았습니다 — ${md(h.end)} 이후 다시 불러오세요.</b>` : ""}`
       : `${md(h.start)}~${md(h.end)} 기간의 출퇴근 기록이 없습니다.`;
   };
   $("#pm-h-load").onclick = () => {
     const filled = autoKeys.some((k) => hourEl[k].value.trim() !== "");
-    if (filled && !confirm("기본·야간·연장근로 시간을 근태기록 값으로 바꿀까요?")) return;
+    if (filled && !confirm("기본·야간·휴일·연장근로 시간을 근태기록 값으로 바꿀까요?")) return;
     loadHours(true);
   };
   if (!isEdit) loadHours(false);
@@ -3698,6 +3724,13 @@ function attNotes(att, shift, reqOf) {
   if (att.outAt) {
     const nh = nightHours(effIn, effOut, breakApplied(att, shift) ? 60 : 0);
     if (nh > 0) notes.push({ k: "night", h: nh, approved: true, label: `야간근무 ${fmtH(nh)}h` });
+    // 휴일근로: 법정 휴일에 일한 '인정된' 시간 (예정 근무 + 승인된 조기출근·연장, 휴게 차감)
+    if (HOLIDAYS[att.date]) {
+      // 예정 근무 밖에서 따로 승인된 추가근무(left)도 휴일에 일한 시간이므로 더한다
+      const hm = Math.max(0, effOut - effIn - (breakApplied(att, shift) ? 60 : 0)) + (shift && left > 0 ? left : 0);
+      const hh = blockHours(hm);
+      if (hh > 0) notes.push({ k: "holiday", h: hh, approved: true, label: `휴일근로 ${fmtH(hh)}h` });
+    }
   }
   return notes;
 }
@@ -3705,7 +3738,7 @@ function attNotes(att, shift, reqOf) {
    기본: 예정 근무 안에서 실제 일한 시간 (조기출근·연장으로 감지된 분은 제외, 날짜별 10분 블록)
    연장: 승인된 조기출근·연장·추가근무 가산 h
    야간: 야간근무 가산 h (22:00~06:00)
-   휴일: 판단 기준이 없어 자동 산정하지 않는다 (직접 입력) */
+   휴일: 법정 휴일(HOLIDAYS)에 일한 인정 시간 — 기본근로에서는 뺀다 (명세서 산식이 휴일근로 x 1.5) */
 async function payHoursFromAttendance(empId, ym) {
   const { start, end } = payPeriod(ym);
   const [shiftSnap, attSnap] = await Promise.all([
@@ -3716,7 +3749,7 @@ async function payHoursFromAttendance(empId, ym) {
   shiftSnap.docs.map((d) => d.data()).filter((x) => x.empId === empId).forEach((x) => { shiftBy[x.date] = x; });
   const atts = attSnap.docs.map((d) => d.data())
     .filter((a) => a.empId === empId && a.date >= start && a.date <= end && a.inAt && a.outAt);
-  let basic = 0, overtime = 0, night = 0;
+  let basic = 0, overtime = 0, night = 0, holiday = 0;
   atts.forEach((a) => {
     const sh = shiftBy[a.date];
     const net = workedNetMin(a, sh);
@@ -3724,15 +3757,17 @@ async function payHoursFromAttendance(empId, ym) {
     const notes = attNotes(a, sh, null);
     const extraMin = notes.filter((n) => (n.k === "earlyin" || n.k === "over") && n.mins).reduce((t, n) => t + n.mins, 0)
       + (sh ? 0 : Number(a.otApprovedMin || 0));
-    basic += blockHours(Math.max(0, net - extraMin));
+    const hol = notes.find((n) => n.k === "holiday");
+    if (!hol) basic += blockHours(Math.max(0, net - extraMin));
     notes.forEach((n) => {
       if (!n.approved || !n.h) return;
       if (n.k === "earlyin" || n.k === "over") overtime += n.h;
       else if (n.k === "night") night += n.h;
+      else if (n.k === "holiday") holiday += n.h;
     });
   });
   const r2 = (v) => Math.round(v * 100) / 100;
-  return { basic: r2(basic), night: r2(night), overtime: r2(overtime), days: atts.length, start, end };
+  return { basic: r2(basic), night: r2(night), overtime: r2(overtime), holiday: r2(holiday), days: atts.length, start, end };
 }
 /* 특이사항 칩 — 승인되지 않은 추가근무는 무채색으로 흐리게 표시한다.
    date를 넘기면 미신청 건이 결재 요청 버튼이 된다 (본인 근무 이력에서만 사용). */
@@ -4339,7 +4374,7 @@ async function renderAttCalendar() {
     const ppEnd = d === PAY_CUT_DAY && isPeriodYm(atCalYm);
     const ppStart = d === PAY_CUT_DAY + 1 && isPeriodYm(ymShift(atCalYm, 1));
     return `<button type="button" class="sc-cell at-cell ${ds < today ? "past" : ""} ${ds === today ? "today" : ""} ${ppEnd ? "pp-end" : ""} ${ppStart ? "pp-start" : ""}" data-atd="${ds}">
-      <span class="d ${dow === 0 ? "sun" : dow === 6 ? "sat" : ""}">${d}${ppEnd ? `<em class="pp-tag" title="${mm}월 근태 마감"><span class="pp-full">${mm}월 근태 </span>마감</em>` : ""}</span>
+      <span class="d ${dow === 0 || HOLIDAYS[ds] ? "sun" : dow === 6 ? "sat" : ""}">${d}${holidayTag(ds)}${ppEnd ? `<em class="pp-tag" title="${mm}월 근태 마감"><span class="pp-full">${mm}월 근태 </span>마감</em>` : ""}</span>
       <span class="at-ents">${groups}</span>
     </button>`;
   };
@@ -4405,7 +4440,7 @@ function printWorkCalendar(yy, mm, cells, byDate, monthEmps) {
       return `<div class="wa">${esc(area)}</div>` + g.map((s) =>
         `<div class="shift-ent ${shiftColor(s.empId)}"><b>${s.isTemp ? "[단기] " : ""}${esc(s.name)}</b><span>${shiftCompact(s)}</span></div>`).join("");
     }).join("");
-    return `<td><div class="d ${dow === 0 ? "sun" : dow === 6 ? "sat" : ""}">${d}</div>${groups}</td>`;
+    return `<td><div class="d ${dow === 0 || HOLIDAYS[ds] ? "sun" : dow === 6 ? "sat" : ""}">${d}${HOLIDAYS[ds] ? ` <span class="hol">${HOLIDAYS[ds]}</span>` : ""}</div>${groups}</td>`;
   };
   const rows = [];
   for (let i = 0; i < cells.length; i += 7) {
@@ -4428,6 +4463,7 @@ function printWorkCalendar(yy, mm, cells, byDate, monthEmps) {
   td { vertical-align: top; border-right: 1px solid #d9dee3; border-bottom: 1px solid #d9dee3; padding: 3px 4px; height: 92px; font-size: 9.5px; }
   td.blank { background: #fafbfc; }
   .d { font-weight: 700; font-size: 10.5px; margin-bottom: 2px; }
+  .d .hol { font-weight: 600; font-size: 8px; }
   .wa { font-size: 8px; color: #8b95a1; margin-top: 2px; }
   .shift-ent { display: block; border-radius: 4px; padding: 1px 4px; margin: 1px 0; line-height: 1.35; background: #f2f4f6; break-inside: avoid; }
   .shift-ent b { font-weight: 700; margin-right: 3px; }
@@ -4643,14 +4679,14 @@ async function renderAttHistory() {
   const workedDays = myAtts.filter((a) => a.inAt).length;
   const workedH = allDates.reduce((sum, d) => sum + (workedHours(attBy[d], shiftBy[d]) || 0), 0);
   // 요약에는 승인·확정된 항목만 집계한다 (미승인 추가근무는 상세 행에만 무채색으로 노출)
-  const agg = { late: { n: 0, h: 0 }, earlyin: { n: 0, h: 0 }, earlyout: { n: 0, h: 0 }, over: { n: 0, h: 0 }, night: { n: 0, h: 0 } };
+  const agg = { late: { n: 0, h: 0 }, earlyin: { n: 0, h: 0 }, earlyout: { n: 0, h: 0 }, over: { n: 0, h: 0 }, night: { n: 0, h: 0 }, holiday: { n: 0, h: 0 } };
   allDates.forEach((d) => attNotes(attBy[d], shiftBy[d], reqOfDate(d))
     .filter((n) => n.approved)
     .forEach((n) => { agg[n.k].n++; agg[n.k].h += n.h || 0; }));
   // 0값 항목은 표기하지 않음 · 시간이 있는 항목은 "Xh (n회)" 형식
   const chipLabel = (a, label) => a.h ? `${label} ${fmtH(a.h)}h (${a.n}회)` : `${label} ${a.n}회`;
   const summaryChips = [
-    ["late", "지각"], ["earlyin", "조기출근"], ["earlyout", "조기퇴근"], ["over", "연장"], ["night", "야간근무"]
+    ["late", "지각"], ["earlyin", "조기출근"], ["earlyout", "조기퇴근"], ["over", "연장"], ["night", "야간근무"], ["holiday", "휴일근로"]
   ].filter(([k]) => agg[k].n > 0)
     .map(([k, label]) => `<span class="att-note ${k}">${chipLabel(agg[k], label)}</span>`)
     .join("");
@@ -4678,7 +4714,7 @@ async function renderAttHistory() {
           const s = shiftBy[d], a = attBy[d];
           const wh = workedHours(a, s);
           return `<tr>
-            <td class="att-mono"><b>${d.slice(5)}</b> <span class="att-dow">(${"일월화수목금토"[dateParts(d).dow]})</span></td>
+            <td class="att-mono"><b class="${HOLIDAYS[d] ? "c-red" : ""}">${d.slice(5)}</b> <span class="att-dow">(${"일월화수목금토"[dateParts(d).dow]})</span>${holidayTag(d)}</td>
             <td class="att-mono">${s ? `${s.start}-${shiftEndLabel(s)}` : "-"}</td>
             <td class="att-mono ${a?.inAt ? "c-green" : ""}">${a?.inAt || "-"}</td>
             <td class="att-mono ${a?.outAt ? "c-red" : ""}">${a?.outAt || "-"}</td>
@@ -4776,11 +4812,11 @@ async function renderAttendAdmin() {
     const schedH = pShifts.reduce((s, x) => s + shiftHours(x), 0);
     const workedH = dates.reduce((sum, d) => sum + (workedHours(attBy[d], shiftBy[d]) || 0), 0);
     // 제목행 요약에는 승인·확정된 항목만 집계 (미승인 추가근무는 상세 행에만 무채색으로 노출)
-    const agg = { late: { n: 0, h: 0 }, earlyin: { n: 0, h: 0 }, earlyout: { n: 0, h: 0 }, over: { n: 0, h: 0 }, night: { n: 0, h: 0 } };
+    const agg = { late: { n: 0, h: 0 }, earlyin: { n: 0, h: 0 }, earlyout: { n: 0, h: 0 }, over: { n: 0, h: 0 }, night: { n: 0, h: 0 }, holiday: { n: 0, h: 0 } };
     dates.forEach((d) => attNotes(attBy[d], shiftBy[d], reqOfFor(p.id, d))
       .filter((n) => n.approved)
       .forEach((n) => { agg[n.k].n++; agg[n.k].h += n.h || 0; }));
-    const noteSummary = [["late", "지각"], ["earlyin", "조기출근"], ["earlyout", "조기퇴근"], ["over", "연장"], ["night", "야간"]]
+    const noteSummary = [["late", "지각"], ["earlyin", "조기출근"], ["earlyout", "조기퇴근"], ["over", "연장"], ["night", "야간"], ["holiday", "휴일"]]
       .filter(([k]) => agg[k].n > 0)
       .map(([k, label]) => `<span class="att-note ${k}">${agg[k].h ? `${label} ${fmtH(agg[k].h)}h (${agg[k].n}회)` : `${label} ${agg[k].n}회`}</span>`)
       .join("");
@@ -4794,7 +4830,7 @@ async function renderAttendAdmin() {
           const s = shiftBy[d], a = attBy[d];
           const wh = workedHours(a, s);
           return `<tr>
-            <td class="att-mono"><b>${d.slice(5)}</b> <span class="dow-tag ${dateParts(d).dow === 0 ? "sun" : dateParts(d).dow === 6 ? "sat" : ""}">${"일월화수목금토"[dateParts(d).dow]}</span></td>
+            <td class="att-mono"><b class="${HOLIDAYS[d] ? "c-red" : ""}">${d.slice(5)}</b> <span class="dow-tag ${dateParts(d).dow === 0 ? "sun" : dateParts(d).dow === 6 ? "sat" : ""}">${"일월화수목금토"[dateParts(d).dow]}</span>${holidayTag(d)}</td>
             <td class="att-mono">${s ? `${s.start}-${shiftEndLabel(s)}` : "-"}</td>
             <td class="att-mono c-green">${a.inAt}</td>
             <td class="att-mono ${a.outAt ? "c-red" : ""}">${a.outAt || "-"}</td>

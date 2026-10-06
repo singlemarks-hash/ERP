@@ -2292,3 +2292,17 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
   .cycle-new { grid-template-columns: 1fr 1fr; }
   .cycle-new #cy-name, .cycle-new .btn { grid-column: 1 / -1; }
 }
+
+/* 법정 휴일 이름 (근무 캘린더·근무 이력·근태관리 날짜 옆) */
+.hol-tag { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 6px; background: var(--red-soft); color: var(--red);
+  font-size: 0.62rem; font-weight: 700; font-family: inherit; white-space: nowrap; vertical-align: 1px; line-height: 1.5; }
+.sc-cell .d .hol-tag { margin-left: 3px; }
+.att-note.holiday { background: #ffe3e3; color: #e03131; }
+@media (max-width: 640px) {
+  .sc-cell .d .hol-tag { display: block; width: fit-content; margin: 2px 0 0; font-size: 0.52rem; padding: 0 3px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+}
+.hol-tag .hol-short { display: none; }
+@media (max-width: 640px) {
+  .sc-cell .d .hol-tag .hol-long { display: none; }
+  .sc-cell .d .hol-tag .hol-short { display: inline; }
+}
