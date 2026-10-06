@@ -6049,9 +6049,10 @@ const ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 /* 회사 최상위 O는 총괄 관리자와 대표(임원열람)만 만들고 지울 수 있다 */
 function canEditCompanyOkr() { return isAdmin() || (me && me.role === "executive"); }
 /* 일반 OKR: 담당자 본인 또는 관리자(총괄·특수). 회사 O는 위 규칙 적용 */
+/* 부서·팀·개인 OKR: 담당자 본인 + 총괄 관리자(전체) + 특수관리자(자기 부서만) */
 function canEditOkr(o) {
   if (!o.parentId) return canEditCompanyOkr();
-  return (me && o.ownerId === me.id) || canManageOps();
+  return (me && o.ownerId === me.id) || isAdmin() || (isSpecial() && sameDept(o.dept, me.dept));
 }
 /* KR 하나의 진행률 (raw=true 면 100% 초과분 포함) */
 function krPct(k, raw) {
@@ -6146,7 +6147,7 @@ const okrClosed = (o) => !!(o && o.cycleId) && okrEndedCycleIds.has(o.cycleId);
 const krClosed = (o) => okrClosed(o);
 /* ⚠ 임시 해제 스위치 — false 인 동안은 마감·보관 사이클에서도 체크인(수치 수정)을 허용한다.
    다시 잠그려면 true 로 바꾸면 된다. ('마감' 태그 표시는 스위치와 무관하게 유지) */
-const OKR_LOCK_CLOSED = false;
+const OKR_LOCK_CLOSED = true;
 function okrDdayChip(deadline, prog, closed) {
   const tag = closed ? ` ${OKR_CLOSED_TAG}` : "";
   const d = okrDday(deadline);
@@ -6645,6 +6646,8 @@ function renderOkrStatus(okrs, emps, idx) {
 function openOkrModal(okrs, emps, idx) {
   const allowRoot = canEditCompanyOkr();
   const canPickOwner = canManageOps();
+  // 특수관리자는 자기 부서 직원만 담당자로 지정할 수 있다
+  const ownerEmps = isSpecial() ? emps.filter((e) => sameDept(e.dept, me.dept)) : emps;
   /* 상위 후보: 회사 O + 담당자 부서의 OKR만 (다른 부서 트리에 붙는 일을 막는다) */
   // 회사 O가 하나뿐이면 기본 선택 — 그 바로 아래에 만들면 담당자 부서의 '부서 OKR'이 된다
   const preselect = idx.roots.length === 1 ? idx.roots[0].id : null;
@@ -6662,7 +6665,7 @@ function openOkrModal(okrs, emps, idx) {
       + out.join("");
   };
   const ownerSel = canPickOwner
-    ? `<select id="of-owner">${emps.map((e) =>
+    ? `<select id="of-owner">${ownerEmps.map((e) =>
         `<option value="${e.id}" ${me.id === e.id ? "selected" : ""}>${esc(e.name)} (${esc(e.dept || "-")})</option>`).join("")}</select>`
     : `<input value="${esc(me.name)}" disabled />`;
 
@@ -6743,7 +6746,7 @@ function openOkrModal(okrs, emps, idx) {
       const sel = $("#of-owner");
       if (canManageOps() && sel) {
         const e = emps.find((x) => x.id === sel.value);
-        if (e) { ownerId = e.id; ownerName = e.name || ""; dept = deptNow(e.dept); }
+        if (e && (!isSpecial() || sameDept(e.dept, me.dept))) { ownerId = e.id; ownerName = e.name || ""; dept = deptNow(e.dept); }
       }
       if (parent.parentId && !sameDept(parent.dept, dept)) return toast("담당자 부서의 OKR에만 연결할 수 있습니다.");
     }
