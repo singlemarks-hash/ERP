@@ -381,7 +381,7 @@ async function loginSuccess(emp) {
 function openBootstrapModal() {
   openModal(`
     <h3>시스템 초기 설정</h3>
-    <p class="modal-desc">경영지원본부 최초 관리자를 등록합니다. 이 계정은 자동으로 총괄 관리자 권한을 가지며, 이후 [직원 관리]에서 전 직원을 등록할 수 있습니다.</p>
+    <p class="modal-desc">경영지원본부 최초 관리자를 등록합니다. 이 계정은 자동으로 총괄 관리자 권한을 가지며, 이후 [직원현황]에서 전 직원을 등록할 수 있습니다.</p>
     <form id="bs-form">
       <label class="field"><span class="field-label">이름</span><input id="bs-name" required /></label>
       <label class="field"><span class="field-label">직책 (선택)</span><input id="bs-pos" placeholder="예: 본부장" /></label>
@@ -688,7 +688,7 @@ function renderSidebar() {
   if (canViewPayroll()) adminItems.push({ id: "paymanage", ico: "ledger", label: "급여관리" });
   if (isAdmin() || isSpecial() || isManager()) adminItems.push({ id: "attendadmin", ico: "clock", label: "근태관리" });
   if (isAdmin() || isSpecial() || isManager() || me.role === "executive") adminItems.push({ id: "leaveadmin", ico: "leave", label: "연차관리" });
-  if (canViewEmployees()) adminItems.push({ id: "employees", ico: "employees", label: "직원 관리" });
+  if (canViewEmployees()) adminItems.push({ id: "employees", ico: "employees", label: "직원현황" });
   if (isAdmin()) adminItems.push({ id: "monitor", ico: "monitor", label: "권한 모니터링" });
   if (adminItems.length) {
     html += `<div class="nav-label">관리자 메뉴</div>` +
@@ -2110,7 +2110,7 @@ async function renderPayroll() {
     .filter(payVisibleEmp);
   pmEmps = emps;
   if (!emps.length) {
-    $("#pm-body").innerHTML = `<div class="empty">${scopeDept ? `${esc(deptNow(scopeDept))} 소속 재직 직원이 없습니다.` : "재직 직원이 없습니다. [직원 관리]에서 먼저 직원을 등록하세요."}</div>`;
+    $("#pm-body").innerHTML = `<div class="empty">${scopeDept ? `${esc(deptNow(scopeDept))} 소속 재직 직원이 없습니다.` : "재직 직원이 없습니다. [직원현황]에서 먼저 직원을 등록하세요."}</div>`;
     return;
   }
   if (pmEmpId && !emps.some((e) => e.id === pmEmpId)) pmEmpId = "";
@@ -5425,7 +5425,7 @@ async function openLeaveAllocModal() {
     $("#la-auto").disabled = !e.joinDate;   // 입사일이 없으면 수동만 가능
     $("#la-manual-box").hidden = auto;
     const pv = leaveStatus(e, { ...lv, mode: "auto", records: (lv.records || []).filter((r) => (r.date || "") >= leaveCycleOf(e.joinDate || todayKST(), todayKST()).start) });
-    $("#la-auto-preview").textContent = !e.joinDate ? "입사일을 직원 관리에서 등록하면 자동 계산을 켤 수 있습니다."
+    $("#la-auto-preview").textContent = !e.joinDate ? "입사일을 [직원현황]에서 등록하면 자동 계산을 켤 수 있습니다."
       : auto ? "" : `켜면 ${pv.label} 기준 ${fmtDays(pv.total)}일로 계산됩니다 (현재 수동 ${fmtDays(Number(lv.allocated) || 0)}일).`;
     $("#la-alloc").value = lv.allocated != null ? lv.allocated : "";
     calSet("la-grant", lv.grantDate || "");
@@ -5672,7 +5672,7 @@ async function renderEmployees() {
   if (!canViewEmployees()) return navigate("home", null, true);
   const canEdit = canEditEmployees(); // 특수관리자·임원 열람·매니저는 조회 전용 (퇴사자 숨김)
   const main = $("#main");
-  main.innerHTML = pageHead("ADMIN", "직원 관리",
+  main.innerHTML = pageHead("ADMIN", "직원현황",
     canEdit ? "직원 등록·수정, 부서 배정, 권한(역할) 조정, 비밀번호 초기화를 할 수 있습니다."
       : "직원 목록과 재직 현황을 조회합니다.",
     `${canEdit ? `<button class="btn btn-primary btn-sm" id="emp-add">+ 직원 등록</button>` : ""}`) + `<div id="emp-body">불러오는 중...</div>`;
