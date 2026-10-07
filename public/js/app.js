@@ -237,13 +237,13 @@ function isManager() { return me && me.role === "manager"; }
 // 특수관리자: 사내 시스템·급여관리·직원 관리 조회/수정 가능
 function canManageOps() { return isAdmin() || isSpecial(); }
 /* 급여관리 열람 범위 — 특수관리자·매니저는 본인 소속 부서 직원만 (총괄 관리자는 전체). null = 제한 없음
-   매니저는 그중 매니저 이하(매니저·일반) 직원만, 조회 전용 */
+   매니저는 그중 매니저 이하(매니저·일반) 직원만 — 기록·수정·삭제 가능 */
 function payScopeDept() { return isSpecial() || isManager() ? (me.dept || "-") : null; }
 /* 직원 관리: 매니저 이상은 조회(재직자만), 편집(등록·수정·비밀번호 초기화·삭제)과 퇴사자 조회는 총괄 관리자만 */
 function canViewEmployees() { return !!me && (canManageOps() || roleRank(me.role) >= roleRank("manager")); }
 function canEditEmployees() { return isAdmin(); }   // 등록·수정·비밀번호 초기화·삭제는 총괄 관리자만
 function canViewPayroll() { return canManageOps() || isManager(); }
-function canEditPayroll() { return canManageOps(); }
+function canEditPayroll() { return canManageOps() || isManager(); }
 function payVisibleEmp(e) {
   const sd = payScopeDept();
   if (sd && !sameDept(e.dept, sd)) return false;
@@ -2124,8 +2124,8 @@ async function renderPayroll() {
   const main = $("#main");
   const scopeDept = payScopeDept();
   main.innerHTML = pageHead("ADMIN", "급여관리",
-    !canEditPayroll()
-      ? `${deptNow(scopeDept)} 매니저·일반 직원의 급여 기록을 조회합니다. 정기 급여일은 매월 10일 · 15일입니다.`
+    isManager()
+      ? `${deptNow(scopeDept)} 매니저·일반 직원의 월별 급여를 기록하고 조회합니다. 정기 급여일은 매월 10일 · 15일입니다.`
       : scopeDept
       ? `${deptNow(scopeDept)} 직원의 월별 급여를 기록하고 조회합니다. 정기 급여일은 매월 10일 · 15일입니다.`
       : "직원을 선택해 월별 급여를 기록하거나, 전체 직원 기록을 종합 조회합니다. 정기 급여일은 매월 10일 · 15일입니다.") +
