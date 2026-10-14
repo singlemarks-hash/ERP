@@ -2876,7 +2876,7 @@ async function buildPayslipPdf(emp, r) {
       ["기본급", "기본근로시간수 x 통상시급(주휴수당 포함)", "", ""],
       ["야간근로수당", "야간근로시간수 x 통상시급 x 0.5", "", ""],
       ["연장근로수당", "연장근로시간수 x 통상시급 x 1.5", "", ""],
-      ["휴일근로수당", "휴일근로시간수 x 통상시급 x 1.5", "", ""]
+      ["휴일근로수당", "휴일근로시간수 x 통상시급 x 0.5", "", ""]
     ]
   }) + 9;
 
@@ -3001,7 +3001,7 @@ function printPayslip(emp, r) {
     <tr><td class="center">기본급</td><td>기본근로시간수 x 통상시급(주휴수당 포함)</td><td></td><td></td></tr>
     <tr><td class="center">야간근로수당</td><td>야간근로시간수 x 통상시급 x 0.5</td><td></td><td></td></tr>
     <tr><td class="center">연장근로수당</td><td>연장근로시간수 x 통상시급 x 1.5</td><td></td><td></td></tr>
-    <tr><td class="center">휴일근로수당</td><td>휴일근로시간수 x 통상시급 x 1.5</td><td></td><td></td></tr>
+    <tr><td class="center">휴일근로수당</td><td>휴일근로시간수 x 통상시급 x 0.5</td><td></td><td></td></tr>
   </table>
 
   <div class="footer">귀하의 노고에 감사드립니다.</div>
@@ -3726,8 +3726,10 @@ function attNotes(att, shift, reqOf) {
     if (nh > 0) notes.push({ k: "night", h: nh, approved: true, label: `야간근무 ${fmtH(nh)}h` });
     // 휴일근로: 법정 휴일에 일한 '인정된' 시간 (예정 근무 + 승인된 조기출근·연장, 휴게 차감)
     if (HOLIDAYS[att.date]) {
-      // 예정 근무 밖에서 따로 승인된 추가근무(left)도 휴일에 일한 시간이므로 더한다
-      const hm = Math.max(0, effOut - effIn - (breakApplied(att, shift) ? 60 : 0)) + (shift && left > 0 ? left : 0);
+      // 휴일근로 = 휴일에 일한 '기본 근무' 시간 (조기출근·연장 같은 추가근무는 연장근로로 따로 계산 — 휴일 가산은 기본 근무분에만)
+      const extraMin = notes.filter((n) => (n.k === "earlyin" || n.k === "over") && n.mins).reduce((t, n) => t + n.mins, 0)
+        + (shift ? 0 : Number(att.otApprovedMin || 0));
+      const hm = Math.max(0, (workedNetMin(att, shift) || 0) - extraMin);
       const hh = blockHours(hm);
       if (hh > 0) notes.push({ k: "holiday", h: hh, approved: true, label: `휴일근로 ${fmtH(hh)}h` });
     }
@@ -3738,7 +3740,8 @@ function attNotes(att, shift, reqOf) {
    기본: 예정 근무 안에서 실제 일한 시간 (조기출근·연장으로 감지된 분은 제외, 날짜별 10분 블록)
    연장: 승인된 조기출근·연장·추가근무 가산 h
    야간: 야간근무 가산 h (22:00~06:00)
-   휴일: 법정 휴일(HOLIDAYS)에 일한 인정 시간 — 기본근로에서는 뺀다 (명세서 산식이 휴일근로 x 1.5) */
+   휴일: 법정 휴일(HOLIDAYS)에 일한 기본 근무 시간 — 기본근로에도 포함, 명세서는 가산분만 (휴일근로 x 0.5)
+   → 기본근로 = 추가근무(연장)를 뺀 실제 근무 전체 (휴일·야간 포함). 연장은 기본에 넣지 않고 x 1.5 */
 async function payHoursFromAttendance(empId, ym) {
   const { start, end } = payPeriod(ym);
   const [shiftSnap, attSnap] = await Promise.all([
@@ -3757,8 +3760,7 @@ async function payHoursFromAttendance(empId, ym) {
     const notes = attNotes(a, sh, null);
     const extraMin = notes.filter((n) => (n.k === "earlyin" || n.k === "over") && n.mins).reduce((t, n) => t + n.mins, 0)
       + (sh ? 0 : Number(a.otApprovedMin || 0));
-    const hol = notes.find((n) => n.k === "holiday");
-    if (!hol) basic += blockHours(Math.max(0, net - extraMin));
+    basic += blockHours(Math.max(0, net - extraMin));
     notes.forEach((n) => {
       if (!n.approved || !n.h) return;
       if (n.k === "earlyin" || n.k === "over") overtime += n.h;
