@@ -2325,3 +2325,8 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
   .sc-cal-head:has(#at-pdf) #at-next { grid-column: 4; grid-row: 1; }
   .sc-cal-head:has(#at-pdf) #at-pdf { grid-column: 5; grid-row: 1; justify-self: end; }
 }
+
+/* 종료된 사이클 OKR 평가 색 (진행률 %) */
+.okr-pct.g-low { color: #e03131; font-weight: 600; }
+.okr-pct.g-mid { color: #e8a200; font-weight: 600; }
+.okr-pct.g-done { color: var(--blue); font-weight: 800; }

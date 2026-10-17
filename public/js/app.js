@@ -6148,6 +6148,8 @@ const cyclePeriodText = (c) => !c ? "" : (c.startDate || c.endDate) ? `${c.start
 const cycleEnded = (c) => !!(c && c.endDate) && todayKST() > c.endDate;   // 종료일 당일까지는 진행 중
 const okrClosed = (o) => !!(o && o.cycleId) && okrEndedCycleIds.has(o.cycleId);
 /* D-day 기준일: 종료된 사이클은 종료일에 멈춘다 (지연일이 그 뒤로 더 늘지 않게), 진행 중이면 오늘 */
+/* 종료된 사이클 평가용 % 색: 50% 미만 레드 · 50~99% 옐로우 · 100% 이상 굵은 파랑 */
+const okrGradeCls = (o, pct) => !okrClosed(o) ? "" : pct >= 100 ? "g-done" : pct >= 50 ? "g-mid" : "g-low";
 const okrRefDate = (o) => (okrClosed(o) && okrCycleEndById[o.cycleId]) || todayKST();
 const krClosed = (o) => okrClosed(o);
 /* ⚠ 임시 해제 스위치 — false 인 동안은 마감·보관 사이클에서도 체크인(수치 수정)을 허용한다.
@@ -6316,7 +6318,7 @@ function okrRowHtml(o, idx, opts) {
       </div>
       <div class="okr-prog">
         <div class="bar ${over ? "over" : ""}"><i style="width:${Math.min(100, pct)}%"></i></div>
-        <span class="okr-pct ${over ? "over" : ""}">${pct}%</span>
+        <span class="okr-pct ${over ? "over" : ""} ${okrGradeCls(o, pct)}">${pct}%</span>
       </div>
       <div class="okr-actions">${actions}</div>
     </div>`;
@@ -6357,7 +6359,7 @@ function okrKrListHtml(o, idx, opts) {
           <span class="kr-dot" style="background:${color}"></span>
           <span class="kr-title">${esc(k.title)}${k.deadline ? ` <em class="kr-due">~${esc(k.deadline.slice(5))}</em>` : ""}</span>
           <span class="kr-num">${fmt(k.current || 0)} / ${fmt(k.target)} ${esc(k.unit || "")}</span>
-          <div class="okr-prog"><div class="bar ${over ? "over" : ""}"><i style="width:${Math.min(100, p)}%"></i></div><span class="okr-pct ${over ? "over" : ""}">${p}%</span></div>
+          <div class="okr-prog"><div class="bar ${over ? "over" : ""}"><i style="width:${Math.min(100, p)}%"></i></div><span class="okr-pct ${over ? "over" : ""} ${okrGradeCls(o, p)}">${p}%</span></div>
           <div class="okr-actions">
             ${lockedReason && !showCheckin ? `<button class="btn btn-sm btn-okr-prog" disabled title="${lockedReason}">체크인</button>` : ""}
             ${showCheckin ? `<button class="btn btn-sm btn-okr-prog" data-kr-check="${o.id}|${k.id}" ${lockedReason ? `disabled title="${lockedReason}"` : ""}>체크인</button>` : ""}
