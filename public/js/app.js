@@ -6132,9 +6132,9 @@ function buildOkrIndex(okrs) {
   return { byId, roots, orphans, isOrphan, childrenOf: (id) => kids[id] || [], depthOf, levelLabel, progressOf, displayPctOf, descendantIds };
 }
 
-function okrDday(deadline) {
+function okrDday(deadline, ref) {
   if (!deadline) return null;
-  const ms = new Date(deadline + "T00:00:00+09:00") - new Date(todayKST() + "T00:00:00+09:00");
+  const ms = new Date(deadline + "T00:00:00+09:00") - new Date((ref || todayKST()) + "T00:00:00+09:00");
   return Math.round(ms / 86400000);
 }
 /* 마감: 사이클 종료일이 지난 사이클의 OKR·KR — 체크인·KR 추가 불가.
@@ -6142,22 +6142,26 @@ function okrDday(deadline) {
 /* '마감' 태그는 회사 OKR(최상위 O)과 사이클 표시줄에만 — 위계상 하위 OKR·KR도 함께 마감된 것으로 본다 */
 const OKR_CLOSED_TAG = `<span class="badge okr-closed">마감</span>`;
 let okrEndedCycleIds = new Set();   // renderOkr에서 채운다
+let okrCycleEndById = {};           // 사이클 id → 종료일
 /* 사이클 기간 표기: "2026-10-01 ~ 2026-12-31" (한쪽만 있으면 그쪽만) */
 const cyclePeriodText = (c) => !c ? "" : (c.startDate || c.endDate) ? `${c.startDate || ""} ~ ${c.endDate || ""}`.trim() : "";
 const cycleEnded = (c) => !!(c && c.endDate) && todayKST() > c.endDate;   // 종료일 당일까지는 진행 중
 const okrClosed = (o) => !!(o && o.cycleId) && okrEndedCycleIds.has(o.cycleId);
+/* D-day 기준일: 종료된 사이클은 종료일에 멈춘다 (지연일이 그 뒤로 더 늘지 않게), 진행 중이면 오늘 */
+const okrRefDate = (o) => (okrClosed(o) && okrCycleEndById[o.cycleId]) || todayKST();
 const krClosed = (o) => okrClosed(o);
 /* ⚠ 임시 해제 스위치 — false 인 동안은 마감·보관 사이클에서도 체크인(수치 수정)을 허용한다.
    다시 잠그려면 true 로 바꾸면 된다. ('마감' 태그 표시는 스위치와 무관하게 유지) */
 const OKR_LOCK_CLOSED = true;
-/* closed: '마감' 태그를 붙일지(회사 OKR만), ended: 사이클이 종료됐는지 — 종료된 사이클은 지연·D-day를 더 세지 않는다 */
-function okrDdayChip(deadline, prog, closed, ended) {
+/* closed: '마감' 태그를 붙일지(회사 OKR만), ended: 사이클 종료 여부, ref: D-day 기준일
+   종료된 사이클은 지연 D+n을 종료일 기준으로 '고정'해 남기고(결과 반영), 더 늘리지 않는다. D-n(남은 일수)은 표시하지 않는다 */
+function okrDdayChip(deadline, prog, closed, ended, ref) {
   const tag = closed ? ` ${OKR_CLOSED_TAG}` : "";
-  const d = okrDday(deadline);
+  const d = okrDday(deadline, ref);
   if (d === null) return tag.trim();
   if (prog >= 100) return `<span class="badge ok">달성</span>${tag}`;
-  if (ended) return tag.trim();
   if (d < 0) return `<span class="badge warn">지연 D+${-d}</span>${tag}`;
+  if (ended) return tag.trim();
   if (closed) return OKR_CLOSED_TAG;
   if (d <= 7) return `<span class="badge warn">D-${d}</span>`;
   return `<span class="badge off">D-${d}</span>`;
@@ -6224,6 +6228,7 @@ async function renderOkr() {
   if (okrViewCycleId && !cycles.some((c) => c.id === okrViewCycleId)) okrViewCycleId = null;
   const viewing = okrViewCycleId ? cycles.find((c) => c.id === okrViewCycleId) : active;
   okrEndedCycleIds = new Set(cycles.filter(cycleEnded).map((c) => c.id));
+  okrCycleEndById = Object.fromEntries(cycles.filter((c) => c.endDate).map((c) => [c.id, c.endDate]));
   okrReadonly = cycles.length > 0 && (!viewing || viewing.id !== okrActiveCycleId);
   const okrs = cycles.length ? allOkrs.filter((o) => viewing && o.cycleId === viewing.id) : allOkrs;
 
@@ -6302,7 +6307,7 @@ function okrRowHtml(o, idx, opts) {
         <div class="okr-title-line">
           <span class="badge okr-lv d${Math.min(depth, 3)}">${idx.levelLabel(o.id)}</span>
           <b class="okr-title">${esc(o.title)}</b>
-          ${okrDdayChip(o.deadline, rolled, !o.parentId && okrClosed(o), okrClosed(o))}
+          ${okrDdayChip(o.deadline, rolled, !o.parentId && okrClosed(o), okrClosed(o), okrRefDate(o))}
         </div>
         <div class="okr-meta">
           ${o.parentId ? `<span>${mine && opts.meTag ? `<span class="badge me-tag">나</span>` : ""}${esc(o.ownerName || "-")}${o.dept ? ` · ${esc(o.dept)}` : ""}</span><span>${goal}</span>` : ""}
@@ -6552,16 +6557,16 @@ function renderOkrStatus(okrs, emps, idx) {
   const byDeadline = (a, b) => (a.deadline || "").localeCompare(b.deadline || "");
   const soonList = okrs.filter((o) => {
     const d = okrDday(o.deadline);
-    return d !== null && d >= 0 && d <= 7 && idx.progressOf(o.id) < 100 && !okrClosed(o);
+    return d !== null && d >= 0 && d <= 7 && idx.progressOf(o.id) < 100 && !okrClosed(o);   // 종료된 사이클엔 '임박'이 없다
   }).sort(byDeadline);
   const lateList = okrs.filter((o) => {
-    const d = okrDday(o.deadline);
-    return d !== null && d < 0 && idx.progressOf(o.id) < 100 && !okrClosed(o);   // 종료된 사이클은 지연으로 세지 않음
+    const d = okrDday(o.deadline, okrRefDate(o));   // 종료된 사이클은 종료일 기준으로 판단 (결과로 남김)
+    return d !== null && d < 0 && idx.progressOf(o.id) < 100;
   }).sort(byDeadline);
   const soon = soonList.length, late = lateList.length;
   // 마감 임박·지연 항목 목록 (호버 팝오버 + 클릭 시 아래 패널에 같은 내용)
   const statItems = (list) => list.map((o) => {
-    const d = okrDday(o.deadline);
+    const d = okrDday(o.deadline, okrRefDate(o));
     const pct = okrPctDisplay(idx.progressOf(o.id));
     return `<div class="osp-row" data-goto="${o.id}" title="트리에서 이 OKR로 이동">
       <span class="badge okr-lv d${Math.min(idx.depthOf(o.id), 3)}">${idx.levelLabel(o.id)}</span>
