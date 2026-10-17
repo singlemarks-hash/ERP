@@ -6150,11 +6150,13 @@ const krClosed = (o) => okrClosed(o);
 /* ⚠ 임시 해제 스위치 — false 인 동안은 마감·보관 사이클에서도 체크인(수치 수정)을 허용한다.
    다시 잠그려면 true 로 바꾸면 된다. ('마감' 태그 표시는 스위치와 무관하게 유지) */
 const OKR_LOCK_CLOSED = true;
-function okrDdayChip(deadline, prog, closed) {
+/* closed: '마감' 태그를 붙일지(회사 OKR만), ended: 사이클이 종료됐는지 — 종료된 사이클은 지연·D-day를 더 세지 않는다 */
+function okrDdayChip(deadline, prog, closed, ended) {
   const tag = closed ? ` ${OKR_CLOSED_TAG}` : "";
   const d = okrDday(deadline);
   if (d === null) return tag.trim();
   if (prog >= 100) return `<span class="badge ok">달성</span>${tag}`;
+  if (ended) return tag.trim();
   if (d < 0) return `<span class="badge warn">지연 D+${-d}</span>${tag}`;
   if (closed) return OKR_CLOSED_TAG;
   if (d <= 7) return `<span class="badge warn">D-${d}</span>`;
@@ -6300,7 +6302,7 @@ function okrRowHtml(o, idx, opts) {
         <div class="okr-title-line">
           <span class="badge okr-lv d${Math.min(depth, 3)}">${idx.levelLabel(o.id)}</span>
           <b class="okr-title">${esc(o.title)}</b>
-          ${okrDdayChip(o.deadline, rolled, !o.parentId && okrClosed(o))}
+          ${okrDdayChip(o.deadline, rolled, !o.parentId && okrClosed(o), okrClosed(o))}
         </div>
         <div class="okr-meta">
           ${o.parentId ? `<span>${mine && opts.meTag ? `<span class="badge me-tag">나</span>` : ""}${esc(o.ownerName || "-")}${o.dept ? ` · ${esc(o.dept)}` : ""}</span><span>${goal}</span>` : ""}
@@ -6550,11 +6552,11 @@ function renderOkrStatus(okrs, emps, idx) {
   const byDeadline = (a, b) => (a.deadline || "").localeCompare(b.deadline || "");
   const soonList = okrs.filter((o) => {
     const d = okrDday(o.deadline);
-    return d !== null && d >= 0 && d <= 7 && idx.progressOf(o.id) < 100;
+    return d !== null && d >= 0 && d <= 7 && idx.progressOf(o.id) < 100 && !okrClosed(o);
   }).sort(byDeadline);
   const lateList = okrs.filter((o) => {
     const d = okrDday(o.deadline);
-    return d !== null && d < 0 && idx.progressOf(o.id) < 100;
+    return d !== null && d < 0 && idx.progressOf(o.id) < 100 && !okrClosed(o);   // 종료된 사이클은 지연으로 세지 않음
   }).sort(byDeadline);
   const soon = soonList.length, late = lateList.length;
   // 마감 임박·지연 항목 목록 (호버 팝오버 + 클릭 시 아래 패널에 같은 내용)
