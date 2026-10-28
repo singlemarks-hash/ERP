@@ -2330,3 +2330,7 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 .okr-pct.g-low { color: #e03131; font-weight: 600; }
 .okr-pct.g-mid { color: #e8a200; font-weight: 600; }
 .okr-pct.g-done { color: var(--blue); font-weight: 800; }
+
+/* OKR 지연 달성 (기한을 넘겨 100% 도달) */
+.badge.late-done { background: #fff0e6; color: #e8590c; }
+.kr-title .badge.kr-late { font-size: 0.66rem; padding: 1px 6px; vertical-align: 1px; }

@@ -6056,6 +6056,22 @@ function canEditOkr(o) {
   if (!o.parentId) return canEditCompanyOkr();
   return (me && o.ownerId === me.id) || isAdmin() || (isSpecial() && sameDept(o.dept, me.dept));
 }
+/* 체크인 시각(ISO, UTC) → 한국 날짜 "YYYY-MM-DD" */
+const kstDateOf = (iso) => iso ? new Date(new Date(iso).getTime() + KST_OFFSET_MS).toISOString().slice(0, 10) : null;
+/* 목표에 도달한 날짜 — 체크인 기록에서 마지막으로 목표 미만 → 목표 이상이 된 날 (다시 떨어졌다면 그 뒤 도달일).
+   지금 목표 미달이면 null, 기록이 없어 알 수 없으면 null */
+function reachedDateOf(checkins, target, current) {
+  const t = Number(target);
+  if (!(t > 0) || !((Number(current) || 0) >= t)) return null;
+  let reached = null;
+  [...checkins].sort((a, b) => (a.at || "").localeCompare(b.at || "")).forEach((c) => {
+    if ((Number(c.value) || 0) >= t) { if (!reached) reached = kstDateOf(c.at); } else reached = null;
+  });
+  return reached;
+}
+const krDoneDate = (o, k) => reachedDateOf((o.checkins || []).filter((c) => c.krId === k.id), k.target, k.current);
+/* 지연 달성 일수 — 달성일이 기한보다 늦으면 양수, 아니면 0 */
+const lateDoneDays = (doneDate, deadline) => (doneDate && deadline && doneDate > deadline) ? -okrDday(deadline, doneDate) : 0;
 /* KR 하나의 진행률 (raw=true 면 100% 초과분 포함) */
 function krPct(k, raw) {
   const t = Number(k.target);
@@ -6115,6 +6131,26 @@ function buildOkrIndex(okrs) {
     progCache[id] = p;
     return p;
   }
+  /* 100% 달성일 — 하위 OKR·KR 중 가장 늦게 목표에 도달한 날 (모두 100%여야 평균이 100%) */
+  const doneCache = {};
+  function doneDateOf(id, seen) {
+    if (id in doneCache) return doneCache[id];
+    seen = seen || new Set();
+    if (seen.has(id)) return null;
+    seen.add(id);
+    const o = byId[id];
+    let d = null;
+    if (o && progressOf(id) >= 100) {
+      const parts = [
+        ...(kids[id] || []).map((k) => doneDateOf(k.id, seen)),
+        ...(o.krs || []).map((k) => krDoneDate(o, k))
+      ];
+      if (!(kids[id] || []).length && !(o.krs || []).length) parts.push(reachedDateOf((o.checkins || []).filter((c) => !c.krId), o.target, o.current));
+      d = parts.filter(Boolean).sort().pop() || null;
+    }
+    doneCache[id] = d;
+    return d;
+  }
   /* 표시용 — 과거 방식(노드 자체 수치)의 말단은 초과분도 그대로 */
   function displayPctOf(id) {
     const o = byId[id];
@@ -6129,7 +6165,7 @@ function buildOkrIndex(okrs) {
     });
     return set;
   }
-  return { byId, roots, orphans, isOrphan, childrenOf: (id) => kids[id] || [], depthOf, levelLabel, progressOf, displayPctOf, descendantIds };
+  return { byId, roots, orphans, isOrphan, childrenOf: (id) => kids[id] || [], depthOf, levelLabel, progressOf, displayPctOf, descendantIds, doneDateOf };
 }
 
 function okrDday(deadline, ref) {
@@ -6157,11 +6193,14 @@ const krClosed = (o) => okrClosed(o);
 const OKR_LOCK_CLOSED = true;
 /* closed: '마감' 태그를 붙일지(회사 OKR만), ended: 사이클 종료 여부, ref: D-day 기준일
    종료된 사이클은 지연 D+n을 종료일 기준으로 '고정'해 남기고(결과 반영), 더 늘리지 않는다. D-n(남은 일수)은 표시하지 않는다 */
-function okrDdayChip(deadline, prog, closed, ended, ref) {
+function okrDdayChip(deadline, prog, closed, ended, ref, doneDate) {
   const tag = closed ? ` ${OKR_CLOSED_TAG}` : "";
   const d = okrDday(deadline, ref);
   if (d === null) return tag.trim();
-  if (prog >= 100) return `<span class="badge ok">달성</span>${tag}`;
+  if (prog >= 100) {
+    const late = lateDoneDays(doneDate, deadline);   // 기한을 넘겨 달성했으면 '지연 달성'으로 남긴다
+    return (late ? `<span class="badge late-done" title="${esc(doneDate)} 달성 (기한 ${esc(deadline)})">지연 달성 D+${late}</span>` : `<span class="badge ok">달성</span>`) + tag;
+  }
   if (d < 0) return `<span class="badge warn">지연 D+${-d}</span>${tag}`;
   if (ended) return tag.trim();
   if (closed) return OKR_CLOSED_TAG;
@@ -6309,7 +6348,7 @@ function okrRowHtml(o, idx, opts) {
         <div class="okr-title-line">
           <span class="badge okr-lv d${Math.min(depth, 3)}">${idx.levelLabel(o.id)}</span>
           <b class="okr-title">${esc(o.title)}</b>
-          ${okrDdayChip(o.deadline, rolled, !o.parentId && okrClosed(o), okrClosed(o), okrRefDate(o))}
+          ${okrDdayChip(o.deadline, rolled, !o.parentId && okrClosed(o), okrClosed(o), okrRefDate(o), idx.doneDateOf(o.id))}
         </div>
         <div class="okr-meta">
           ${o.parentId ? `<span>${mine && opts.meTag ? `<span class="badge me-tag">나</span>` : ""}${esc(o.ownerName || "-")}${o.dept ? ` · ${esc(o.dept)}` : ""}</span><span>${goal}</span>` : ""}
@@ -6357,7 +6396,11 @@ function okrKrListHtml(o, idx, opts) {
         return `
         <div class="okr-kr" data-kr="${k.id}">
           <span class="kr-dot" style="background:${color}"></span>
-          <span class="kr-title">${esc(k.title)}${k.deadline ? ` <em class="kr-due">~${esc(k.deadline.slice(5))}</em>` : ""}</span>
+          <span class="kr-title">${esc(k.title)}${k.deadline ? ` <em class="kr-due">~${esc(k.deadline.slice(5))}</em>` : ""}${(() => {
+            // KR 지연 달성: KR 마감일(없으면 OKR 마감일)을 넘겨 목표에 도달
+            const late = lateDoneDays(krDoneDate(o, k), k.deadline || o.deadline);
+            return late ? ` <span class="badge late-done kr-late" title="${esc(krDoneDate(o, k))} 달성">지연 달성 D+${late}</span>` : "";
+          })()}</span>
           <span class="kr-num">${fmt(k.current || 0)} / ${fmt(k.target)} ${esc(k.unit || "")}</span>
           <div class="okr-prog"><div class="bar ${over ? "over" : ""}"><i style="width:${Math.min(100, p)}%"></i></div><span class="okr-pct ${over ? "over" : ""} ${okrGradeCls(o, p)}">${p}%</span></div>
           <div class="okr-actions">
