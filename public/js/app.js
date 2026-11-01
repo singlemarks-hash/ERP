@@ -6070,8 +6070,11 @@ function reachedDateOf(checkins, target, current) {
   return reached;
 }
 const krDoneDate = (o, k) => reachedDateOf((o.checkins || []).filter((c) => c.krId === k.id), k.target, k.current);
-/* 지연 달성 일수 — 달성일이 기한보다 늦으면 양수, 아니면 0 */
-const lateDoneDays = (doneDate, deadline) => (doneDate && deadline && doneDate > deadline) ? -okrDday(deadline, doneDate) : 0;
+/* 말일 여부 ("2026-10-31" → true) */
+const isMonthEnd = (ds) => !!ds && Number(ds.slice(8, 10)) === new Date(Date.UTC(Number(ds.slice(0, 4)), Number(ds.slice(5, 7)), 0)).getUTCDate();
+/* 지연 달성 일수 — 달성일이 기한보다 늦으면 양수, 아니면 0.
+   기한이 말일인 OKR·KR은 사이클 종료 뒤 수치 정리(잠금 임시 해제 등)로 늦게 찍힐 수 있어 지연 달성으로 보지 않는다 */
+const lateDoneDays = (doneDate, deadline) => (doneDate && deadline && doneDate > deadline && !isMonthEnd(deadline)) ? -okrDday(deadline, doneDate) : 0;
 /* KR 하나의 진행률 (raw=true 면 100% 초과분 포함) */
 function krPct(k, raw) {
   const t = Number(k.target);
