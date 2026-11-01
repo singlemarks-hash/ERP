@@ -6190,7 +6190,7 @@ const okrRefDate = (o) => (okrClosed(o) && okrCycleEndById[o.cycleId]) || todayK
 const krClosed = (o) => okrClosed(o);
 /* ⚠ 임시 해제 스위치 — false 인 동안은 마감·보관 사이클에서도 체크인(수치 수정)을 허용한다.
    다시 잠그려면 true 로 바꾸면 된다. ('마감' 태그 표시는 스위치와 무관하게 유지) */
-const OKR_LOCK_CLOSED = true;
+const OKR_LOCK_CLOSED = false;
 /* closed: '마감' 태그를 붙일지(회사 OKR만), ended: 사이클 종료 여부, ref: D-day 기준일
    종료된 사이클은 지연 D+n을 종료일 기준으로 '고정'해 남기고(결과 반영), 더 늘리지 않는다. D-n(남은 일수)은 표시하지 않는다 */
 function okrDdayChip(deadline, prog, closed, ended, ref, doneDate) {
