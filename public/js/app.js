@@ -2797,6 +2797,16 @@ function savePdfBlob(pdf, filename) {
 }
 
 /* 급여명세서 — 벡터 PDF. 화면 예시 포맷과 같은 구성(인적사항 → 세부 내역 → 근로시간 → 계산 방법) */
+/* 회사 직인 (급여명세서 하단) — 한 번 받아 dataURL로 캐시 */
+const STAMP_URL = "img/stamp.png";
+let stampDataUrl = null;
+async function loadStamp() {
+  if (stampDataUrl) return stampDataUrl;
+  const blob = await (await fetch(STAMP_URL)).blob();
+  stampDataUrl = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); });
+  return stampDataUrl;
+}
+
 async function buildPayslipPdf(emp, r) {
   const [y, m] = r.ym.split("-").map(Number);
   const payDate = r.payDate ? r.payDate.slice(2).replace(/-/g, ". ") + "." : "—";
@@ -2882,6 +2892,19 @@ async function buildPayslipPdf(emp, r) {
 
   pdf.setFont("NanumGothic", "normal"); pdf.setFontSize(9.5); pdf.setTextColor(107, 118, 132);
   pdf.text("귀하의 노고에 감사드립니다.", 105, top, { align: "center" });
+
+  // 회사명 + 직인 (오른쪽 아래, 도장이 '(인)' 위에 겹치게)
+  top += 14;
+  pdf.setFont("NanumGothic", "bold"); pdf.setFontSize(11.5); pdf.setTextColor(...INK);
+  const right = L + W - 6;
+  const inW = pdf.getTextWidth("(인)");
+  pdf.text("(인)", right, top, { align: "right" });
+  pdf.text("작은따옴표", right - inW - 9, top, { align: "right" });
+  try {
+    const S = 19;   // 도장 크기(mm) — '(인)' 글자 정중앙에 겹친다
+    const cx = right - inW / 2, cy = top - 1.4;
+    pdf.addImage(await loadStamp(), "PNG", cx - S / 2, cy - S / 2, S, S * 317 / 323);
+  } catch (e) { console.warn("직인 이미지를 불러오지 못했습니다", e); }
   savePdfBlob(pdf, `${y}년 ${m}월 급여명세서_${emp.name}.pdf`);
 }
 
@@ -2964,6 +2987,9 @@ function printPayslip(emp, r) {
   .total td { font-weight: 800; background: #f1f2f4; }
   .net td { font-weight: 800; background: #dfe5f5; font-size: 13px; }
   .footer { text-align: center; color: #6b7684; margin-top: 16px; font-size: 12px; }
+  .seal { display: flex; justify-content: flex-end; align-items: center; gap: 34px; margin: 40px 22px 0 0; font-size: 15px; }
+  .seal .in { position: relative; display: inline-block; }
+  .seal .in img { position: absolute; left: 50%; top: 50%; width: 72px; height: auto; transform: translate(-50%, -52%); }
   .noprint { text-align: center; padding: 14px 0; }
   .noprint button { padding: 10px 22px; font-size: 14px; border-radius: 8px; border: none; background: #3182f6; color: #fff; cursor: pointer; }
 </style></head><body>
@@ -3005,6 +3031,7 @@ function printPayslip(emp, r) {
   </table>
 
   <div class="footer">귀하의 노고에 감사드립니다.</div>
+  <div class="seal"><b>작은따옴표</b><span class="in">(인)<img src="${new URL(STAMP_URL, location.href).href}" alt="" /></span></div>
 </div>
 </body></html>`;
   // 벡터 PDF(선명·텍스트 선택 가능)를 먼저 시도하고, 폰트·라이브러리를 못 받으면 캡처 방식으로 대체
