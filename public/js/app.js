@@ -2899,9 +2899,9 @@ async function buildPayslipPdf(emp, r) {
   const right = L + W - 6;
   const inW = pdf.getTextWidth("(인)");
   pdf.text("(인)", right, top, { align: "right" });
-  pdf.text("작은따옴표", right - inW - 9, top, { align: "right" });
+  pdf.text("작은따옴표", right - inW - 12, top, { align: "right" });
   try {
-    const S = 19;   // 도장 크기(mm) — '(인)' 글자 정중앙에 겹친다
+    const S = 24;   // 도장 크기(mm) — '(인)' 글자 정중앙에 겹친다
     const cx = right - inW / 2, cy = top - 1.4;
     pdf.addImage(await loadStamp(), "PNG", cx - S / 2, cy - S / 2, S, S * 317 / 323);
   } catch (e) { console.warn("직인 이미지를 불러오지 못했습니다", e); }
@@ -2987,9 +2987,9 @@ function printPayslip(emp, r) {
   .total td { font-weight: 800; background: #f1f2f4; }
   .net td { font-weight: 800; background: #dfe5f5; font-size: 13px; }
   .footer { text-align: center; color: #6b7684; margin-top: 16px; font-size: 12px; }
-  .seal { display: flex; justify-content: flex-end; align-items: center; gap: 34px; margin: 40px 22px 0 0; font-size: 15px; }
+  .seal { display: flex; justify-content: flex-end; align-items: center; gap: 44px; margin: 46px 28px 0 0; font-size: 15px; }
   .seal .in { position: relative; display: inline-block; }
-  .seal .in img { position: absolute; left: 50%; top: 50%; width: 72px; height: auto; transform: translate(-50%, -52%); }
+  .seal .in img { position: absolute; left: 50%; top: 50%; width: 90px; height: auto; transform: translate(-50%, -52%); }
   .noprint { text-align: center; padding: 14px 0; }
   .noprint button { padding: 10px 22px; font-size: 14px; border-radius: 8px; border: none; background: #3182f6; color: #fff; cursor: pointer; }
 </style></head><body>
