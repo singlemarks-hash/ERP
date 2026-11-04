@@ -2074,7 +2074,11 @@ button.att-note.req:hover { background: var(--blue-soft); color: var(--blue-deep
 .okr-krs .okr-sec-head { margin: 0 0 2px; }
 .okr-row .okr-actions { width: 40px; }
 .okr-kr .okr-actions { width: 108px; }
+/* 제목 수정 임시 기능이 켜져 있으면 연필 버튼 자리만큼 넓힌다 (모든 줄 정렬 유지) */
+.okr-title-edit .okr-row .okr-actions { width: 78px; }
+.okr-title-edit .okr-kr .okr-actions { width: 146px; }
 @media (max-width: 760px) {
+  .okr-title-edit .okr-row .okr-actions, .okr-title-edit .okr-kr .okr-actions { width: 100%; }
   .okr-sec-head { margin-left: calc(2px + var(--okr-depth, 0) * var(--okr-step, 22px)); }
   .okr-row .okr-actions, .okr-kr .okr-actions { width: 100%; }
 }

@@ -6077,6 +6077,7 @@ const ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 const ICON_EDIT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.8 2.8 0 0 1 4 4L8 20l-5 1 1-5L17 3Z"/></svg>';
 /* ⚠ 임시 스위치 — true 인 동안 OKR(O)·KR 제목을 수정할 수 있다. 수정 기간이 끝나면 false 로 바꾼다 */
 const OKR_TITLE_EDIT = true;
+document.documentElement.classList.toggle("okr-title-edit", OKR_TITLE_EDIT);
 
 /* 회사 최상위 O는 총괄 관리자와 대표(임원열람)만 만들고 지울 수 있다 */
 function canEditCompanyOkr() { return isAdmin() || (me && me.role === "executive"); }
