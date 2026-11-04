@@ -6074,6 +6074,9 @@ const OKR_DEPT_COLORS = {
   "브랜드 전략부": "#7048e8"
 };
 const ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
+const ICON_EDIT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.8 2.8 0 0 1 4 4L8 20l-5 1 1-5L17 3Z"/></svg>';
+/* ⚠ 임시 스위치 — true 인 동안 OKR(O)·KR 제목을 수정할 수 있다. 수정 기간이 끝나면 false 로 바꾼다 */
+const OKR_TITLE_EDIT = true;
 
 /* 회사 최상위 O는 총괄 관리자와 대표(임원열람)만 만들고 지울 수 있다 */
 function canEditCompanyOkr() { return isAdmin() || (me && me.role === "executive"); }
@@ -6437,6 +6440,7 @@ function okrKrListHtml(o, idx, opts) {
             ${lockedReason && !showCheckin ? `<button class="btn btn-sm btn-okr-prog" disabled title="${lockedReason}">체크인</button>` : ""}
             ${showCheckin ? `<button class="btn btn-sm btn-okr-prog" data-kr-check="${o.id}|${k.id}" ${lockedReason ? `disabled title="${lockedReason}"` : ""}>체크인</button>` : ""}
             ${editable ? `
+                          ${OKR_TITLE_EDIT ? `<button class="btn-icon" title="KR 제목 수정" data-kr-title="${o.id}|${k.id}">${ICON_EDIT}</button>` : ""}
                           <button class="btn-icon danger" title="KR 삭제" data-kr-del="${o.id}|${k.id}">${ICON_TRASH}</button>` : ""}
           </div>
         </div>`;
@@ -6486,15 +6490,72 @@ function okrTreeHtml(idx, visibleIds, opts) {
   return html.trim() ? `<div class="okr-tree">${html}</div>` : "";
 }
 
-/* 줄에 붙는 버튼 — 생성 후 수정은 불가. 체크인은 KR에서만 하므로 여기엔 삭제만 둔다 */
+/* 줄에 붙는 버튼 — 생성 후 수정은 불가(제목만 임시 스위치로 허용). 체크인은 KR에서만 하므로 여기엔 삭제만 둔다 */
 function okrActionBtns(o, idx) {
   if (okrReadonly || !canEditOkr(o)) return "";
-  return `<button class="btn-icon danger" title="삭제" data-okr-del="${o.id}">${ICON_TRASH}</button>`;
+  return (OKR_TITLE_EDIT ? `<button class="btn-icon" title="제목 수정" data-okr-title="${o.id}">${ICON_EDIT}</button>` : "")
+    + `<button class="btn-icon danger" title="삭제" data-okr-del="${o.id}">${ICON_TRASH}</button>`;
+}
+/* 제목 수정 모달 (OKR_TITLE_EDIT 임시 기능) */
+function openOkrTitleModal(o, kr) {
+  const cur = (kr ? kr.title : o.title) || "";
+  const max = kr ? 60 : 80;
+  openModal(`
+    <h3>${kr ? "KR" : "OKR"} 제목 수정</h3>
+    ${kr ? `<p class="modal-desc">↳ ${esc(o.title)}</p>` : ""}
+    <form id="okr-title-form">
+      <label class="field"><span class="field-label">제목</span>
+        <input id="ot-title" required maxlength="${max}" value="${esc(cur)}" /></label>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost btn-sm" id="ot-cancel">취소</button>
+        <button type="submit" class="btn btn-primary btn-sm">저장</button>
+      </div>
+    </form>`);
+  const input = $("#ot-title");
+  input.focus(); input.select();
+  $("#ot-cancel").onclick = closeModal;
+  $("#okr-title-form").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const title = input.value.trim();
+    if (!title) return toast("제목을 입력하세요.");
+    if (title === cur) { closeModal(); return; }
+    const btn = $("#okr-title-form button[type=submit]");
+    if (btn.disabled) return;
+    btn.disabled = true;
+    try {
+      await mutateOkr(o.id, (latest) => {
+        if (!kr) return { title };
+        if (!(latest.krs || []).some((x) => x.id === kr.id)) throw new Error("kr-gone");
+        return {
+          krs: (latest.krs || []).map((x) => x.id === kr.id ? { ...x, title } : x),
+          // 체크인 기록·피드에 남은 KR 이름도 함께 바꾼다
+          checkins: (latest.checkins || []).map((c) => c.krId === kr.id ? { ...c, krTitle: title } : c)
+        };
+      });
+      closeModal();
+      toast("제목을 수정했습니다.");
+      renderOkr();
+    } catch (e) {
+      btn.disabled = false;
+      okrSaveFailToast(e);
+    }
+  };
 }
 
 function bindOkrActions(scope, okrs, emps, idx) {
   scope.querySelectorAll("[data-okr-del]").forEach((b) => {
     b.onclick = () => deleteOkr(idx.byId[b.dataset.okrDel], idx);
+  });
+  scope.querySelectorAll("[data-okr-title]").forEach((b) => {
+    b.onclick = () => { const o = idx.byId[b.dataset.okrTitle]; if (o && OKR_TITLE_EDIT && !okrReadonly && canEditOkr(o)) openOkrTitleModal(o); };
+  });
+  scope.querySelectorAll("[data-kr-title]").forEach((b) => {
+    b.onclick = () => {
+      const [oid, kid] = b.dataset.krTitle.split("|");
+      const o = idx.byId[oid];
+      const k = o && (o.krs || []).find((x) => x.id === kid);
+      if (k && OKR_TITLE_EDIT && !okrReadonly && canEditOkr(o)) openOkrTitleModal(o, k);
+    };
   });
   scope.querySelectorAll("[data-toggle]").forEach((b) => {
     b.onclick = () => {
