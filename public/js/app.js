@@ -2,6 +2,9 @@
 "use strict";
 
 const EMP_TYPES = ["정직원(4대보험)", "3.3% 사업소득"];
+/* 시급제 — 고용 구분(4대보험/3.3%)과 별개로 임금을 시급으로 계산하는 직원. 시급을 넣으면 급여 입력 때 수당이 자동 계산된다 */
+const MIN_WAGE = { 2026: 10320 };   // 최저시급 (안내용)
+const isHourlyEmp = (e) => !!(e && e.hourly && Number(e.hourlyWage) > 0);
 const GRADES = ["L0 (파트타이머)", "L1", "L2", "L3", "L4", "L5 (대표)"];
 const PAY_CATS = ["4대보험", "3.3%"];
 /* 직책 추천 목록 (직접 입력도 가능). 파트장 = 팀장 아래 직책 — 권한은 일반과 같고 직급은 L2로 본다 */
@@ -2364,8 +2367,11 @@ const payHourText = (v) => payHourEmpty(v) ? "0" : String(Math.round(Number(v) *
 
 function renderPayForm(emp, cat, record) {
   const isEdit = !!record;
+  const hourly = isHourlyEmp(emp);
+  const wage = hourly ? Number(emp.hourlyWage) : 0;
+  // 시급제 새 기록은 기본급을 0에서 시작해 근로시간 × 시급으로 채운다
   const payItems = isEdit ? record.payments.map((p) => [p.label, p.amount])
-    : PAY_TEMPLATE.map(([l, a]) => [l, a]);
+    : PAY_TEMPLATE.map(([l, a]) => [l, hourly && l === "기본급" ? 0 : a]);
   const deductItems = isEdit ? record.deductions.map((p) => [p.label, p.amount])
     : (cat === "3.3%" ? DEDUCT_TEMPLATE_33 : DEDUCT_TEMPLATE_4).map(([l, a]) => [l, a]);
 
@@ -2390,6 +2396,7 @@ function renderPayForm(emp, cat, record) {
       </div></label>
 
     <div class="pb-section pb-pay-head"><span>지급 내역</span><button type="button" class="btn btn-ghost btn-sm" id="pm-add-pay">+ 항목 추가</button></div>
+    ${hourly ? `<div class="pm-wage-note">시급제 · <b>시급 ${fmt(wage)}원</b> — 아래 근로시간을 바꾸면 기본급·야간·연장·휴일근로수당이 자동 계산됩니다. (주휴수당은 직접 입력)</div>` : ""}
     <div id="pm-pay-items">${payItems.map(([l, a]) => payItemRowHtml("pay", l, a)).join("")}</div>
     <div class="pb-total pb-total-pay"><span>총 지급</span><b id="pm-pay-total"></b></div>
 
@@ -2456,6 +2463,31 @@ function renderPayForm(emp, cat, record) {
     row.querySelector(".pi-label").focus();
   };
   $("#pm-add-pay").onclick = () => addItem("#pm-pay-items", "pay");
+
+  /* 시급제: 근로시간 × 시급 → 지급 항목 자동 계산 (명세서 계산식과 같은 배율)
+     기본급 = 기본근로 x 시급 · 야간 = 야간 x 시급 x 0.5 · 연장 = 연장 x 시급 x 1.5 · 휴일 = 휴일 x 시급 x 0.5 */
+  const WAGE_ITEMS = [["basic", "기본급", 1], ["night", "야간근로수당", 0.5], ["overtime", "연장근로수당", 1.5], ["holiday", "휴일근로수당", 0.5]];
+  const applyWage = () => {
+    if (!hourly) return;
+    const hv = (k) => { const n = Number(($(`#pm-h-${k}`)?.value || "").replace(/,/g, "").replace(/시간|h/gi, "").trim()); return n > 0 ? n : 0; };
+    const rows = [...$("#pm-pay-items").querySelectorAll(".pi-row")];
+    let anchor = null;   // 새 항목은 직전 시급 항목 바로 아래에 (기본급 → 야간 → 연장 → 휴일 순서)
+    WAGE_ITEMS.forEach(([k, label, rate]) => {
+      const amt = Math.round(hv(k) * wage * rate);
+      let row = rows.find((r) => r.querySelector(".pi-label").value.trim() === label);
+      if (!row && !amt) return;
+      if (!row) {
+        const div = document.createElement("div");
+        div.innerHTML = payItemRowHtml("pay", label, 0);
+        row = div.firstElementChild;
+        if (anchor) anchor.after(row); else $("#pm-pay-items").prepend(row);
+        wireRow(row); rows.push(row);
+      }
+      row.querySelector(".pi-amount").value = fmt(amt);
+      anchor = row;
+    });
+    recalc();
+  };
   $("#pm-add-deduct").onclick = () => addItem("#pm-deduct-items", "deduct");
 
   /* 근로시간 자동 입력 — 새 기록은 선택한 급여월의 근태기록으로 미리 채운다 (직접 고친 칸은 건드리지 않음).
@@ -2466,7 +2498,7 @@ function renderPayForm(emp, cat, record) {
   const hourEl = Object.fromEntries(autoKeys.map((k) => [k, $(`#pm-h-${k}`)]));
   const note = $("#pm-h-note");
   const touched = new Set();
-  autoKeys.forEach((k) => { hourEl[k].addEventListener("input", () => touched.add(k)); });
+  autoKeys.forEach((k) => { hourEl[k].addEventListener("input", () => { touched.add(k); applyWage(); }); });
   let loadSeq = 0;
   const loadHours = async (force) => {
     if (!selYm) return;
@@ -2479,6 +2511,7 @@ function renderPayForm(emp, cat, record) {
       const el = hourEl[k];
       if (force || !touched.has(k)) { el.value = h.days ? String(h[k]) : ""; touched.delete(k); }
     });
+    applyWage();
     const md = (d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
     const ongoing = todayKST() <= h.end;
     const unconf = h.unconfirmedDays ? ` <b>미확정 ${h.unconfirmedDays}일은 빠져 있습니다 — 근무 캘린더에서 확정한 뒤 다시 불러오세요.</b>` : "";
@@ -4620,7 +4653,7 @@ async function renderAttCalendar() {
     return `<button type="button" class="sc-cell at-cell ${ds < today ? "past" : ""} ${ds === today ? "today" : ""} ${ppEnd ? "pp-end" : ""} ${ppStart ? "pp-start" : ""}" data-atd="${ds}">
       <span class="d ${dow === 0 || HOLIDAYS[ds] ? "sun" : dow === 6 ? "sat" : ""}">${d}${holidayTag(ds)}${ppEnd ? `<em class="pp-tag" title="${mm}월 근태 마감"><span class="pp-full">${mm}월 근태 </span>마감</em>` : ""}</span>
       <span class="at-ents">${groups}</span>
-      ${confirms[ds]
+      ${confirms[ds] && canConfirmAtt()
         ? `<span class="acf-dot done" data-acf="${ds}" title="근태 확정됨 (${esc(confirms[ds].confirmedBy || "")})">✓</span>`
         : canConfirmAtt() && workDates.has(ds) && ds <= today
           ? `<span class="acf-dot" data-acf="${ds}" role="button" title="이 날 근태 확정"></span>` : ""}
@@ -5090,14 +5123,14 @@ async function renderAttendAdmin() {
           const s = shiftBy[d], a = attBy[d];
           const wh = workedHours(a, s);
           return `<tr>
-            <td class="att-mono"><b class="${HOLIDAYS[d] ? "c-red" : ""}">${d.slice(5)}</b> <span class="dow-tag ${dateParts(d).dow === 0 ? "sun" : dateParts(d).dow === 6 ? "sat" : ""}">${"일월화수목금토"[dateParts(d).dow]}</span>${holidayTag(d)}${confirms[d] ? ATT_CONFIRMED_BADGE : ""}</td>
+            <td class="att-mono"><b class="${HOLIDAYS[d] ? "c-red" : ""}">${d.slice(5)}</b> <span class="dow-tag ${dateParts(d).dow === 0 ? "sun" : dateParts(d).dow === 6 ? "sat" : ""}">${"일월화수목금토"[dateParts(d).dow]}</span>${holidayTag(d)}${confirms[d] && readOnly ? ATT_CONFIRMED_BADGE : ""}</td>
             <td class="att-mono">${s ? `${s.start}-${shiftEndLabel(s)}` : "-"}</td>
             <td class="att-mono c-green">${a.inAt}</td>
             <td class="att-mono ${a.outAt ? "c-red" : ""}">${a.outAt || "-"}</td>
             <td class="num">${wh != null && breakApplied(a, s) ? REST_BADGE : ""}<b>${wh != null ? fmtH(wh) : "-"}</b></td>
             <td>${noteChips(attNotes(a, s, reqOfFor(p.id, d))) || "-"}</td>
             <td class="adm-memo-td"><input class="adm-memo" data-memo="${p.id}|${d}" value="${esc(a.memo || "")}" placeholder="메모 입력 후 Enter" maxlength="100" ${readOnly ? "readonly" : ""} /></td>
-            ${readOnly ? "" : confirms[d] ? `<td class="adm-acts"><span class="acf-lock" title="확정된 근태는 수정할 수 없습니다">🔒</span></td>` : `<td class="adm-acts">
+            ${readOnly ? "" : confirms[d] ? `<td class="adm-acts">${ATT_CONFIRMED_BADGE}</td>` : `<td class="adm-acts">
               <button class="icon-btn" data-attedit="${p.id}|${d}" title="출퇴근 수정"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.8 2.8 0 0 1 4 4L8 20l-5 1 1-5L17 3Z"/></svg></button>
               <button class="icon-btn" data-attdel="${p.id}|${d}" title="기록 삭제"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/><path d="M10 11v6M14 11v6"/></svg></button>
             </td>`}
@@ -6027,7 +6060,7 @@ async function renderEmployees() {
         : `<b>${esc(e.name)}</b>`}</td><td>${esc(e.dept)}</td><td>${esc(e.grade || "-")}</td><td>${esc(e.position || "-")}</td>
       <td>${esc(e.email || "-")}</td>
       <td>${e.joinDate ? `${esc(e.joinDate)} <em class="tenure">${tenureYM(e.joinDate)} 근무</em><span class="tenure-days">${workDaysLabel(e.joinDate).replace(/[()]/g, "")}</span>` : "-"}</td>
-      ${fullCols ? `<td>${empTypeShort(e.empType)}</td>
+      ${fullCols ? `<td>${empTypeShort(e.empType)}${isHourlyEmp(e) ? `<span class="emp-wage">시급 ${fmt(e.hourlyWage)}원</span>` : ""}</td>
       <td><span class="badge ${e.role}">${roleLabel(e.role)}</span></td>
       <td>${e.passwordHash ? '<span class="badge ok">설정됨</span>' : '<span class="badge warn">미설정</span>'}</td>
       <td>${e.status === "재직" ? '<span class="badge ok">재직</span>' : '<span class="badge off">퇴사</span>'}</td>` : ""}
@@ -6105,7 +6138,11 @@ function openEmployeeModal(emp) {
       </div>
       <div class="grid-2">
         <label class="field"><span class="field-label">고용 구분</span>
-          <select id="ef-type">${EMP_TYPES.map((t) => `<option ${emp?.empType === t ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+          <select id="ef-type">${EMP_TYPES.map((t) => `<option ${emp?.empType === t ? "selected" : ""}>${t}</option>`).join("")}</select>
+          <span class="ef-hourly">
+            <label class="sf-check"><input type="checkbox" id="ef-hourly" ${emp?.hourly ? "checked" : ""} /> 시급제</label>
+            <span class="ef-wage ${emp?.hourly ? "" : "hidden"}" id="ef-wage-wrap"><input id="ef-wage" type="text" inputmode="numeric" placeholder="시급" value="${emp?.hourlyWage ? fmt(emp.hourlyWage) : ""}" /><em>원</em></span>
+          </span></label>
         <label class="field"><span class="field-label">역할 (권한)</span>
           <select id="ef-role">
             <option value="member" ${emp?.role === "member" ? "selected" : ""}>일반</option>
@@ -6145,8 +6182,17 @@ function openEmployeeModal(emp) {
     const g = $("#ef-grade");
     if (min && (!g.value || g.value < min)) { g.value = min; toast(`파트장은 직급 ${min}로 설정됩니다.`); }
   });
+  // 시급제 체크 → 시급 입력칸 표시, 숫자는 천 단위 쉼표
+  $("#ef-hourly").onchange = () => { $("#ef-wage-wrap").classList.toggle("hidden", !$("#ef-hourly").checked); if ($("#ef-hourly").checked) $("#ef-wage").focus(); };
+  $("#ef-wage").oninput = () => { const n = parseAmount($("#ef-wage").value); $("#ef-wage").value = n ? fmt(n) : ""; };
   $("#emp-form").onsubmit = async (ev) => {
     ev.preventDefault();
+    if ($("#ef-hourly").checked) {
+      const w = parseAmount($("#ef-wage").value);
+      if (!w) { toast("시급을 입력하세요."); $("#ef-wage").focus(); return; }
+      const min = MIN_WAGE[kstNow().getUTCFullYear()];
+      if (min && w < min && !confirm(`입력한 시급 ${fmt(w)}원이 ${kstNow().getUTCFullYear()}년 최저시급 ${fmt(min)}원보다 낮습니다. 그대로 저장할까요?`)) return;
+    }
     const data = {
       name: $("#ef-name").value.trim(),
       dept: $("#ef-dept").value,
@@ -6158,6 +6204,8 @@ function openEmployeeModal(emp) {
       hrUrl: $("#ef-hrurl").value.trim(),
       phone: $("#ef-phone").value.trim(),
       empType: $("#ef-type").value,
+      hourly: $("#ef-hourly").checked,
+      hourlyWage: $("#ef-hourly").checked ? parseAmount($("#ef-wage").value) : null,
       role: $("#ef-role").value,
       status: $("#ef-status").value,
       approverTier: Number($("#ef-tier").value),

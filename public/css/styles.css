@@ -2371,3 +2371,13 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 }
 .modal:has(.acf-modal) { max-width: 680px; }
 .acf-table td, .acf-table th { white-space: nowrap; }
+
+/* 시급제 */
+.ef-hourly { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+.ef-hourly .sf-check { margin: 0; }
+.ef-wage { display: inline-flex; align-items: center; gap: 4px; }
+.ef-wage input { width: 110px; text-align: right; }
+.ef-wage em { font-style: normal; font-size: 0.8rem; color: var(--ink-faint); }
+.emp-wage { display: block; font-size: 0.72rem; color: var(--ink-faint); white-space: nowrap; }
+.pm-wage-note { margin: -4px 0 10px; padding: 8px 10px; border-radius: 8px; background: var(--blue-soft); color: var(--blue-deep); font-size: 0.76rem; line-height: 1.55; }
+.pm-wage-note b { font-weight: 800; }
