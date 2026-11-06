@@ -6138,11 +6138,7 @@ function openEmployeeModal(emp) {
       </div>
       <div class="grid-2">
         <label class="field"><span class="field-label">고용 구분</span>
-          <select id="ef-type">${EMP_TYPES.map((t) => `<option ${emp?.empType === t ? "selected" : ""}>${t}</option>`).join("")}</select>
-          <span class="ef-hourly">
-            <label class="sf-check"><input type="checkbox" id="ef-hourly" ${emp?.hourly ? "checked" : ""} /> 시급제</label>
-            <span class="ef-wage ${emp?.hourly ? "" : "hidden"}" id="ef-wage-wrap"><input id="ef-wage" type="text" inputmode="numeric" placeholder="시급" value="${emp?.hourlyWage ? fmt(emp.hourlyWage) : ""}" /><em>원</em></span>
-          </span></label>
+          <select id="ef-type">${EMP_TYPES.map((t) => `<option ${emp?.empType === t ? "selected" : ""}>${t}</option>`).join("")}</select></label>
         <label class="field"><span class="field-label">역할 (권한)</span>
           <select id="ef-role">
             <option value="member" ${emp?.role === "member" ? "selected" : ""}>일반</option>
@@ -6151,6 +6147,15 @@ function openEmployeeModal(emp) {
             <option value="special" ${emp?.role === "special" ? "selected" : ""}>특수관리자 (권한 모니터링 외 전체)</option>
             <option value="admin" ${emp?.role === "admin" ? "selected" : ""}>총괄 관리자</option>
           </select></label>
+      </div>
+      <div class="grid-2 ef-pay">
+        <div class="field"><span class="field-label">급여 방식</span>
+          <div class="ef-paytype">
+            <label><input type="radio" name="ef-paytype" value="monthly" ${emp?.hourly ? "" : "checked"} /> 월급제</label>
+            <label><input type="radio" name="ef-paytype" value="hourly" id="ef-hourly" ${emp?.hourly ? "checked" : ""} /> 시급제</label>
+          </div></div>
+        <label class="field" id="ef-wage-wrap"><span class="field-label">계약 시급 <em class="sf-hint">(시급제)</em></span>
+          <span class="ef-wage"><input id="ef-wage" type="text" inputmode="numeric" placeholder="예: 12,000" value="${emp?.hourlyWage ? fmt(emp.hourlyWage) : ""}" ${emp?.hourly ? "" : "disabled"} /><em>원</em></span></label>
       </div>
       <div class="grid-2">
         <label class="field"><span class="field-label">재직 상태</span>
@@ -6183,7 +6188,9 @@ function openEmployeeModal(emp) {
     if (min && (!g.value || g.value < min)) { g.value = min; toast(`파트장은 직급 ${min}로 설정됩니다.`); }
   });
   // 시급제 체크 → 시급 입력칸 표시, 숫자는 천 단위 쉼표
-  $("#ef-hourly").onchange = () => { $("#ef-wage-wrap").classList.toggle("hidden", !$("#ef-hourly").checked); if ($("#ef-hourly").checked) $("#ef-wage").focus(); };
+  $("#modal").querySelectorAll('input[name="ef-paytype"]').forEach((r) => {
+    r.onchange = () => { const on = $("#ef-hourly").checked; $("#ef-wage").disabled = !on; if (on) $("#ef-wage").focus(); };
+  });
   $("#ef-wage").oninput = () => { const n = parseAmount($("#ef-wage").value); $("#ef-wage").value = n ? fmt(n) : ""; };
   $("#emp-form").onsubmit = async (ev) => {
     ev.preventDefault();
