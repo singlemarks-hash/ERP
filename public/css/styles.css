@@ -2338,3 +2338,36 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 /* OKR 지연 달성 (기한을 넘겨 100% 도달) */
 .badge.late-done { background: #fff0e6; color: #e8590c; }
 .kr-title .badge.kr-late { font-size: 0.66rem; padding: 1px 6px; vertical-align: 1px; }
+
+/* ── 근태 확정 ── */
+.sc-grid.at .sc-cell { position: relative; }
+.acf-dot { position: absolute; right: 6px; bottom: 6px; width: 20px; height: 20px; border-radius: 50%;
+  border: 1.5px solid #c9cfd6; background: #fff; display: flex; align-items: center; justify-content: center;
+  font-size: 0.72rem; font-weight: 800; color: transparent; cursor: pointer; z-index: 1; transition: border-color .12s, background .12s; }
+.acf-dot:hover { border-color: var(--green); background: #f0faf4; color: #b7dfc6; }
+.acf-dot:hover::after { content: "✓"; color: #9fd3b3; }
+.acf-dot.done { border-color: var(--green); background: var(--green); color: #fff; }
+.acf-dot.done:hover { background: var(--green); color: #fff; }
+.acf-dot.done:hover::after { content: none; }
+.sc-grid.at .sc-cell .at-ents { padding-bottom: 18px; }
+.att-confirmed { display: inline-block; margin-left: 5px; padding: 0 6px; border-radius: 6px; background: var(--green-soft); color: var(--green);
+  font-size: 0.64rem; font-weight: 800; font-family: inherit; vertical-align: 1px; line-height: 1.6; white-space: nowrap; }
+.att-unconf { display: inline-block; padding: 0 6px; border-radius: 6px; background: #fff0e6; color: #e8590c; font-size: 0.68rem; font-weight: 700; line-height: 1.6; white-space: nowrap; }
+.att-unconf.soon { background: #f2f4f6; color: var(--ink-faint); }
+.acf-table { margin-top: 4px; }
+.acf-table tr.acf-absent td { color: var(--ink-faint); }
+.acf-issues { margin: 12px 0 0; padding: 10px 12px 10px 28px; border-radius: 10px; background: #f9fafb; font-size: 0.8rem; line-height: 1.6; }
+.acf-issues .acf-block { color: var(--red); font-weight: 600; }
+.acf-issues .acf-warn { color: #e8590c; }
+.acf-hist { margin-top: 10px; font-size: 0.74rem; color: var(--ink-faint); line-height: 1.6; }
+.acf-lock { font-size: 0.8rem; opacity: 0.55; }
+.pa-sum { display: flex; flex-wrap: wrap; gap: 14px; margin: 0 0 10px; font-size: 0.84rem; color: var(--ink-soft); }
+.pa-table tr.pa-unconf td { background: #fffaf5; }
+.pa-table .pa-st { white-space: nowrap; }
+.pa-table .pa-st .att-confirmed { margin-left: 0; }
+@media (max-width: 640px) {
+  .acf-dot { right: 3px; bottom: 3px; width: 15px; height: 15px; font-size: 0.56rem; border-width: 1.2px; }
+  .sc-grid.at .sc-cell .at-ents { padding-bottom: 19px; }
+}
+.modal:has(.acf-modal) { max-width: 680px; }
+.acf-table td, .acf-table th { white-space: nowrap; }

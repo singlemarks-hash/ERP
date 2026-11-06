@@ -2172,7 +2172,8 @@ async function renderPayroll() {
     <div class="pm-grid">
       <div class="card" id="pm-form-card"></div>
       <div class="card" id="pm-history-card"></div>
-    </div>` : `
+    </div>
+    <div class="card" id="pm-att-card"></div>` : `
     <div class="card" id="pm-history-card"></div>`}`;
 
   $("#pm-emp").onchange = (ev) => {
@@ -2480,8 +2481,10 @@ function renderPayForm(emp, cat, record) {
     });
     const md = (d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
     const ongoing = todayKST() <= h.end;
+    const unconf = h.unconfirmedDays ? ` <b>미확정 ${h.unconfirmedDays}일은 빠져 있습니다 — 근무 캘린더에서 확정한 뒤 다시 불러오세요.</b>` : "";
     note.innerHTML = h.days
-      ? `근태기록 ${md(h.start)}~${md(h.end)} · 출퇴근 ${h.days}일 기준으로 채웠습니다.${ongoing ? ` <b>기간이 끝나지 않았습니다 — ${md(h.end)} 이후 다시 불러오세요.</b>` : ""}`
+      ? `근태기록 ${md(h.start)}~${md(h.end)} · <b class="c-green">확정된 근무 ${h.days}일</b> 기준으로 채웠습니다.${unconf}${ongoing ? ` <b>기간이 끝나지 않았습니다 — ${md(h.end)} 이후 다시 불러오세요.</b>` : ""}`
+      : h.unconfirmedDays ? `${md(h.start)}~${md(h.end)} 기간에 확정된 근무가 없습니다.${unconf}`
       : `${md(h.start)}~${md(h.end)} 기간의 출퇴근 기록이 없습니다.`;
   };
   $("#pm-h-load").onclick = () => {
@@ -2490,7 +2493,8 @@ function renderPayForm(emp, cat, record) {
     loadHours(true);
   };
   if (!isEdit) loadHours(false);
-  onYmChange = () => { if (!isEdit) loadHours(false); };
+  onYmChange = () => { if (!isEdit) loadHours(false); renderPayAttList(emp, selYm); };
+  renderPayAttList(emp, selYm);
 
   if (isEdit) $("#pm-cancel-edit").onclick = () => { pmEditId = null; pmEditYm = null; renderPayForm(emp, cat, null); };
 
@@ -3763,6 +3767,64 @@ function attNotes(att, shift, reqOf) {
   }
   return notes;
 }
+/* 급여관리 하단 — 선택한 직원의 급여월 산정기간 근무 내역 (확정 여부와 함께 점검) */
+let payAttSeq = 0;
+async function renderPayAttList(emp, ym) {
+  const card = document.getElementById("pm-att-card");
+  if (!card || !emp || !ym) return;
+  const seq = ++payAttSeq;
+  const { start, end } = payPeriod(ym);
+  card.innerHTML = `<div class="empty">근무 내역 불러오는 중...</div>`;
+  const [shiftSnap, attSnap, reqSnap, confirms] = await Promise.all([
+    db.collection(COL.shifts).where("date", ">=", start).where("date", "<=", end).get(),
+    db.collection(COL.attendance).where("date", ">=", start).where("date", "<=", end).get(),
+    db.collection(COL.attRequests).where("empId", "==", emp.id).get(),
+    loadAttConfirms(start, end)
+  ]);
+  if (seq !== payAttSeq || !card.isConnected) return;
+  const shiftBy = {}, attBy = {};
+  shiftSnap.docs.map((d) => d.data()).filter((x) => x.empId === emp.id && x.date >= start && x.date <= end).forEach((x) => { shiftBy[x.date] = x; });
+  attSnap.docs.map((d) => d.data()).filter((a) => a.empId === emp.id && a.date >= start && a.date <= end && (a.inAt || a.outAt)).forEach((a) => { attBy[a.date] = a; });
+  const reqs = reqSnap.docs.map((d) => d.data());
+  const reqOf = (date) => (kind) => {
+    const rs = reqs.filter((r) => r.date === date && r.type === "overtime" && r.otKind === kind);
+    return rs.some((r) => r.status === "승인") ? "승인" : rs.some((r) => r.status === "대기") ? "대기" : rs.length ? "반려" : undefined;
+  };
+  const dates = [...new Set([...Object.keys(shiftBy), ...Object.keys(attBy)])].sort();
+  const confN = dates.filter((d) => confirms[d]).length;
+  const today = todayKST();
+  const md = (d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+  let workedConf = 0;
+  const rowsHtml = dates.map((d) => {
+    const s = shiftBy[d], a = attBy[d];
+    const wh = workedHours(a, s);
+    if (confirms[d] && wh != null) workedConf += wh;
+    const st = confirms[d] ? ATT_CONFIRMED_BADGE
+      : d > today ? `<span class="att-unconf soon">예정</span>` : `<span class="att-unconf">미확정</span>`;
+    return `<tr class="${confirms[d] ? "" : "pa-unconf"}">
+      <td class="att-mono"><b class="${HOLIDAYS[d] ? "c-red" : ""}">${d.slice(5)}</b> <span class="att-dow">(${"일월화수목금토"[dateParts(d).dow]})</span>${holidayTag(d)}</td>
+      <td class="att-mono">${s ? `${s.start}-${shiftEndLabel(s)}` : "-"}</td>
+      <td class="att-mono">${a?.inAt || "-"}</td>
+      <td class="att-mono ${a && a.inAt && !a.outAt ? "c-red" : ""}">${a?.outAt || (a ? "미기록" : "-")}</td>
+      <td class="num"><b>${wh != null ? fmtH(wh) : "-"}</b></td>
+      <td>${a ? (noteChips(attNotes(a, s, reqOf(d))) || "-") : (d <= today ? '<span class="att-note pending">출근 기록 없음</span>' : "-")}</td>
+      <td class="pa-st">${st}</td>
+    </tr>`;
+  }).join("");
+  const pastUnconf = dates.filter((d) => !confirms[d] && d <= today).length;
+  card.innerHTML = `
+    <div class="card-title"><div>${esc(emp.name)}님 근무 내역 — ${Number(ym.slice(5, 7))}월 급여 (${md(start)}~${md(end)})
+      <div class="ct-desc">근태가 <b>확정</b>된 날만 급여 근로시간에 합산됩니다. 미확정 날짜는 근무 캘린더에서 확정하세요.</div></div></div>
+    <div class="pa-sum">
+      <span>근무일 <b>${dates.length}일</b></span>
+      <span class="c-green">확정 <b>${confN}일</b> · 실근무 ${fmtH(workedConf)}h</span>
+      ${pastUnconf ? `<span class="c-red">미확정 <b>${pastUnconf}일</b></span>` : ""}
+    </div>
+    ${dates.length ? `<div class="table-wrap"><table class="data att-table pa-table">
+      <thead><tr><th>날짜</th><th>예정</th><th>출근</th><th>퇴근</th><th class="num">실근무(h)</th><th>비고</th><th>확정</th></tr></thead>
+      <tbody>${rowsHtml}</tbody></table></div>` : `<div class="empty">이 기간에 근무 일정·출퇴근 기록이 없습니다.</div>`}`;
+}
+
 /* 급여 근로시간 자동 산정 — 근태 화면과 같은 계산(attNotes·workedNetMin)을 그대로 쓴다.
    기본: 예정 근무 안에서 실제 일한 시간 (조기출근·연장으로 감지된 분은 제외, 날짜별 10분 블록)
    연장: 승인된 조기출근·연장·추가근무 가산 h
@@ -3771,14 +3833,18 @@ function attNotes(att, shift, reqOf) {
    → 기본근로 = 추가근무(연장)를 뺀 실제 근무 전체 (휴일·야간 포함). 연장은 기본에 넣지 않고 x 1.5 */
 async function payHoursFromAttendance(empId, ym) {
   const { start, end } = payPeriod(ym);
-  const [shiftSnap, attSnap] = await Promise.all([
+  const [shiftSnap, attSnap, confirms] = await Promise.all([
     db.collection(COL.shifts).where("date", ">=", start).where("date", "<=", end).get(),
-    db.collection(COL.attendance).where("date", ">=", start).where("date", "<=", end).get()
+    db.collection(COL.attendance).where("date", ">=", start).where("date", "<=", end).get(),
+    loadAttConfirms(start, end)
   ]);
   const shiftBy = {};
   shiftSnap.docs.map((d) => d.data()).filter((x) => x.empId === empId).forEach((x) => { shiftBy[x.date] = x; });
-  const atts = attSnap.docs.map((d) => d.data())
+  const allAtts = attSnap.docs.map((d) => d.data())
     .filter((a) => a.empId === empId && a.date >= start && a.date <= end && a.inAt && a.outAt);
+  // 근태가 확정된 날만 급여에 합산한다
+  const atts = allAtts.filter((a) => confirms[a.date]);
+  const unconfirmedDays = allAtts.length - atts.length;
   let basic = 0, overtime = 0, night = 0, holiday = 0;
   atts.forEach((a) => {
     const sh = shiftBy[a.date];
@@ -3796,7 +3862,7 @@ async function payHoursFromAttendance(empId, ym) {
     });
   });
   const r2 = (v) => Math.round(v * 100) / 100;
-  return { basic: r2(basic), night: r2(night), overtime: r2(overtime), holiday: r2(holiday), days: atts.length, start, end };
+  return { basic: r2(basic), night: r2(night), overtime: r2(overtime), holiday: r2(holiday), days: atts.length, unconfirmedDays, start, end };
 }
 /* 특이사항 칩 — 승인되지 않은 추가근무는 무채색으로 흐리게 표시한다.
    date를 넘기면 미신청 건이 결재 요청 버튼이 된다 (본인 근무 이력에서만 사용). */
@@ -3982,6 +4048,7 @@ async function renderAttRecord() {
       workDate: recDate,
       shift: shifts.find((s) => s.date === recDate && s.empId === me.id),
       onConfirm: async () => {
+        if (await blockIfConfirmed(recDate)) { closeModal(); return; }
         const shiftOfDay = shifts.find((s) => s.date === recDate && s.empId === me.id);
         await db.collection(COL.attendance).doc(myRec.id).set({
           empId: me.id, name: me.name, dept: deptNow(me.dept), date: recDate, inAt: t,
@@ -4021,6 +4088,7 @@ async function renderAttRecord() {
       shift: shiftOfDay,
       breakIncl: breakApplied(myRec, shiftOfDay),
       onConfirm: async () => {
+        if (await blockIfConfirmed(workDate)) { closeModal(); return; }
         await db.collection(COL.attendance).doc(myRec.id)
           .set({ outAt: t, outDate: outDateEff }, { merge: true });
         closeModal();
@@ -4058,6 +4126,7 @@ function openOtRequestModal({ date, kind, mins, shift, emps, onDone }) {
     const btn = $("#otr-ok");
     if (btn.disabled) return;
     btn.disabled = true;
+    if (await blockIfConfirmed(date)) { closeModal(); return; }
     // 같은 날·같은 종류로 이미 올라간 건이 있으면 중복 생성하지 않는다
     const dup = await db.collection(COL.attRequests)
       .where("empId", "==", me.id).where("date", "==", date).get();
@@ -4244,6 +4313,7 @@ function bindAttReqSection() {
       const end = `${$("#atr-eh").value}:${$("#atr-em").value}`;
       if (start === end) { toast("시작과 종료 시간이 같습니다."); return; }
       const mins = otMins();
+      if (await blockIfConfirmed(selDate)) return;
       data = { ...base, date: selDate, start, end, nextDay: minOf(end) <= minOf(start), mins, hours: blockHours(mins) };
     } else {
       const text = $("#atr-text").value.trim();
@@ -4364,17 +4434,162 @@ function openOutConfirmModal({ time, workDate, outDateEff, inAt, shift, breakInc
   };
 }
 
+/* ── 근태 확정 ─────────────────────────────────────────────────────
+   매니저·특수관리자·총괄이 근무 캘린더에서 날짜별로 '그날 등록된 전원'의 근태를 확정한다.
+   · 확정 전 결재 대기 추가근무·퇴근 미기록이 있으면 확정할 수 없다
+   · 확정된 날은 출퇴근·근무 일정·추가근무 신청/승인을 바꿀 수 없다 (메모는 가능)
+   · 총괄 관리자만 확정을 취소할 수 있고, 확정·취소 이력은 문서에 남는다
+   · 급여 근로시간 자동 입력은 확정된 날만 합산한다 */
+const canConfirmAtt = () => isAdmin() || isSpecial() || isManager();
+const isConfirmedDoc = (c) => !!c && c.status === "확정";
+async function loadAttConfirms(start, end) {
+  const snap = await db.collection(COL.attConfirms).where("date", ">=", start).where("date", "<=", end).get();
+  const map = {};
+  snap.docs.forEach((d) => { const c = { id: d.id, ...d.data() }; if (isConfirmedDoc(c)) map[c.date || d.id] = c; });
+  return map;
+}
+async function isAttDateConfirmed(date) {
+  if (!date) return false;
+  const snap = await db.collection(COL.attConfirms).doc(date).get();
+  return snap.exists && isConfirmedDoc(snap.data());
+}
+/* 쓰기 전에 호출 — 확정된 날이면 안내하고 true */
+async function blockIfConfirmed(date) {
+  if (await isAttDateConfirmed(date)) { toast(`${date}은(는) 근태가 확정된 날이라 수정할 수 없습니다.`); return true; }
+  return false;
+}
+const ATT_CONFIRMED_BADGE = `<span class="att-confirmed" title="근태 확정">확정</span>`;
+const fmtKstTs = (iso) => { if (!iso) return "-"; const d = new Date(new Date(iso).getTime() + KST_OFFSET_MS); return d.toISOString().slice(0, 16).replace("T", " "); };
+
+/* 확정 모달 — 그날 근무 일정·출퇴근이 있는 사람 전원을 보여주고, 막는 항목이 없을 때만 '예, 확정합니다' */
+async function openAttConfirmModal(ds, onDone) {
+  const [shiftSnap, attSnap, reqSnap, confSnap] = await Promise.all([
+    db.collection(COL.shifts).where("date", "==", ds).get(),
+    db.collection(COL.attendance).where("date", "==", ds).get(),
+    db.collection(COL.attRequests).where("date", "==", ds).get(),
+    db.collection(COL.attConfirms).doc(ds).get()
+  ]);
+  const conf = confSnap.exists ? confSnap.data() : null;
+  const shifts = shiftSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.date === ds);
+  const atts = attSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.date === ds && (x.inAt || x.outAt));
+  const reqs = reqSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((r) => r.date === ds);
+  const reqOf = (empId) => (kind) => {
+    const rs = reqs.filter((r) => r.empId === empId && r.type === "overtime" && r.otKind === kind);
+    return rs.some((r) => r.status === "승인") ? "승인" : rs.some((r) => r.status === "대기") ? "대기" : rs.length ? "반려" : undefined;
+  };
+  const people = new Map();
+  shifts.forEach((x) => people.set(x.empId, { empId: x.empId, name: x.name, shift: x }));
+  atts.forEach((a) => { const p = people.get(a.empId) || { empId: a.empId, name: a.name }; p.att = a; people.set(a.empId, p); });
+  const rows = [...people.values()].sort((a, b) => minOf(a.shift?.start || a.att?.inAt || "99:99") - minOf(b.shift?.start || b.att?.inAt || "99:99"));
+  const pending = reqs.filter((r) => r.status === "대기");
+  const noOut = rows.filter((p) => p.att && p.att.inAt && !p.att.outAt);
+  const absent = rows.filter((p) => !p.att);
+  const unrequested = rows.flatMap((p) => attNotes(p.att, p.shift, reqOf(p.empId)).filter((n) => n.canReq).map((n) => ({ p, n })));
+  const future = ds > todayKST();
+  const blocked = future || pending.length || noOut.length;
+  const confirmed = isConfirmedDoc(conf);
+
+  const tableHtml = rows.length ? `<div class="table-wrap"><table class="data att-table acf-table">
+    <thead><tr><th>이름</th><th>예정</th><th>출근</th><th>퇴근</th><th class="num">실근무</th><th>비고</th></tr></thead>
+    <tbody>${rows.map((p) => {
+      const wh = workedHours(p.att, p.shift);
+      return `<tr class="${!p.att ? "acf-absent" : ""}">
+        <td><b>${esc(p.name || "-")}</b></td>
+        <td class="att-mono">${p.shift ? `${p.shift.start}-${shiftEndLabel(p.shift)}` : "-"}</td>
+        <td class="att-mono">${p.att?.inAt || "-"}</td>
+        <td class="att-mono ${p.att && !p.att.outAt ? "c-red" : ""}">${p.att?.outAt || (p.att ? "미기록" : "-")}</td>
+        <td class="num"><b>${wh != null ? fmtH(wh) : "-"}</b></td>
+        <td>${!p.att ? '<span class="att-note pending">출근 기록 없음</span>' : (noteChips(attNotes(p.att, p.shift, reqOf(p.empId))) || "-")}</td>
+      </tr>`;
+    }).join("")}</tbody></table></div>` : `<div class="empty">이 날 등록된 근무가 없습니다.</div>`;
+
+  const issues = [
+    future ? `<li class="acf-block">아직 지나지 않은 날짜입니다. 근무가 끝난 뒤 확정하세요.</li>` : "",
+    pending.length ? `<li class="acf-block">결재 대기 중인 추가근무 ${pending.length}건 (${[...new Set(pending.map((r) => r.name))].map(esc).join(", ")}) — 승인·반려 후 확정할 수 있습니다.</li>` : "",
+    noOut.length ? `<li class="acf-block">퇴근 기록이 없는 직원 ${noOut.length}명 (${noOut.map((p) => esc(p.name)).join(", ")}) — 근태관리에서 퇴근을 입력한 뒤 확정하세요.</li>` : "",
+    absent.length ? `<li class="acf-warn">출근 기록이 없는 직원 ${absent.length}명 (${absent.map((p) => esc(p.name)).join(", ")}) — 확정하면 근무 0시간으로 고정됩니다.</li>` : "",
+    unrequested.length ? `<li class="acf-warn">결재를 올리지 않은 조기출근·연장 ${unrequested.length}건 — 확정하면 가산으로 인정되지 않습니다.</li>` : ""
+  ].filter(Boolean).join("");
+
+  openModal(`
+    <div class="acf-modal"></div>
+    <h3>${dateLabelKo(ds)} 근태 ${confirmed ? "확정됨" : "확정"}</h3>
+    ${confirmed
+      ? `<p class="modal-desc"><b>${esc(conf.confirmedBy || "-")}</b>님이 ${esc(fmtKstTs(conf.confirmedAt))}에 확정했습니다. 확정된 근태는 수정할 수 없습니다.${isAdmin() ? " 총괄 관리자는 확정을 취소할 수 있습니다." : ""}</p>`
+      : `<p class="modal-desc">이 날 등록된 <b>${rows.length}명</b>의 근태를 아래 시간으로 확정합니다. <b>확정하면 출퇴근·근무 일정·추가근무를 수정할 수 없고</b>, 확정된 근태만 급여 근로시간에 합산됩니다.</p>`}
+    ${tableHtml}
+    ${!confirmed && issues ? `<ul class="acf-issues">${issues}</ul>` : ""}
+    ${confirmed && (conf.history || []).length ? `<div class="acf-hist">${(conf.history || []).slice(-5).reverse().map((h) => `<div>${esc(fmtKstTs(h.at))} · ${esc(h.by)} · ${esc(h.action)}</div>`).join("")}</div>` : ""}
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost btn-sm" id="acf-close">${confirmed ? "닫기" : "취소"}</button>
+      ${!confirmed && canConfirmAtt() ? `<button type="button" class="btn btn-primary btn-sm" id="acf-ok" ${blocked || !rows.length ? "disabled" : ""}>예, 확정합니다</button>` : ""}
+      ${confirmed && isAdmin() ? `<button type="button" class="btn btn-danger btn-sm" id="acf-undo">확정 취소</button>` : ""}
+    </div>`);
+  $("#acf-close").onclick = closeModal;
+  const okBtn = $("#acf-ok");
+  if (okBtn) okBtn.onclick = async () => {
+    if (okBtn.disabled) return;
+    okBtn.disabled = true;
+    try {
+      const at = new Date().toISOString();
+      const ref = db.collection(COL.attConfirms).doc(ds);
+      const prev = (await ref.get()).data() || {};
+      if (isConfirmedDoc(prev)) { toast("이미 확정된 날입니다."); closeModal(); onDone && onDone(); return; }
+      const batch = db.batch();
+      batch.set(ref, {
+        date: ds, status: "확정", confirmedAt: at, confirmedBy: me.name, confirmedById: me.id,
+        empIds: rows.map((p) => p.empId),
+        // 확정 당시 값 (나중에 확인용)
+        snapshot: rows.map((p) => ({ empId: p.empId, name: p.name || "", start: p.shift?.start || null, end: p.shift?.end || null,
+          inAt: p.att?.inAt || null, outAt: p.att?.outAt || null, outDate: p.att?.outDate || null, otApprovedMin: Number(p.att?.otApprovedMin || 0) })),
+        history: [...(prev.history || []), { action: "확정", by: me.name, byId: me.id, at }]
+      });
+      atts.forEach((a) => batch.update(db.collection(COL.attendance).doc(a.id), { confirmed: true, confirmedAt: at, confirmedBy: me.name }));
+      await batch.commit();
+      closeModal();
+      toast(`${ds} 근태 ${rows.length}명을 확정했습니다.`);
+      onDone && onDone();
+    } catch (e) {
+      console.error(e); okBtn.disabled = false;
+      toast(`확정에 실패했습니다. (${(e && (e.code || e.message)) || "오류"})`);
+    }
+  };
+  const undo = $("#acf-undo");
+  if (undo) undo.onclick = async () => {
+    if (!isAdmin()) return;
+    if (!confirm(`${ds} 근태 확정을 취소할까요?\n취소하면 이 날 출퇴근을 다시 수정할 수 있고, 급여 자동 합산에서도 빠집니다.`)) return;
+    undo.disabled = true;
+    try {
+      const at = new Date().toISOString();
+      const batch = db.batch();
+      batch.set(db.collection(COL.attConfirms).doc(ds), {
+        ...conf, status: "취소", canceledAt: at, canceledBy: me.name,
+        history: [...(conf.history || []), { action: "확정 취소", by: me.name, byId: me.id, at }]
+      });
+      atts.forEach((a) => batch.update(db.collection(COL.attendance).doc(a.id), { confirmed: false }));
+      await batch.commit();
+      closeModal();
+      toast(`${ds} 근태 확정을 취소했습니다.`);
+      onDone && onDone();
+    } catch (e) { console.error(e); undo.disabled = false; toast("확정 취소에 실패했습니다."); }
+  };
+}
+
 /* ── 근무 캘린더 ── */
 async function renderAttCalendar() {
   const body = $("#att-body");
   const today = todayKST();
   if (!atCalYm) atCalYm = ymNowKST();
   const [yy, mm] = atCalYm.split("-").map(Number);
-  const [shiftSnap, emps] = await Promise.all([
+  const [shiftSnap, emps, confirms, attSnap] = await Promise.all([
     db.collection(COL.shifts).where("date", ">=", `${atCalYm}-01`).where("date", "<=", `${atCalYm}-31`).get(),
-    loadActiveEmployees()
+    loadActiveEmployees(),
+    loadAttConfirms(`${atCalYm}-01`, `${atCalYm}-31`),
+    canConfirmAtt() ? db.collection(COL.attendance).where("date", ">=", `${atCalYm}-01`).where("date", "<=", `${atCalYm}-31`).get() : Promise.resolve({ docs: [] })
   ]);
   const shifts = shiftSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((s) => (s.date || "").startsWith(atCalYm));
+  // 확정 버튼을 띄울 날: 근무 일정이나 출퇴근 기록이 있는 날
+  const workDates = new Set([...shifts.map((s) => s.date), ...attSnap.docs.map((d) => d.data()).filter((a) => a.inAt).map((a) => a.date)]);
   const byDate = {};
   shifts.forEach((s) => { (byDate[s.date] = byDate[s.date] || []).push(s); });
   // 이번 달 근무자 + 재직 직원 전체에 겹치지 않는 색상 배정
@@ -4405,6 +4620,10 @@ async function renderAttCalendar() {
     return `<button type="button" class="sc-cell at-cell ${ds < today ? "past" : ""} ${ds === today ? "today" : ""} ${ppEnd ? "pp-end" : ""} ${ppStart ? "pp-start" : ""}" data-atd="${ds}">
       <span class="d ${dow === 0 || HOLIDAYS[ds] ? "sun" : dow === 6 ? "sat" : ""}">${d}${holidayTag(ds)}${ppEnd ? `<em class="pp-tag" title="${mm}월 근태 마감"><span class="pp-full">${mm}월 근태 </span>마감</em>` : ""}</span>
       <span class="at-ents">${groups}</span>
+      ${confirms[ds]
+        ? `<span class="acf-dot done" data-acf="${ds}" title="근태 확정됨 (${esc(confirms[ds].confirmedBy || "")})">✓</span>`
+        : canConfirmAtt() && workDates.has(ds) && ds <= today
+          ? `<span class="acf-dot" data-acf="${ds}" role="button" title="이 날 근태 확정"></span>` : ""}
     </button>`;
   };
 
@@ -4444,7 +4663,11 @@ async function renderAttCalendar() {
   $("#at-now").onclick = () => { atCalYm = ymNowKST(); renderAttend(); };
   $("#at-pdf").onclick = () => printWorkCalendar(yy, mm, cells, byDate, monthEmps);
   body.querySelectorAll("[data-atd]").forEach((b) => {
-    b.onclick = () => openShiftDayModal(b.dataset.atd, emps);
+    b.onclick = (ev) => {
+      const dot = ev.target.closest("[data-acf]");
+      if (dot) { ev.stopPropagation(); openAttConfirmModal(dot.dataset.acf, () => renderAttend()); return; }
+      openShiftDayModal(b.dataset.atd, emps);
+    };
   });
 }
 
@@ -4521,7 +4744,7 @@ function printWorkCalendar(yy, mm, cells, byDate, monthEmps) {
 
 /* 근무 일정 일별 모달: 목록 + (관리자) 추가/수정/삭제 */
 function openShiftDayModal(ds, emps) {
-  const canEdit = canEditShiftCal();
+  const canEditShift = canEditShiftCal();
   let showForm = false;
   let editing = null; // 수정 중인 shift
 
@@ -4575,11 +4798,12 @@ function openShiftDayModal(ds, emps) {
   };
 
   const renderM = async () => {
-    const snap = await db.collection(COL.shifts).where("date", "==", ds).get();
+    const [snap, locked] = await Promise.all([db.collection(COL.shifts).where("date", "==", ds).get(), isAttDateConfirmed(ds)]);
+    const canEdit = canEditShift && !locked;   // 근태가 확정된 날은 일정도 바꿀 수 없다
     const list = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((s) => s.date === ds)
       .sort((a, b) => WORK_AREAS.indexOf(a.area) - WORK_AREAS.indexOf(b.area) || minOf(a.start) - minOf(b.start));
     openModal(`
-      <div class="sf-top"><h3>${dateLabelKo(ds)} 근무</h3>
+      <div class="sf-top"><h3>${dateLabelKo(ds)} 근무${locked ? ` ${ATT_CONFIRMED_BADGE}` : ""}</h3>
         ${canEdit && !showForm ? `<button class="btn btn-primary btn-sm" id="sh-addbtn">+ 추가</button>` : ""}</div>
       ${showForm ? formHtml() : ""}
       <div class="shift-list">
@@ -4618,6 +4842,7 @@ function openShiftDayModal(ds, emps) {
       b.onclick = async () => {
         const s = list.find((x) => x.id === b.dataset.shdel);
         if (!confirm(`${s.name}님의 ${ds} ${s.start}~${shiftEndLabel(s)} 근무를 삭제할까요?`)) return;
+        if (await blockIfConfirmed(ds)) return;
         await db.collection(COL.shifts).doc(s.id).delete();
         renderM();
       };
@@ -4627,6 +4852,7 @@ function openShiftDayModal(ds, emps) {
     if (save) save.onclick = async () => {
       if (save.disabled) return;
       save.disabled = true;
+      if (await blockIfConfirmed(editing ? editing.date : ds)) { save.disabled = false; return; }
       const selVal = $("#sf-emp").value;
       const isTemp = selVal === TEMP_EMP_VALUE;
       let who;
@@ -4659,6 +4885,9 @@ function openShiftDayModal(ds, emps) {
             if (!nd.startsWith(ds.slice(0, 7))) break;
             dates.push(nd);
           }
+          // 반복 등록 시 이미 근태가 확정된 날은 건너뛴다
+          const conf = await loadAttConfirms(dates[0], dates[dates.length - 1]);
+          for (let i = dates.length - 1; i > 0; i--) if (conf[dates[i]]) dates.splice(i, 1);
         }
         for (const dt of dates) {
           await db.collection(COL.shifts).add({ ...data, date: dt, createdBy: me.id, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
@@ -4680,11 +4909,12 @@ async function renderAttHistory() {
   const [yy, mm] = atHistYm.split("-").map(Number);
   const per = payPeriod(atHistYm); // 급여월 산정기간
   const inPer = (d) => !!d && d >= per.start && d <= per.end;
-  const [shiftSnap, attSnap, reqSnap, emps] = await Promise.all([
+  const [shiftSnap, attSnap, reqSnap, emps, confirms] = await Promise.all([
     db.collection(COL.shifts).where("date", ">=", per.start).where("date", "<=", per.end).get(),
     db.collection(COL.attendance).where("date", ">=", per.start).where("date", "<=", per.end).get(),
     db.collection(COL.attRequests).where("empId", "==", me.id).get(),
-    loadActiveEmployees()
+    loadActiveEmployees(),
+    loadAttConfirms(per.start, per.end)
   ]);
   // 날짜·종류별 결재 상태 (반려 건은 다시 요청할 수 있도록 덮어쓰지 않는다)
   const reqSt = {};
@@ -4743,13 +4973,13 @@ async function renderAttHistory() {
           const s = shiftBy[d], a = attBy[d];
           const wh = workedHours(a, s);
           return `<tr>
-            <td class="att-mono"><b class="${HOLIDAYS[d] ? "c-red" : ""}">${d.slice(5)}</b> <span class="att-dow">(${"일월화수목금토"[dateParts(d).dow]})</span>${holidayTag(d)}</td>
+            <td class="att-mono"><b class="${HOLIDAYS[d] ? "c-red" : ""}">${d.slice(5)}</b> <span class="att-dow">(${"일월화수목금토"[dateParts(d).dow]})</span>${holidayTag(d)}${confirms[d] ? ATT_CONFIRMED_BADGE : ""}</td>
             <td class="att-mono">${s ? `${s.start}-${shiftEndLabel(s)}` : "-"}</td>
             <td class="att-mono ${a?.inAt ? "c-green" : ""}">${a?.inAt || "-"}</td>
             <td class="att-mono ${a?.outAt ? "c-red" : ""}">${a?.outAt || "-"}</td>
             <td class="num">${s ? fmtH(shiftHours(s)) : "-"}</td>
             <td class="num">${wh != null && breakApplied(a, s) ? REST_BADGE : ""}<b>${wh != null ? fmtH(wh) : "-"}</b></td>
-            <td>${noteChips(attNotes(a, s, reqOfDate(d)), d) || "-"}</td>
+            <td>${noteChips(attNotes(a, s, reqOfDate(d)), confirms[d] ? undefined : d) || "-"}</td>
           </tr>`;
         }).join("")}</tbody>
       </table></div>
@@ -4793,11 +5023,12 @@ async function renderAttendAdmin() {
   main.innerHTML = pageHead("ADMIN", "근태관리", "전 직원의 출퇴근·근무 이력을 한눈에 확인하고 기록별 메모를 남깁니다.") +
     `<div id="adm-body"><div class="empty">불러오는 중...</div></div>`;
 
-  const [shiftSnap, attSnap, emps, arSnap] = await Promise.all([
+  const [shiftSnap, attSnap, emps, arSnap, confirms] = await Promise.all([
     db.collection(COL.shifts).where("date", ">=", per.start).where("date", "<=", per.end).get(),
     db.collection(COL.attendance).where("date", ">=", per.start).where("date", "<=", per.end).get(),
     loadActiveEmployees(),
-    db.collection(COL.attRequests).get()
+    db.collection(COL.attRequests).get(),
+    loadAttConfirms(per.start, per.end)
   ]);
   const allReqs = arSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
   // 나를 결재자로 지정한 대기 건 (월 필터와 무관하게 항상 표시)
@@ -4859,14 +5090,14 @@ async function renderAttendAdmin() {
           const s = shiftBy[d], a = attBy[d];
           const wh = workedHours(a, s);
           return `<tr>
-            <td class="att-mono"><b class="${HOLIDAYS[d] ? "c-red" : ""}">${d.slice(5)}</b> <span class="dow-tag ${dateParts(d).dow === 0 ? "sun" : dateParts(d).dow === 6 ? "sat" : ""}">${"일월화수목금토"[dateParts(d).dow]}</span>${holidayTag(d)}</td>
+            <td class="att-mono"><b class="${HOLIDAYS[d] ? "c-red" : ""}">${d.slice(5)}</b> <span class="dow-tag ${dateParts(d).dow === 0 ? "sun" : dateParts(d).dow === 6 ? "sat" : ""}">${"일월화수목금토"[dateParts(d).dow]}</span>${holidayTag(d)}${confirms[d] ? ATT_CONFIRMED_BADGE : ""}</td>
             <td class="att-mono">${s ? `${s.start}-${shiftEndLabel(s)}` : "-"}</td>
             <td class="att-mono c-green">${a.inAt}</td>
             <td class="att-mono ${a.outAt ? "c-red" : ""}">${a.outAt || "-"}</td>
             <td class="num">${wh != null && breakApplied(a, s) ? REST_BADGE : ""}<b>${wh != null ? fmtH(wh) : "-"}</b></td>
             <td>${noteChips(attNotes(a, s, reqOfFor(p.id, d))) || "-"}</td>
             <td class="adm-memo-td"><input class="adm-memo" data-memo="${p.id}|${d}" value="${esc(a.memo || "")}" placeholder="메모 입력 후 Enter" maxlength="100" ${readOnly ? "readonly" : ""} /></td>
-            ${readOnly ? "" : `<td class="adm-acts">
+            ${readOnly ? "" : confirms[d] ? `<td class="adm-acts"><span class="acf-lock" title="확정된 근태는 수정할 수 없습니다">🔒</span></td>` : `<td class="adm-acts">
               <button class="icon-btn" data-attedit="${p.id}|${d}" title="출퇴근 수정"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.8 2.8 0 0 1 4 4L8 20l-5 1 1-5L17 3Z"/></svg></button>
               <button class="icon-btn" data-attdel="${p.id}|${d}" title="기록 삭제"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/><path d="M10 11v6M14 11v6"/></svg></button>
             </td>`}
@@ -4939,6 +5170,7 @@ async function renderAttendAdmin() {
       if (b.disabled) return;
       b.disabled = true;
       const r = myApprovals.find((x) => x.id === b.dataset.arok);
+      if (r.type === "overtime" && await blockIfConfirmed(r.date)) { b.disabled = false; return; }
       const cur = await db.collection(COL.attRequests).doc(r.id).get();
       if (!cur.exists || cur.data().status !== "대기") { toast("이미 처리된 신청입니다."); renderAttendAdmin(); return; }
       await db.collection(COL.attRequests).doc(r.id).update({
@@ -5032,6 +5264,7 @@ async function renderAttendAdmin() {
       const [empId, date] = b.dataset.attdel.split("|");
       const p = people.get(empId);
       if (!confirm(`${p?.name || "?"}님의 ${date} 출퇴근 기록을 정말로 삭제할까요?\n삭제하면 복구할 수 없습니다.`)) return;
+      if (await blockIfConfirmed(date)) return;
       await db.collection(COL.attendance).doc(`${empId}_${date}`).delete();
       toast("출퇴근 기록을 삭제했습니다.");
       renderAttendAdmin();
@@ -5111,6 +5344,7 @@ function openAttEditModal(emp, date, att, shiftOf = () => null) {
       toast(`퇴근(${outAt})이 출근(${inAt})보다 빠릅니다. 자정을 넘겼다면 [익일 퇴근]을 체크하세요.`);
       return;
     }
+    if (await blockIfConfirmed(selDate)) return;
     if (isNew) {
       const exist = await db.collection(COL.attendance).doc(`${emp.id}_${selDate}`).get();
       if (exist.exists && !confirm(`${emp.name}님의 ${selDate} 기록이 이미 있습니다. 덮어쓸까요?`)) return;
