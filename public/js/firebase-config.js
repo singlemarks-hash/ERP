@@ -29,5 +29,6 @@ const COL = {
   okrs: "okrs",               // OKR 트리 (parentId=null 이면 회사 최상위 O)
   okrCycles: "okrCycles",     // OKR 사이클 (분기·연도 단위, active=true 가 진행중)
   meta: "meta",               // 시스템 일회성 작업 기록 (예: 부서 개편 자동 전환 · 되돌리기용 변경 전 값)
-  attConfirms: "attConfirms"  // 근태 확정 (문서 id = 날짜). status "확정"이면 그날 근태 수정 불가, 급여 산정 대상
+  attConfirms: "attConfirms", // 근태 확정 (문서 id = 날짜). status "확정"이면 그날 근태 수정 불가, 급여 산정 대상
+  budgets: "budgets"          // 예산관리 (문서 id = "labor_YYYY-MM": 인건비 기본급 직접 수정값)
 };

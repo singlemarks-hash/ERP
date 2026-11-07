@@ -2402,3 +2402,12 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 .bg-est { display: block; font-size: 0.66rem; color: #e8590c; }
 .bg-table tfoot td { border-top: 1.5px solid var(--line-strong); background: #f9fafb; }
 .c-purple { color: #6741d9; }
+.bg-base { white-space: nowrap; }
+.bg-base-in { width: 104px; padding: 5px 8px; border: 1px solid transparent; border-radius: 7px; background: transparent; text-align: right;
+  font: inherit; font-variant-numeric: tabular-nums; color: var(--ink); }
+.bg-base-in:hover { border-color: var(--line); background: #fff; }
+.bg-base-in:focus { outline: none; border-color: var(--blue); background: #fff; }
+.bg-base-in.edited { background: #fff8e6; border-color: #f5d48a; color: #b35c00; font-weight: 700; }
+.bg-reset { margin-left: 2px; border: none; background: transparent; color: var(--ink-faint); cursor: pointer; font-size: 0.9rem; padding: 2px 4px; }
+.bg-reset:hover { color: var(--blue); }
+.bg-est.edited { color: #b35c00; }
