@@ -3,7 +3,8 @@
 
 const EMP_TYPES = ["정직원(4대보험)", "3.3% 사업소득"];
 /* 시급제 — 고용 구분(4대보험/3.3%)과 별개로 임금을 시급으로 계산하는 직원. 시급을 넣으면 급여 입력 때 수당이 자동 계산된다 */
-const MIN_WAGE = { 2026: 10320 };   // 최저시급 (안내용)
+const MIN_WAGE = { 2026: 10320 };   // 최저시급 (안내용 · 단기알바 기본 시급)
+const minWageNow = () => MIN_WAGE[kstNow().getUTCFullYear()] || MIN_WAGE[2026];
 const isHourlyEmp = (e) => !!(e && e.hourly && Number(e.hourlyWage) > 0);
 /* 수당 계산용 시급 — 시급제는 계약 시급, 월급제는 통상시급 (둘 다 hourlyWage에 저장) */
 const empWage = (e) => Number(e && e.hourlyWage) || 0;
@@ -676,6 +677,7 @@ const ICONS = {
   settings: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z"/></svg>',
   employees: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.2 3.4-5 6.5-5s5.7 1.8 6.5 5"/><circle cx="17.5" cy="9.5" r="2.5"/><path d="M16.5 15.2c2.5.3 4.3 1.8 5 4.3"/></svg>',
   monitor: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5c0 4.6 3.2 8.4 7.5 10 4.3-1.6 7.5-5.4 7.5-10V6L12 3Z"/><path d="m9 12 2 2 4-4"/></svg>',
+  budget: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
   ledger: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>',
   grid: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg>',
   calendar: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><path d="m9.5 15 2 2 3.5-3.5"/></svg>',
@@ -718,6 +720,7 @@ function renderSidebar() {
   const adminItems = [];
   if (canManageOps()) adminItems.push({ id: "systems", ico: "grid", label: "사내 시스템" });
   if (canViewPayroll()) adminItems.push({ id: "paymanage", ico: "ledger", label: "급여관리" });
+  if (canViewBudget()) adminItems.push({ id: "budget", ico: "budget", label: "예산관리" });
   if (isAdmin() || isSpecial() || isManager()) adminItems.push({ id: "attendadmin", ico: "clock", label: "근태관리" });
   if (isAdmin() || isSpecial() || isManager() || me.role === "executive") adminItems.push({ id: "leaveadmin", ico: "leave", label: "연차관리" });
   if (canViewEmployees()) adminItems.push({ id: "employees", ico: "employees", label: "직원현황" });
@@ -803,6 +806,7 @@ const VIEW_RENDER = {
   attendadmin: () => renderAttendAdmin(),
   payhistory: () => renderPayHistory(),
   paymanage: () => renderPayroll(),
+  budget: () => renderBudget(),
   leave: () => renderLeave(),
   leaveadmin: () => renderLeaveAdmin(),
   okr: () => renderOkr(),
@@ -2146,7 +2150,7 @@ async function renderPayroll() {
   tempSnap.docs.map((d) => d.data()).forEach((x) => { if (x.empId && !tempMap.has(x.empId)) tempMap.set(x.empId, x.name || String(x.empId).replace(/^temp:/, "")); });
   const temps = await Promise.all([...tempMap.entries()].sort((a, b) => a[1].localeCompare(b[1], "ko")).map(async ([id, name]) => {
     const st = await db.collection(COL.settings).doc(id).get().catch(() => null);
-    return { id, name, dept: "단기알바", isTemp: true, hourly: true, hourlyWage: (st && st.exists && st.data().hourlyWage) || null, empType: "3.3% 사업소득", role: "member" };
+    return { id, name, dept: "단기알바", isTemp: true, hourly: true, hourlyWage: (st && st.exists && st.data().hourlyWage) || minWageNow(), empType: "3.3% 사업소득", role: "member" };
   }));
   const emps = [...staff, ...temps];
   pmEmps = emps;
@@ -2385,7 +2389,8 @@ function renderPayForm(emp, cat, record) {
   let wage = empWage(emp);                    // 월급제는 통상시급 — 야간·연장·휴일 수당만 계산
   // 시급제 새 기록은 기본급을 0에서 시작해 근로시간 × 시급으로 채운다
   const payItems = isEdit ? record.payments.map((p) => [p.label, p.amount])
-    : PAY_TEMPLATE.map(([l, a]) => [l, hourly && l === "기본급" ? 0 : a]);
+    : PAY_TEMPLATE.filter(([l]) => !(emp.isTemp && l === "식대"))   // 단기알바(파트타이머)는 식대 없음
+        .map(([l, a]) => [l, hourly && l === "기본급" ? 0 : a]);
   const deductItems = isEdit ? record.deductions.map((p) => [p.label, p.amount])
     : (cat === "3.3%" ? DEDUCT_TEMPLATE_33 : DEDUCT_TEMPLATE_4).map(([l, a]) => [l, a]);
 
@@ -2411,7 +2416,7 @@ function renderPayForm(emp, cat, record) {
 
     <div class="pb-section pb-pay-head"><span>지급 내역</span><button type="button" class="btn btn-ghost btn-sm" id="pm-add-pay">+ 항목 추가</button></div>
     ${emp.isTemp
-      ? `<div class="pm-wage-note">단기알바 · 시급 <input id="pm-temp-wage" class="pm-temp-wage" inputmode="numeric" placeholder="입력" value="${wage ? fmt(wage) : ""}" />원 — 근로시간에 맞춰 기본급·야간·연장·휴일근로수당이 자동 계산됩니다.</div>`
+      ? `<div class="pm-wage-note">단기알바 · 시급 <input id="pm-temp-wage" class="pm-temp-wage" inputmode="numeric" placeholder="${fmt(minWageNow())}" value="${wage ? fmt(wage) : ""}" />원 (기본 최저시급) — 근로시간에 맞춰 기본급·야간·연장·휴일근로수당이 자동 계산됩니다.</div>`
       : hourly && wage ? `<div class="pm-wage-note">시급제 · <b>시급 ${fmt(wage)}원</b> — 아래 근로시간을 바꾸면 기본급·야간·연장·휴일근로수당이 자동 계산됩니다. (주휴수당은 직접 입력)</div>`
       : wage ? `<div class="pm-wage-note">월급제 · <b>통상시급 ${fmt(wage)}원</b> — 아래 근로시간에 맞춰 야간·연장·휴일근로수당이 자동 계산됩니다. 기본급은 직접 입력하세요.</div>`
       : `<div class="pm-wage-note muted">직원 정보에 ${hourly ? "계약 시급" : "통상시급"}을 넣으면 근로시간에 맞춰 수당이 자동 계산됩니다.</div>`}
@@ -2484,7 +2489,7 @@ function renderPayForm(emp, cat, record) {
   // 단기알바 시급: 급여 화면에서 바로 입력 → 저장해 두고 다음 달에도 쓴다
   const tw = $("#pm-temp-wage");
   if (tw) {
-    tw.oninput = () => { const n = parseAmount(tw.value); tw.value = n ? fmt(n) : ""; wage = n; emp.hourlyWage = n; applyWage(); };
+    tw.oninput = () => { const n = parseAmount(tw.value); tw.value = n ? fmt(n) : ""; wage = n || minWageNow(); emp.hourlyWage = wage; applyWage(); };
     tw.onchange = async () => {
       try { await db.collection(COL.settings).doc(emp.id).set({ hourlyWage: parseAmount(tw.value) || null, name: emp.name, isTemp: true }, { merge: true }); toast(`${emp.name}님 시급을 저장했습니다.`); }
       catch (e) { toast("시급 저장에 실패했습니다."); }
@@ -2511,6 +2516,13 @@ function renderPayForm(emp, cat, record) {
         wireRow(row); rows.push(row);
       }
       row.querySelector(".pi-amount").value = fmt(amt);
+      // 시간·계산식을 항목 아래에 함께 표시 (야간은 기본근로에 포함된 시간이라 가산 0.5배)
+      let hint = row.querySelector(".pi-hint");
+      if (!hint) { hint = document.createElement("span"); hint.className = "pi-hint"; row.appendChild(hint); }
+      const h = hv(k);
+      hint.textContent = !h ? "" : k === "basic"
+        ? `기본 ${fmtH(h)}h${hv("night") ? ` (야간 ${fmtH(hv("night"))}h 포함)` : ""} × ${fmt(wage)}원`
+        : `${label.replace("근로수당", "")} ${fmtH(h)}h × ${fmt(wage)}원 × ${rate}${k === "night" ? " (가산분)" : ""}`;
       anchor = row;
     });
     recalc();
@@ -3827,6 +3839,107 @@ function attNotes(att, shift, reqOf) {
   }
   return notes;
 }
+/* ───────── 예산관리 (매니저급 이상 조회) ─────────
+   인건비: 근무 캘린더에 등록된 당월 일정 기준 예상 인건비(세전).
+   사람별 예정 근무시간 × 시급 + 야간 가산(x0.5) + 휴일 가산(x0.5).
+   시급: 시급제=계약 시급, 월급제=통상시급, 단기알바=급여관리에 입력한 시급. 없으면 최저시급으로 추정 */
+const canViewBudget = () => !!me && roleRank(me.role) >= roleRank("manager");
+let budgetYm = null;
+let budgetTab = "labor";
+async function renderBudget() {
+  if (!canViewBudget()) return navigate("home", null, true);
+  if (!budgetYm) budgetYm = ymNowKST();
+  const [yy, mm] = budgetYm.split("-").map(Number);
+  const main = $("#main");
+  main.innerHTML = pageHead("ADMIN", "예산관리", "근무 일정을 기준으로 예상 비용을 미리 봅니다.") + `
+    <div class="subtabs"><button class="subtab on" data-btab="labor">인건비</button></div>
+    <div id="bg-body"><div class="empty">불러오는 중...</div></div>`;
+  const start = `${budgetYm}-01`, end = `${budgetYm}-31`;
+  const [shiftSnap, empSnap] = await Promise.all([
+    db.collection(COL.shifts).where("date", ">=", start).where("date", "<=", end).get(),
+    db.collection(COL.employees).get()
+  ]);
+  const empById = Object.fromEntries(empSnap.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
+  // 특수관리자·매니저는 자기 부서 직원 + 단기알바만 (총괄·임원 열람은 전체)
+  const scope = isSpecial() || isManager() ? me.dept : null;
+  const shifts = shiftSnap.docs.map((d) => d.data()).filter((x) => (x.date || "").startsWith(budgetYm))
+    .filter((x) => { const e = empById[x.empId]; return !scope || x.isTemp || !e || sameDept(e.dept, scope); });
+  const tempIds = [...new Set(shifts.filter((x) => x.isTemp || !empById[x.empId]).map((x) => x.empId))];
+  const tempWage = {};
+  await Promise.all(tempIds.map(async (id) => {
+    const st = await db.collection(COL.settings).doc(id).get().catch(() => null);
+    tempWage[id] = (st && st.exists && Number(st.data().hourlyWage)) || 0;
+  }));
+  const minW = minWageNow();
+  const people = new Map();
+  shifts.forEach((x) => {
+    const e = empById[x.empId];
+    const temp = x.isTemp || !e;
+    let p = people.get(x.empId);
+    if (!p) {
+      const set = temp ? tempWage[x.empId] : empWage(e);
+      p = { id: x.empId, name: (e && e.name) || x.name || "-", dept: temp ? "단기알바" : deptNow(e.dept),
+        kind: temp ? "단기알바" : e.hourly ? "시급제" : "월급제",
+        wage: set || minW, wageSet: !!set, days: new Set(), hours: 0, night: 0, holiday: 0 };
+      people.set(x.empId, p);
+    }
+    const h = shiftHours(x);
+    const sIn = minOf(x.start), sOut = minOf(x.end) + (shiftOvernight(x) ? 1440 : 0);
+    p.days.add(x.date);
+    p.hours += h;
+    p.night += nightHours(sIn, sOut, x.breakIncluded ? 60 : 0);
+    if (HOLIDAYS[x.date]) p.holiday += h;
+  });
+  const rows = [...people.values()].map((p) => {
+    const base = Math.round(p.hours * p.wage);
+    const nightAmt = Math.round(p.night * p.wage * 0.5);
+    const holAmt = Math.round(p.holiday * p.wage * 0.5);
+    return { ...p, base, nightAmt, holAmt, total: base + nightAmt + holAmt };
+  }).sort((a, b) => b.total - a.total);
+  const sum = (k) => rows.reduce((t, r) => t + r[k], 0);
+  const total = sum("total"), hoursT = sum("hours"), nightT = sum("night"), holT = sum("holiday");
+  const unset = rows.filter((r) => !r.wageSet);
+
+  $("#bg-body").innerHTML = `
+    <div class="card">
+      <div class="sc-cal-head">
+        <button type="button" class="cal-nav" id="bg-prev">&lsaquo;</button>
+        <b class="sc-cal-title">${yy}년 ${mm}월</b>
+        <button type="button" class="cal-nav" id="bg-next">&rsaquo;</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="bg-now">이번 달</button>
+      </div>
+      <div class="bg-total">
+        <span class="bg-total-label">${mm}월 예상 인건비 <em>세전</em></span>
+        <b>${fmt(total)}<span>원</span></b>
+        <span class="bg-total-sub">근무 캘린더 ${mm}/1 ~ ${mm}/${new Date(Date.UTC(yy, mm, 0)).getUTCDate()} 일정 기준${scope ? ` · ${esc(deptNow(scope))}·단기알바` : ""}</span>
+      </div>
+      <div class="pb-stats s4">
+        <div><span>근무 인원</span><b>${rows.length}명</b></div>
+        <div><span>예정 근무시간</span><b>${fmtH(hoursT)}h</b></div>
+        <div><span>야간 (22~06시)</span><b class="c-purple">${fmtH(nightT)}h · ${fmt(sum("nightAmt"))}원</b></div>
+        <div><span>휴일 근무</span><b class="c-red">${fmtH(holT)}h · ${fmt(sum("holAmt"))}원</b></div>
+      </div>
+      ${unset.length ? `<div class="mini-note bg-warn">시급이 없는 ${unset.length}명(${unset.map((r) => esc(r.name)).join(", ")})은 최저시급 ${fmt(minW)}원으로 계산했습니다. 직원 정보(통상시급·계약 시급)나 급여관리(단기알바 시급)에서 입력하면 정확해집니다.</div>` : ""}
+      ${rows.length ? `<div class="table-wrap"><table class="data pay-table bg-table">
+        <thead><tr><th>이름</th><th>소속</th><th>구분</th><th class="num">적용 시급</th><th class="num">근무일</th><th class="num">근무시간</th><th class="num">야간</th><th class="num">휴일</th><th class="num">기본</th><th class="num">가산</th><th class="num">예상 합계</th></tr></thead>
+        <tbody>${rows.map((r) => `<tr>
+          <td><b>${esc(r.name)}</b></td><td>${esc(r.dept)}</td><td>${r.kind}</td>
+          <td class="num">${fmt(r.wage)}원${r.wageSet ? "" : '<span class="bg-est">최저시급</span>'}</td>
+          <td class="num">${r.days.size}일</td><td class="num">${fmtH(r.hours)}h</td>
+          <td class="num">${r.night ? fmtH(r.night) + "h" : "-"}</td><td class="num">${r.holiday ? fmtH(r.holiday) + "h" : "-"}</td>
+          <td class="num">${fmt(r.base)}</td><td class="num">${r.nightAmt + r.holAmt ? fmt(r.nightAmt + r.holAmt) : "-"}</td>
+          <td class="num"><b>${fmt(r.total)}원</b></td></tr>`).join("")}</tbody>
+        <tfoot><tr><td colspan="5"><b>합계</b></td><td class="num"><b>${fmtH(hoursT)}h</b></td><td class="num">${fmtH(nightT)}h</td><td class="num">${fmtH(holT)}h</td>
+          <td class="num">${fmt(sum("base"))}</td><td class="num">${fmt(sum("nightAmt") + sum("holAmt"))}</td><td class="num"><b class="c-green">${fmt(total)}원</b></td></tr></tfoot>
+      </table></div>` : `<div class="empty">${mm}월 근무 캘린더에 등록된 일정이 없습니다.</div>`}
+      <div class="mini-note">예정 근무시간(휴게 차감) × 시급 + 야간 가산(×0.5) + 휴일 가산(×0.5)의 세전 추정액입니다. 연장근로·주휴수당·식대·상여·사업주 부담 4대보험은 포함되지 않습니다. 월급제 직원도 통상시급 × 근무시간으로 추정합니다.</div>
+    </div>`;
+  const move = (n) => { budgetYm = ymShift(budgetYm, n); renderBudget(); };
+  $("#bg-prev").onclick = () => move(-1);
+  $("#bg-next").onclick = () => move(1);
+  $("#bg-now").onclick = () => { budgetYm = ymNowKST(); renderBudget(); };
+}
+
 /* 급여관리 하단 — 선택한 직원의 급여월 산정기간 근무 내역 (확정 여부와 함께 점검) */
 let payAttSeq = 0;
 async function renderPayAttList(emp, ym) {

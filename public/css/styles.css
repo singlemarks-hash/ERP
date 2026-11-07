@@ -2388,3 +2388,17 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 .pm-wage-note b { font-weight: 800; }
 .pm-wage-note.muted { background: #f6f7f9; color: var(--ink-faint); }
 .pm-temp-wage { width: 84px; margin: 0 2px 0 4px; padding: 3px 6px; border: 1px solid #b9d3f6; border-radius: 6px; text-align: right; font-weight: 700; color: var(--blue-deep); background: #fff; font-size: 0.8rem; }
+.pi-row .pi-hint { grid-column: 1 / -1; margin: -3px 0 2px 4px; font-size: 0.72rem; color: var(--ink-faint); }
+.pi-row .pi-hint:empty { display: none; }
+
+/* 예산관리 · 인건비 */
+.bg-total { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 18px 0 20px; }
+.bg-total-label { font-size: 0.86rem; font-weight: 700; color: var(--ink-soft); }
+.bg-total-label em { font-style: normal; font-size: 0.72rem; margin-left: 4px; padding: 1px 6px; border-radius: 6px; background: #f2f4f6; color: var(--ink-faint); }
+.bg-total b { font-size: 2rem; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.bg-total b span { font-size: 1.05rem; margin-left: 3px; }
+.bg-total-sub { font-size: 0.74rem; color: var(--ink-faint); }
+.bg-warn { color: #e8590c; }
+.bg-est { display: block; font-size: 0.66rem; color: #e8590c; }
+.bg-table tfoot td { border-top: 1.5px solid var(--line-strong); background: #f9fafb; }
+.c-purple { color: #6741d9; }
