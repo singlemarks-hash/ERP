@@ -5,6 +5,9 @@ const EMP_TYPES = ["정직원(4대보험)", "3.3% 사업소득"];
 /* 시급제 — 고용 구분(4대보험/3.3%)과 별개로 임금을 시급으로 계산하는 직원. 시급을 넣으면 급여 입력 때 수당이 자동 계산된다 */
 const MIN_WAGE = { 2026: 10320 };   // 최저시급 (안내용)
 const isHourlyEmp = (e) => !!(e && e.hourly && Number(e.hourlyWage) > 0);
+/* 수당 계산용 시급 — 시급제는 계약 시급, 월급제는 통상시급 (둘 다 hourlyWage에 저장) */
+const empWage = (e) => Number(e && e.hourlyWage) || 0;
+const wageLabel = (e) => e && e.hourly ? "시급" : "통상시급";
 const GRADES = ["L0 (파트타이머)", "L1", "L2", "L3", "L4", "L5 (대표)"];
 const PAY_CATS = ["4대보험", "3.3%"];
 /* 직책 추천 목록 (직접 입력도 가능). 파트장 = 팀장 아래 직책 — 권한은 일반과 같고 직급은 L2로 본다 */
@@ -2135,8 +2138,17 @@ async function renderPayroll() {
     `<div id="pm-body"><div class="empty">불러오는 중...</div></div>`;
 
   const empSnap = await db.collection(COL.employees).where("status", "==", "재직").get();
-  const emps = sortByGrade(empSnap.docs.map((d) => ({ id: d.id, ...d.data() })))
+  const staff = sortByGrade(empSnap.docs.map((d) => ({ id: d.id, ...d.data() })))
     .filter(payVisibleEmp);
+  // 단기알바(직원 명단에 없는 외부 인원) — 근무 일정에 등록된 적이 있으면 급여 정산 대상으로 함께 띄운다
+  const tempSnap = await db.collection(COL.shifts).where("isTemp", "==", true).get();
+  const tempMap = new Map();
+  tempSnap.docs.map((d) => d.data()).forEach((x) => { if (x.empId && !tempMap.has(x.empId)) tempMap.set(x.empId, x.name || String(x.empId).replace(/^temp:/, "")); });
+  const temps = await Promise.all([...tempMap.entries()].sort((a, b) => a[1].localeCompare(b[1], "ko")).map(async ([id, name]) => {
+    const st = await db.collection(COL.settings).doc(id).get().catch(() => null);
+    return { id, name, dept: "단기알바", isTemp: true, hourly: true, hourlyWage: (st && st.exists && st.data().hourlyWage) || null, empType: "3.3% 사업소득", role: "member" };
+  }));
+  const emps = [...staff, ...temps];
   pmEmps = emps;
   if (!emps.length) {
     $("#pm-body").innerHTML = `<div class="empty">${scopeDept ? `${esc(deptNow(scopeDept))} 소속 재직 직원이 없습니다.` : "재직 직원이 없습니다. [직원현황]에서 먼저 직원을 등록하세요."}</div>`;
@@ -2152,8 +2164,10 @@ async function renderPayroll() {
         <label class="field" style="margin:0;min-width:230px"><span class="field-label">직원 선택</span>
           <select id="pm-emp">
             <option value="" ${!pmEmpId ? "selected" : ""}>${scopeDept ? `${esc(deptNow(scopeDept))} 전체 (종합 조회)` : "전체 직원 (종합 조회)"}</option>
-            ${emps.map((e) =>
+            ${staff.map((e) =>
               `<option value="${e.id}" ${e.id === pmEmpId ? "selected" : ""}>${esc(e.name)} (${esc(e.dept)}${e.grade ? " · " + esc(e.grade) : ""})</option>`).join("")}
+            ${temps.length ? `<optgroup label="단기알바 (소속 없음)">${temps.map((e) =>
+              `<option value="${esc(e.id)}" ${e.id === pmEmpId ? "selected" : ""}>${esc(e.name)} (단기알바)</option>`).join("")}</optgroup>` : ""}
           </select></label>
         <div class="pm-emp-info">
           ${emp ? `
@@ -2367,8 +2381,8 @@ const payHourText = (v) => payHourEmpty(v) ? "0" : String(Math.round(Number(v) *
 
 function renderPayForm(emp, cat, record) {
   const isEdit = !!record;
-  const hourly = isHourlyEmp(emp);
-  const wage = hourly ? Number(emp.hourlyWage) : 0;
+  const hourly = !!emp.hourly;                 // 시급제(단기알바 포함): 기본급까지 시급으로
+  let wage = empWage(emp);                    // 월급제는 통상시급 — 야간·연장·휴일 수당만 계산
   // 시급제 새 기록은 기본급을 0에서 시작해 근로시간 × 시급으로 채운다
   const payItems = isEdit ? record.payments.map((p) => [p.label, p.amount])
     : PAY_TEMPLATE.map(([l, a]) => [l, hourly && l === "기본급" ? 0 : a]);
@@ -2396,7 +2410,11 @@ function renderPayForm(emp, cat, record) {
       </div></label>
 
     <div class="pb-section pb-pay-head"><span>지급 내역</span><button type="button" class="btn btn-ghost btn-sm" id="pm-add-pay">+ 항목 추가</button></div>
-    ${hourly ? `<div class="pm-wage-note">시급제 · <b>시급 ${fmt(wage)}원</b> — 아래 근로시간을 바꾸면 기본급·야간·연장·휴일근로수당이 자동 계산됩니다. (주휴수당은 직접 입력)</div>` : ""}
+    ${emp.isTemp
+      ? `<div class="pm-wage-note">단기알바 · 시급 <input id="pm-temp-wage" class="pm-temp-wage" inputmode="numeric" placeholder="입력" value="${wage ? fmt(wage) : ""}" />원 — 근로시간에 맞춰 기본급·야간·연장·휴일근로수당이 자동 계산됩니다.</div>`
+      : hourly && wage ? `<div class="pm-wage-note">시급제 · <b>시급 ${fmt(wage)}원</b> — 아래 근로시간을 바꾸면 기본급·야간·연장·휴일근로수당이 자동 계산됩니다. (주휴수당은 직접 입력)</div>`
+      : wage ? `<div class="pm-wage-note">월급제 · <b>통상시급 ${fmt(wage)}원</b> — 아래 근로시간에 맞춰 야간·연장·휴일근로수당이 자동 계산됩니다. 기본급은 직접 입력하세요.</div>`
+      : `<div class="pm-wage-note muted">직원 정보에 ${hourly ? "계약 시급" : "통상시급"}을 넣으면 근로시간에 맞춰 수당이 자동 계산됩니다.</div>`}
     <div id="pm-pay-items">${payItems.map(([l, a]) => payItemRowHtml("pay", l, a)).join("")}</div>
     <div class="pb-total pb-total-pay"><span>총 지급</span><b id="pm-pay-total"></b></div>
 
@@ -2463,16 +2481,25 @@ function renderPayForm(emp, cat, record) {
     row.querySelector(".pi-label").focus();
   };
   $("#pm-add-pay").onclick = () => addItem("#pm-pay-items", "pay");
+  // 단기알바 시급: 급여 화면에서 바로 입력 → 저장해 두고 다음 달에도 쓴다
+  const tw = $("#pm-temp-wage");
+  if (tw) {
+    tw.oninput = () => { const n = parseAmount(tw.value); tw.value = n ? fmt(n) : ""; wage = n; emp.hourlyWage = n; applyWage(); };
+    tw.onchange = async () => {
+      try { await db.collection(COL.settings).doc(emp.id).set({ hourlyWage: parseAmount(tw.value) || null, name: emp.name, isTemp: true }, { merge: true }); toast(`${emp.name}님 시급을 저장했습니다.`); }
+      catch (e) { toast("시급 저장에 실패했습니다."); }
+    };
+  }
 
   /* 시급제: 근로시간 × 시급 → 지급 항목 자동 계산 (명세서 계산식과 같은 배율)
      기본급 = 기본근로 x 시급 · 야간 = 야간 x 시급 x 0.5 · 연장 = 연장 x 시급 x 1.5 · 휴일 = 휴일 x 시급 x 0.5 */
   const WAGE_ITEMS = [["basic", "기본급", 1], ["night", "야간근로수당", 0.5], ["overtime", "연장근로수당", 1.5], ["holiday", "휴일근로수당", 0.5]];
   const applyWage = () => {
-    if (!hourly) return;
+    if (!wage) return;
     const hv = (k) => { const n = Number(($(`#pm-h-${k}`)?.value || "").replace(/,/g, "").replace(/시간|h/gi, "").trim()); return n > 0 ? n : 0; };
     const rows = [...$("#pm-pay-items").querySelectorAll(".pi-row")];
     let anchor = null;   // 새 항목은 직전 시급 항목 바로 아래에 (기본급 → 야간 → 연장 → 휴일 순서)
-    WAGE_ITEMS.forEach(([k, label, rate]) => {
+    WAGE_ITEMS.filter(([k]) => hourly || k !== "basic").forEach(([k, label, rate]) => {
       const amt = Math.round(hv(k) * wage * rate);
       let row = rows.find((r) => r.querySelector(".pi-label").value.trim() === label);
       if (!row && !amt) return;
@@ -6060,7 +6087,7 @@ async function renderEmployees() {
         : `<b>${esc(e.name)}</b>`}</td><td>${esc(e.dept)}</td><td>${esc(e.grade || "-")}</td><td>${esc(e.position || "-")}</td>
       <td>${esc(e.email || "-")}</td>
       <td>${e.joinDate ? `${esc(e.joinDate)} <em class="tenure">${tenureYM(e.joinDate)} 근무</em><span class="tenure-days">${workDaysLabel(e.joinDate).replace(/[()]/g, "")}</span>` : "-"}</td>
-      ${fullCols ? `<td>${empTypeShort(e.empType)}${isHourlyEmp(e) ? `<span class="emp-wage">시급 ${fmt(e.hourlyWage)}원</span>` : ""}</td>
+      ${fullCols ? `<td>${empTypeShort(e.empType)}${empWage(e) ? `<span class="emp-wage">${wageLabel(e)} ${fmt(empWage(e))}원</span>` : ""}</td>
       <td><span class="badge ${e.role}">${roleLabel(e.role)}</span></td>
       <td>${e.passwordHash ? '<span class="badge ok">설정됨</span>' : '<span class="badge warn">미설정</span>'}</td>
       <td>${e.status === "재직" ? '<span class="badge ok">재직</span>' : '<span class="badge off">퇴사</span>'}</td>` : ""}
@@ -6154,8 +6181,8 @@ function openEmployeeModal(emp) {
             <label><input type="radio" name="ef-paytype" value="monthly" ${emp?.hourly ? "" : "checked"} /> 월급제</label>
             <label><input type="radio" name="ef-paytype" value="hourly" id="ef-hourly" ${emp?.hourly ? "checked" : ""} /> 시급제</label>
           </div></div>
-        <label class="field" id="ef-wage-wrap"><span class="field-label">계약 시급 <em class="sf-hint">(시급제)</em></span>
-          <span class="ef-wage"><input id="ef-wage" type="text" inputmode="numeric" placeholder="예: 12,000" value="${emp?.hourlyWage ? fmt(emp.hourlyWage) : ""}" ${emp?.hourly ? "" : "disabled"} /><em>원</em></span></label>
+        <label class="field" id="ef-wage-wrap"><span class="field-label" id="ef-wage-label">${emp?.hourly ? "계약 시급" : "통상시급"} <em class="sf-hint" id="ef-wage-hint">${emp?.hourly ? "(급여 전체 계산)" : "(야간·연장·휴일 수당 계산)"}</em></span>
+          <span class="ef-wage"><input id="ef-wage" type="text" inputmode="numeric" placeholder="예: 12,000" value="${emp?.hourlyWage ? fmt(emp.hourlyWage) : ""}" /><em>원</em></span></label>
       </div>
       <div class="grid-2">
         <label class="field"><span class="field-label">재직 상태</span>
@@ -6189,16 +6216,22 @@ function openEmployeeModal(emp) {
   });
   // 시급제 체크 → 시급 입력칸 표시, 숫자는 천 단위 쉼표
   $("#modal").querySelectorAll('input[name="ef-paytype"]').forEach((r) => {
-    r.onchange = () => { const on = $("#ef-hourly").checked; $("#ef-wage").disabled = !on; if (on) $("#ef-wage").focus(); };
+    r.onchange = () => {
+      const on = $("#ef-hourly").checked;
+      $("#ef-wage-label").firstChild.textContent = on ? "계약 시급 " : "통상시급 ";
+      $("#ef-wage-hint").textContent = on ? "(급여 전체 계산)" : "(야간·연장·휴일 수당 계산)";
+      $("#ef-wage").focus();
+    };
   });
   $("#ef-wage").oninput = () => { const n = parseAmount($("#ef-wage").value); $("#ef-wage").value = n ? fmt(n) : ""; };
   $("#emp-form").onsubmit = async (ev) => {
     ev.preventDefault();
-    if ($("#ef-hourly").checked) {
+    {
       const w = parseAmount($("#ef-wage").value);
-      if (!w) { toast("시급을 입력하세요."); $("#ef-wage").focus(); return; }
+      const label = $("#ef-hourly").checked ? "계약 시급" : "통상시급";
+      if ($("#ef-hourly").checked && !w) { toast("시급제는 계약 시급을 입력하세요."); $("#ef-wage").focus(); return; }
       const min = MIN_WAGE[kstNow().getUTCFullYear()];
-      if (min && w < min && !confirm(`입력한 시급 ${fmt(w)}원이 ${kstNow().getUTCFullYear()}년 최저시급 ${fmt(min)}원보다 낮습니다. 그대로 저장할까요?`)) return;
+      if (w && min && w < min && !confirm(`입력한 ${label} ${fmt(w)}원이 ${kstNow().getUTCFullYear()}년 최저시급 ${fmt(min)}원보다 낮습니다. 그대로 저장할까요?`)) return;
     }
     const data = {
       name: $("#ef-name").value.trim(),
@@ -6212,7 +6245,7 @@ function openEmployeeModal(emp) {
       phone: $("#ef-phone").value.trim(),
       empType: $("#ef-type").value,
       hourly: $("#ef-hourly").checked,
-      hourlyWage: $("#ef-hourly").checked ? parseAmount($("#ef-wage").value) : null,
+      hourlyWage: parseAmount($("#ef-wage").value) || null,   // 시급제: 계약 시급, 월급제: 통상시급
       role: $("#ef-role").value,
       status: $("#ef-status").value,
       approverTier: Number($("#ef-tier").value),
