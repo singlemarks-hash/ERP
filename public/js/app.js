@@ -3840,7 +3840,7 @@ function attNotes(att, shift, reqOf) {
   return notes;
 }
 /* ───────── 예산관리 (매니저급 이상 조회) ─────────
-   인건비: 근무 캘린더에 등록된 당월 일정 기준 예상 인건비(세전).
+   인건비: 근무 캘린더에 등록된 급여월 산정기간(전월 8일 ~ 당월 7일) 일정 기준 예상 인건비(세전).
    사람별 예정 근무시간 × 시급 + 야간 가산(x0.5) + 휴일 가산(x0.5).
    시급: 시급제=계약 시급, 월급제=통상시급, 단기알바=급여관리에 입력한 시급. 없으면 최저시급으로 추정 */
 const canViewBudget = () => !!me && roleRank(me.role) >= roleRank("manager");
@@ -3849,13 +3849,15 @@ let budgetYm = null;
 let budgetTab = "labor";
 async function renderBudget() {
   if (!canViewBudget()) return navigate("home", null, true);
-  if (!budgetYm) budgetYm = ymNowKST();
+  // 인건비 산정 기간 = 급여월 (전월 8일 ~ 당월 7일, 2026년 10월 급여부터)
+  if (!budgetYm) budgetYm = payYmOfDate(todayKST());
   const [yy, mm] = budgetYm.split("-").map(Number);
+  const per = payPeriod(budgetYm);
   const main = $("#main");
   main.innerHTML = pageHead("ADMIN", "예산관리", "근무 일정을 기준으로 예상 비용을 미리 봅니다.") + `
     <div class="subtabs"><button class="subtab on" data-btab="labor">인건비</button></div>
     <div id="bg-body"><div class="empty">불러오는 중...</div></div>`;
-  const start = `${budgetYm}-01`, end = `${budgetYm}-31`;
+  const start = per.start, end = per.end;
   const budgetRef = db.collection(COL.budgets).doc(`labor_${budgetYm}`);
   const [shiftSnap, empSnap, budgetSnap] = await Promise.all([
     db.collection(COL.shifts).where("date", ">=", start).where("date", "<=", end).get(),
@@ -3867,7 +3869,7 @@ async function renderBudget() {
   const empById = Object.fromEntries(empSnap.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
   // 특수관리자·매니저는 자기 부서 직원 + 단기알바만 (총괄·임원 열람은 전체)
   const scope = isSpecial() || isManager() ? me.dept : null;
-  const shifts = shiftSnap.docs.map((d) => d.data()).filter((x) => (x.date || "").startsWith(budgetYm))
+  const shifts = shiftSnap.docs.map((d) => d.data()).filter((x) => x.date >= start && x.date <= end)
     .filter((x) => { const e = empById[x.empId]; return !scope || x.isTemp || !e || sameDept(e.dept, scope); });
   const tempIds = [...new Set(shifts.filter((x) => x.isTemp || !empById[x.empId]).map((x) => x.empId))];
   const tempWage = {};
@@ -3911,14 +3913,14 @@ async function renderBudget() {
     <div class="card">
       <div class="sc-cal-head">
         <button type="button" class="cal-nav" id="bg-prev">&lsaquo;</button>
-        <b class="sc-cal-title">${yy}년 ${mm}월</b>
+        <b class="sc-cal-title">${payYmTitle(budgetYm)}</b>
         <button type="button" class="cal-nav" id="bg-next">&rsaquo;</button>
-        <button type="button" class="btn btn-ghost btn-sm" id="bg-now">이번 달</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="bg-now">${isPeriodYm(payYmOfDate(todayKST())) ? "이번 급여월" : "이번 달"}</button>
       </div>
       <div class="bg-total">
-        <span class="bg-total-label">${mm}월 예상 인건비 <em>세전</em></span>
+        <span class="bg-total-label">${mm}월${isPeriodYm(budgetYm) ? " 급여" : ""} 예상 인건비 <em>세전</em></span>
         <b>${fmt(total)}<span>원</span></b>
-        <span class="bg-total-sub">근무 캘린더 ${mm}/1 ~ ${mm}/${new Date(Date.UTC(yy, mm, 0)).getUTCDate()} 일정 기준${scope ? ` · ${esc(deptNow(scope))}·단기알바` : ""}</span>
+        <span class="bg-total-sub">근무 캘린더 ${Number(start.slice(5, 7))}/${Number(start.slice(8))} ~ ${Number(end.slice(5, 7))}/${Number(end.slice(8))} 일정 기준 (인건비 산정 기간)${scope ? ` · ${esc(deptNow(scope))}·단기알바` : ""}</span>
       </div>
       <div class="pb-stats s4">
         <div><span>근무 인원</span><b>${rows.length}명</b></div>
@@ -3941,7 +3943,7 @@ async function renderBudget() {
           <td class="num"><b>${fmt(r.total)}원</b></td></tr>`).join("")}</tbody>
         <tfoot><tr><td colspan="5"><b>합계</b></td><td class="num"><b>${fmtH(hoursT)}h</b></td><td class="num">${fmtH(nightT)}h</td><td class="num">${fmtH(holT)}h</td>
           <td class="num">${fmt(sum("base"))}</td><td class="num">${fmt(sum("nightAmt") + sum("holAmt"))}</td><td class="num"><b class="c-green">${fmt(total)}원</b></td></tr></tfoot>
-      </table></div>` : `<div class="empty">${mm}월 근무 캘린더에 등록된 일정이 없습니다.</div>`}
+      </table></div>` : `<div class="empty">이 기간 근무 캘린더에 등록된 일정이 없습니다.</div>`}
       ${canEditBudget() ? `<div class="mini-note">기본 칸은 직접 고칠 수 있습니다 — 숫자를 바꾸고 Enter(또는 칸 밖을 누르면) 저장되고, ↺로 자동 계산값으로 되돌립니다.</div>` : ""}
       <div class="mini-note">예정 근무시간(휴게 차감) × 시급 + 야간 가산(×0.5) + 휴일 가산(×0.5)의 세전 추정액입니다. 연장근로·주휴수당·식대·상여·사업주 부담 4대보험은 포함되지 않습니다. 월급제 직원도 통상시급 × 근무시간으로 추정합니다.</div>
     </div>`;
@@ -3974,7 +3976,7 @@ async function renderBudget() {
   const move = (n) => { budgetYm = ymShift(budgetYm, n); renderBudget(); };
   $("#bg-prev").onclick = () => move(-1);
   $("#bg-next").onclick = () => move(1);
-  $("#bg-now").onclick = () => { budgetYm = ymNowKST(); renderBudget(); };
+  $("#bg-now").onclick = () => { budgetYm = payYmOfDate(todayKST()); renderBudget(); };
 }
 
 /* 급여관리 하단 — 선택한 직원의 급여월 산정기간 근무 내역 (확정 여부와 함께 점검) */
