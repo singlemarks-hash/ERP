@@ -3866,6 +3866,7 @@ async function renderBudget() {
   ]);
   // 기본급 직접 수정값 { empId: { amount, by, at } }
   const baseOverrides = (budgetSnap && budgetSnap.exists && budgetSnap.data().baseOverrides) || {};
+  const addOverrides = (budgetSnap && budgetSnap.exists && budgetSnap.data().addOverrides) || {};   // 가산수당 직접 수정값
   const empById = Object.fromEntries(empSnap.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
   // 특수관리자·매니저는 자기 부서 직원 + 단기알바만 (총괄·임원 열람은 전체)
   const scope = isSpecial() || isManager() ? me.dept : null;
@@ -3903,7 +3904,11 @@ async function renderBudget() {
     const base = ov && Number.isFinite(Number(ov.amount)) ? Number(ov.amount) : autoBase;
     const nightAmt = Math.round(p.night * p.wage * 0.5);
     const holAmt = Math.round(p.holiday * p.wage * 0.5);
-    return { ...p, autoBase, base, edited: !!ov, editedBy: ov && ov.by, nightAmt, holAmt, total: base + nightAmt + holAmt };
+    const autoAdd = nightAmt + holAmt;
+    const ova = addOverrides[p.id];
+    const add = ova && Number.isFinite(Number(ova.amount)) ? Number(ova.amount) : autoAdd;
+    return { ...p, autoBase, base, edited: !!ov, editedBy: ov && ov.by, nightAmt, holAmt,
+      autoAdd, add, addEdited: !!ova, addEditedBy: ova && ova.by, total: base + add };
   }).sort((a, b) => b.total - a.total);
   const sum = (k) => rows.reduce((t, r) => t + r[k], 0);
   const total = sum("total"), hoursT = sum("hours"), nightT = sum("night"), holT = sum("holiday");
@@ -3939,40 +3944,45 @@ async function renderBudget() {
           <td class="num bg-base">${canEditBudget()
             ? `<input class="bg-base-in ${r.edited ? "edited" : ""}" data-bgbase="${esc(r.id)}" inputmode="numeric" value="${fmt(r.base)}" title="${r.edited ? `직접 수정됨 (${esc(r.editedBy || "")}) · 자동 계산 ${fmt(r.autoBase)}원` : "자동 계산값 — 눌러서 직접 수정"}" />${r.edited ? `<button type="button" class="bg-reset" data-bgreset="${esc(r.id)}" title="자동 계산값 ${fmt(r.autoBase)}원으로 되돌리기">↺</button>` : ""}`
             : `${fmt(r.base)}${r.edited ? '<span class="bg-est edited">직접 수정</span>' : ""}`}</td>
-          <td class="num">${r.nightAmt + r.holAmt ? fmt(r.nightAmt + r.holAmt) : "-"}</td>
+          <td class="num bg-base">${canEditBudget()
+            ? `<input class="bg-base-in ${r.addEdited ? "edited" : ""}" data-bgadd="${esc(r.id)}" inputmode="numeric" value="${fmt(r.add)}" title="${r.addEdited ? `직접 수정됨 (${esc(r.addEditedBy || "")}) · 자동 계산 ${fmt(r.autoAdd)}원` : `자동 계산값 (야간 ${fmt(r.nightAmt)} + 휴일 ${fmt(r.holAmt)}) — 눌러서 직접 수정`}" />${r.addEdited ? `<button type="button" class="bg-reset" data-bgaddreset="${esc(r.id)}" title="자동 계산값 ${fmt(r.autoAdd)}원으로 되돌리기">↺</button>` : ""}`
+            : `${r.add ? fmt(r.add) : "-"}${r.addEdited ? '<span class="bg-est edited">직접 수정</span>' : ""}`}</td>
           <td class="num"><b>${fmt(r.total)}원</b></td></tr>`).join("")}</tbody>
         <tfoot><tr><td colspan="5"><b>합계</b></td><td class="num"><b>${fmtH(hoursT)}h</b></td><td class="num">${fmtH(nightT)}h</td><td class="num">${fmtH(holT)}h</td>
-          <td class="num">${fmt(sum("base"))}</td><td class="num">${fmt(sum("nightAmt") + sum("holAmt"))}</td><td class="num"><b class="c-green">${fmt(total)}원</b></td></tr></tfoot>
+          <td class="num">${fmt(sum("base"))}</td><td class="num">${fmt(sum("add"))}</td><td class="num"><b class="c-green">${fmt(total)}원</b></td></tr></tfoot>
       </table></div>` : `<div class="empty">이 기간 근무 캘린더에 등록된 일정이 없습니다.</div>`}
-      ${canEditBudget() ? `<div class="mini-note">기본 칸은 직접 고칠 수 있습니다 — 숫자를 바꾸고 Enter(또는 칸 밖을 누르면) 저장되고, ↺로 자동 계산값으로 되돌립니다.</div>` : ""}
+      ${canEditBudget() ? `<div class="mini-note">기본·가산 칸은 직접 고칠 수 있습니다 — 숫자를 바꾸고 Enter(또는 칸 밖을 누르면) 저장되고, ↺로 자동 계산값으로 되돌립니다.</div>` : ""}
       <div class="mini-note">예정 근무시간(휴게 차감) × 시급 + 야간 가산(×0.5) + 휴일 가산(×0.5)의 세전 추정액입니다. 연장근로·주휴수당·식대·상여·사업주 부담 4대보험은 포함되지 않습니다. 월급제 직원도 통상시급 × 근무시간으로 추정합니다.</div>
     </div>`;
   // 기본급 직접 수정 저장 / 되돌리기 (문서 전체를 읽고 다시 써서 다른 사람 값이 지워지지 않게)
-  const saveOverride = async (empId, amount) => {
+  const saveOverride = async (empId, amount, field = "baseOverrides") => {
     try {
-      const cur = ((await budgetRef.get()).data() || {}).baseOverrides || {};
-      const next = { ...cur };
+      const doc = (await budgetRef.get()).data() || {};
+      const next = { ...(doc[field] || {}) };
       if (amount === null) delete next[empId];
       else next[empId] = { amount, by: me.name, at: new Date().toISOString() };
-      await budgetRef.set({ ym: budgetYm, baseOverrides: next, updatedAt: new Date().toISOString(), updatedBy: me.name });
-      toast(amount === null ? "자동 계산값으로 되돌렸습니다." : "기본급을 저장했습니다.");
+      await budgetRef.set({ ...doc, ym: budgetYm, [field]: next, updatedAt: new Date().toISOString(), updatedBy: me.name });
+      toast(amount === null ? "자동 계산값으로 되돌렸습니다." : field === "addOverrides" ? "가산수당을 저장했습니다." : "기본급을 저장했습니다.");
       renderBudget();
     } catch (e) { toast(`저장에 실패했습니다. (${(e && (e.code || e.message)) || "오류"})`); }
   };
-  $("#bg-body").querySelectorAll("[data-bgbase]").forEach((inp) => {
+  $("#bg-body").querySelectorAll("[data-bgbase], [data-bgadd]").forEach((inp) => {
+    const isAdd = !!inp.dataset.bgadd;
+    const id = isAdd ? inp.dataset.bgadd : inp.dataset.bgbase;
     const orig = inp.value;
     inp.onfocus = () => inp.select();
     inp.oninput = () => { const n = parseAmount(inp.value); inp.value = inp.value.trim() === "" ? "" : fmt(n); };
     inp.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); inp.blur(); } if (ev.key === "Escape") { inp.value = orig; inp.blur(); } };
     inp.onchange = () => {
       if (inp.value.trim() === "") { inp.value = orig; return; }
-      const r = rows.find((x) => x.id === inp.dataset.bgbase);
+      const r = rows.find((x) => x.id === id);
       const n = parseAmount(inp.value);
-      if (r && n === r.autoBase && !r.edited) return;   // 자동값 그대로면 저장하지 않음
-      saveOverride(inp.dataset.bgbase, n);
+      if (r && (isAdd ? n === r.autoAdd && !r.addEdited : n === r.autoBase && !r.edited)) return;   // 자동값 그대로면 저장하지 않음
+      saveOverride(id, n, isAdd ? "addOverrides" : "baseOverrides");
     };
   });
   $("#bg-body").querySelectorAll("[data-bgreset]").forEach((b) => { b.onclick = () => saveOverride(b.dataset.bgreset, null); });
+  $("#bg-body").querySelectorAll("[data-bgaddreset]").forEach((b) => { b.onclick = () => saveOverride(b.dataset.bgaddreset, null, "addOverrides"); });
   const move = (n) => { budgetYm = ymShift(budgetYm, n); renderBudget(); };
   $("#bg-prev").onclick = () => move(-1);
   $("#bg-next").onclick = () => move(1);
