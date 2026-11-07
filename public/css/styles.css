@@ -1021,6 +1021,9 @@ table.data td.url-cell a { display: block; overflow: hidden; text-overflow: elli
 .row-menu .rm-item.danger:hover { background: var(--red-soft); }
 .row-menu .rm-item svg { width: 16px; height: 16px; flex-shrink: 0; }
 .pm-grid .card { margin-bottom: 0; min-width: 0; }
+/* 입력·기록 카드 아래 근무 내역 카드와 간격 (카드끼리 붙어 보이지 않게) */
+.pm-grid { margin-bottom: 18px; }
+#pm-att-card .card-title { margin-bottom: 10px; }
 .pm-emp-bar { display: flex; align-items: end; gap: 14px; flex-wrap: wrap; }
 .pm-emp-info { display: flex; gap: 5px; flex-wrap: wrap; padding-bottom: 8px; }
 .pm-copy { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; margin-left: auto; padding-bottom: 8px; }
