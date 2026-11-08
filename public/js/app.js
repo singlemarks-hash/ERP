@@ -5277,20 +5277,21 @@ async function renderAttendAdmin() {
     if (empIds.has(x.empId)) return; // 재직 직원은 위에서 범위에 맞춰 처리
     if (scopeDept && x.dept && !sameDept(x.dept, scopeDept)) return; // 다른 부서로 기록된 퇴사자 등
     // 단기알바 등 직원 명단에 없는 인원은 일반 권한과 동일하게 취급한다.
-    if (x.empId && !people.has(x.empId)) people.set(x.empId, { id: x.empId, name: x.name, dept: x.dept || "-", role: "member" });
+    if (x.empId && !people.has(x.empId)) people.set(x.empId, { id: x.empId, name: x.name, dept: x.isTemp || String(x.empId).startsWith("temp:") ? "단기알바" : (x.dept || "-"), role: "member" });
   });
 
-  // 직원 필터 (전체 포함) — 출퇴근을 입력한 기록만 표시
+  // 직원 필터 (전체 포함) — 이 급여월 근무 일정 또는 출퇴근 기록이 있는 사람은 모두 표시 (단기알바 포함)
+  const today = todayKST();
   const enteredAtts = atts.filter((a) => a.inAt);
   const filtered = [...people.values()].filter((p) => (!admAttEmp || p.id === admAttEmp));
 
   const rowsHtml = filtered.map((p) => {
     const pShifts = shifts.filter((s) => s.empId === p.id);
     const pAtts = enteredAtts.filter((a) => a.empId === p.id);
-    if (!pAtts.length) return ""; // 출퇴근 입력 기록이 있는 직원만 노출
+    if (!pAtts.length && !pShifts.length) return ""; // 일정도 출퇴근도 없는 사람은 제외
     const shiftBy = {}; pShifts.forEach((s) => { shiftBy[s.date] = s; });
     const attBy = {}; pAtts.forEach((a) => { attBy[a.date] = a; });
-    const dates = pAtts.map((a) => a.date).sort().reverse();
+    const dates = [...new Set([...pAtts.map((a) => a.date), ...pShifts.map((s) => s.date)])].sort().reverse();
     const schedH = pShifts.reduce((s, x) => s + shiftHours(x), 0);
     const workedH = dates.reduce((sum, d) => sum + (workedHours(attBy[d], shiftBy[d]) || 0), 0);
     // 제목행 요약에는 승인·확정된 항목만 집계 (미승인 추가근무는 상세 행에만 무채색으로 노출)
@@ -5310,6 +5311,18 @@ async function renderAttendAdmin() {
         <thead><tr><th>날짜</th><th>예정</th><th>출근</th><th>퇴근</th><th class="num">실근무(h)</th><th>비고</th><th>메모</th>${readOnly ? "" : "<th></th>"}</tr></thead>
         <tbody>${dates.map((d) => {
           const s = shiftBy[d], a = attBy[d];
+          if (!a) {
+            // 일정만 있고 출퇴근 기록이 없는 날 — 지난 날은 '출근 기록 없음', 앞으로의 날은 '예정'
+            const past = d <= today;
+            return `<tr class="adm-noatt">
+              <td class="att-mono"><b class="${HOLIDAYS[d] ? "c-red" : ""}">${d.slice(5)}</b> <span class="dow-tag ${dateParts(d).dow === 0 ? "sun" : dateParts(d).dow === 6 ? "sat" : ""}">${"일월화수목금토"[dateParts(d).dow]}</span>${holidayTag(d)}${confirms[d] && readOnly ? ATT_CONFIRMED_BADGE : ""}</td>
+              <td class="att-mono">${s ? `${s.start}-${shiftEndLabel(s)}` : "-"}</td>
+              <td class="att-mono">-</td><td class="att-mono">-</td><td class="num">-</td>
+              <td>${past ? '<span class="att-note pending">출근 기록 없음</span>' : '<span class="att-unconf soon">예정</span>'}</td>
+              <td class="adm-memo-td"></td>
+              ${readOnly ? "" : confirms[d] ? `<td class="adm-acts">${ATT_CONFIRMED_BADGE}</td>` : `<td class="adm-acts">${past ? `<button class="btn btn-ghost btn-sm" data-attadd="${esc(p.id)}|${d}">입력</button>` : ""}</td>`}
+            </tr>`;
+          }
           const wh = workedHours(a, s);
           return `<tr>
             <td class="att-mono"><b class="${HOLIDAYS[d] ? "c-red" : ""}">${d.slice(5)}</b> <span class="dow-tag ${dateParts(d).dow === 0 ? "sun" : dateParts(d).dow === 6 ? "sat" : ""}">${"일월화수목금토"[dateParts(d).dow]}</span>${holidayTag(d)}${confirms[d] && readOnly ? ATT_CONFIRMED_BADGE : ""}</td>
@@ -5376,14 +5389,14 @@ async function renderAttendAdmin() {
           : ""}
         <span class="adm-filter-note">${canAddForSel
           ? "직원을 대신해 출퇴근을 직접 기록할 수 있습니다."
-          : "출퇴근을 입력한 기록만 표시됩니다."}</span>
+          : "이 급여월 근무 일정이나 출퇴근 기록이 있는 사람은 모두 표시됩니다 (단기알바 포함)."}</span>
       </div>
       ${rowsHtml.trim() ? `<div class="table-wrap"><table class="data att-table">
         <thead><tr><th>이름</th><th>소속</th><th class="num">근무일 (예정/완료)</th><th class="num">근무시간 (예정/완료)</th><th>특이사항</th></tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table></div>
       <div class="mini-note">직원을 클릭하면 일별 이력이 펼쳐집니다. 메모는 입력 후 Enter로 저장됩니다.</div>`
-      : `<div class="empty">${mm}월${admAttEmp ? " 해당 직원의" : ""} 출퇴근 입력 기록이 없습니다.${canAddForSel ? " [+ 출퇴근 입력]으로 직접 기록할 수 있습니다." : ""}</div>`}
+      : `<div class="empty">${mm}월${admAttEmp ? " 해당 직원의" : ""} 근무 일정·출퇴근 기록이 없습니다.${canAddForSel ? " [+ 출퇴근 입력]으로 직접 기록할 수 있습니다." : ""}</div>`}
     </div>`;
 
   // 근태 결재 승인 / 반려
@@ -5479,6 +5492,13 @@ async function renderAttendAdmin() {
       const att = atts.find((a) => a.empId === empId && a.date === date);
       const p = people.get(empId);
       if (att && p) openAttEditModal(p, date, att, (d) => shifts.find((s) => s.date === d && s.empId === empId));
+    };
+  });
+  $("#adm-body").querySelectorAll("[data-attadd]").forEach((b) => {
+    b.onclick = () => {
+      const [empId, date] = b.dataset.attadd.split("|");
+      const p = people.get(empId);
+      if (p) openAttEditModal(p, date, null, (d) => shifts.find((s) => s.date === d && s.empId === empId));
     };
   });
   $("#adm-body").querySelectorAll("[data-attdel]").forEach((b) => {

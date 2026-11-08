@@ -2414,3 +2414,5 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 .bg-reset { margin-left: 2px; border: none; background: transparent; color: var(--ink-faint); cursor: pointer; font-size: 0.9rem; padding: 2px 4px; }
 .bg-reset:hover { color: var(--blue); }
 .bg-est.edited { color: #b35c00; }
+.adm-detail tr.adm-noatt td { color: var(--ink-faint); }
+.adm-detail tr.adm-noatt .adm-acts .btn { padding: 4px 10px; font-size: 0.74rem; }
