@@ -3859,11 +3859,16 @@ async function renderBudget() {
     <div id="bg-body"><div class="empty">불러오는 중...</div></div>`;
   const start = per.start, end = per.end;
   const budgetRef = db.collection(COL.budgets).doc(`labor_${budgetYm}`);
-  const [shiftSnap, empSnap, budgetSnap] = await Promise.all([
+  const fixedRef = db.collection(COL.budgets).doc("labor_fixed");   // 직원별 기본급 방식 (시급 / 고정 월급) — 다음 달에도 이어짐
+  const [shiftSnap, empSnap, budgetSnap, fixedSnap] = await Promise.all([
     db.collection(COL.shifts).where("date", ">=", start).where("date", "<=", end).get(),
     db.collection(COL.employees).get(),
-    budgetRef.get().catch(() => null)
+    budgetRef.get().catch(() => null),
+    fixedRef.get().catch(() => null)
   ]);
+  // { empId: [{ fromYm, mode: "monthly"|"hourly", amount, by, at }, ...] } — 이 급여월에 적용되는 가장 최근 설정을 쓴다
+  const fixedAll = (fixedSnap && fixedSnap.exists && fixedSnap.data().fixed) || {};
+  const fixedOf = (id) => (fixedAll[id] || []).filter((f) => f.fromYm <= budgetYm).sort((a, b) => a.fromYm < b.fromYm ? -1 : a.fromYm > b.fromYm ? 1 : String(a.at) < String(b.at) ? -1 : 1).pop() || null;
   // 기본급 직접 수정값 { empId: { amount, by, at } }
   const baseOverrides = (budgetSnap && budgetSnap.exists && budgetSnap.data().baseOverrides) || {};
   const addOverrides = (budgetSnap && budgetSnap.exists && budgetSnap.data().addOverrides) || {};   // 가산수당 직접 수정값
@@ -3899,7 +3904,10 @@ async function renderBudget() {
     if (HOLIDAYS[x.date]) p.holiday += h;
   });
   const rows = [...people.values()].map((p) => {
-    const autoBase = Math.round(p.hours * p.wage);
+    const hourlyBase = Math.round(p.hours * p.wage);
+    const fx = fixedOf(p.id);
+    const fixed = fx && fx.mode === "monthly" && Number.isFinite(Number(fx.amount)) ? Number(fx.amount) : null;
+    const autoBase = fixed != null ? fixed : hourlyBase;   // 고정 월급이 설정돼 있으면 그 값이 기본값
     const ov = baseOverrides[p.id];
     const base = ov && Number.isFinite(Number(ov.amount)) ? Number(ov.amount) : autoBase;
     const nightAmt = Math.round(p.night * p.wage * 0.5);
@@ -3907,7 +3915,7 @@ async function renderBudget() {
     const autoAdd = nightAmt + holAmt;
     const ova = addOverrides[p.id];
     const add = ova && Number.isFinite(Number(ova.amount)) ? Number(ova.amount) : autoAdd;
-    return { ...p, autoBase, base, edited: !!ov, editedBy: ov && ov.by, nightAmt, holAmt,
+    return { ...p, hourlyBase, fixed, fixedFrom: fx && fx.fromYm, autoBase, base, edited: !!ov, editedBy: ov && ov.by, nightAmt, holAmt,
       autoAdd, add, addEdited: !!ova, addEditedBy: ova && ova.by, total: base + add };
   }).sort((a, b) => b.total - a.total);
   const sum = (k) => rows.reduce((t, r) => t + r[k], 0);
@@ -3935,23 +3943,23 @@ async function renderBudget() {
       </div>
       ${unset.length ? `<div class="mini-note bg-warn">시급이 없는 ${unset.length}명(${unset.map((r) => esc(r.name)).join(", ")})은 최저시급 ${fmt(minW)}원으로 계산했습니다. 직원 정보(통상시급·계약 시급)나 급여관리(단기알바 시급)에서 입력하면 정확해집니다.</div>` : ""}
       ${rows.length ? `<div class="table-wrap"><table class="data pay-table bg-table">
-        <thead><tr><th>이름</th><th>소속</th><th>구분</th><th class="num">적용 시급</th><th class="num">근무일</th><th class="num">근무시간</th><th class="num">야간</th><th class="num">휴일</th><th class="num">기본</th><th class="num">가산</th><th class="num">예상 합계</th></tr></thead>
+        <thead><tr><th>이름</th><th>소속</th><th>구분</th><th class="num">적용 시급</th><th class="num">근무일</th><th class="num">근무시간</th><th class="num">야간</th><th class="num">휴일</th><th class="num bg-col">기본</th><th class="num bg-col">가산</th><th class="num bg-col bg-sum">예상 합계</th></tr></thead>
         <tbody>${rows.map((r) => `<tr>
-          <td><b>${esc(r.name)}</b></td><td>${esc(r.dept)}</td><td>${r.kind}</td>
+          <td>${canEditBudget() ? `<button type="button" class="bg-name" data-bgfix="${esc(r.id)}" title="기본급 설정 (시급 / 고정 월급)">${esc(r.name)}</button>` : `<b>${esc(r.name)}</b>`}</td><td>${esc(r.dept)}</td><td>${r.kind}</td>
           <td class="num">${fmt(r.wage)}원${r.wageSet ? "" : '<span class="bg-est">최저시급</span>'}</td>
           <td class="num">${r.days.size}일</td><td class="num">${fmtH(r.hours)}h</td>
           <td class="num">${r.night ? fmtH(r.night) + "h" : "-"}</td><td class="num">${r.holiday ? fmtH(r.holiday) + "h" : "-"}</td>
-          <td class="num bg-base">${canEditBudget()
-            ? `<input class="bg-base-in ${r.edited ? "edited" : ""}" data-bgbase="${esc(r.id)}" inputmode="numeric" value="${fmt(r.base)}" title="${r.edited ? `직접 수정됨 (${esc(r.editedBy || "")}) · 자동 계산 ${fmt(r.autoBase)}원` : "자동 계산값 — 눌러서 직접 수정"}" />${r.edited ? `<button type="button" class="bg-reset" data-bgreset="${esc(r.id)}" title="자동 계산값 ${fmt(r.autoBase)}원으로 되돌리기">↺</button>` : ""}`
-            : `${fmt(r.base)}${r.edited ? '<span class="bg-est edited">직접 수정</span>' : ""}`}</td>
-          <td class="num bg-base">${canEditBudget()
-            ? `<input class="bg-base-in ${r.addEdited ? "edited" : ""}" data-bgadd="${esc(r.id)}" inputmode="numeric" value="${fmt(r.add)}" title="${r.addEdited ? `직접 수정됨 (${esc(r.addEditedBy || "")}) · 자동 계산 ${fmt(r.autoAdd)}원` : `자동 계산값 (야간 ${fmt(r.nightAmt)} + 휴일 ${fmt(r.holAmt)}) — 눌러서 직접 수정`}" />${r.addEdited ? `<button type="button" class="bg-reset" data-bgaddreset="${esc(r.id)}" title="자동 계산값 ${fmt(r.autoAdd)}원으로 되돌리기">↺</button>` : ""}`
-            : `${r.add ? fmt(r.add) : "-"}${r.addEdited ? '<span class="bg-est edited">직접 수정</span>' : ""}`}</td>
-          <td class="num"><b>${fmt(r.total)}원</b></td></tr>`).join("")}</tbody>
+          <td class="num bg-col bg-base">${canEditBudget()
+            ? `<span class="bg-cell">${r.edited ? `<button type="button" class="bg-reset" data-bgreset="${esc(r.id)}" title="${r.fixed != null ? "고정 월급" : "자동 계산값"} ${fmt(r.autoBase)}원으로 되돌리기">↺</button>` : ""}${r.fixed != null ? '<span class="bg-fixed" title="고정 월급 (이름을 눌러 변경)">고정</span>' : ""}<input class="bg-base-in ${r.edited ? "edited" : ""}" data-bgbase="${esc(r.id)}" inputmode="numeric" value="${fmt(r.base)}" title="${r.edited ? `직접 수정됨 (${esc(r.editedBy || "")}) · 기본값 ${fmt(r.autoBase)}원` : r.fixed != null ? "고정 월급 — 눌러서 이번 달만 직접 수정" : "자동 계산값 — 눌러서 직접 수정"}" /></span>`
+            : `${r.fixed != null ? '<span class="bg-fixed">고정</span>' : ""}<span class="${r.edited ? "bg-edited" : ""}">${fmt(r.base)}</span>`}</td>
+          <td class="num bg-col bg-base">${canEditBudget()
+            ? `<span class="bg-cell">${r.addEdited ? `<button type="button" class="bg-reset" data-bgaddreset="${esc(r.id)}" title="자동 계산값 ${fmt(r.autoAdd)}원으로 되돌리기">↺</button>` : ""}<input class="bg-base-in ${r.addEdited ? "edited" : ""}" data-bgadd="${esc(r.id)}" inputmode="numeric" value="${fmt(r.add)}" title="${r.addEdited ? `직접 수정됨 (${esc(r.addEditedBy || "")}) · 자동 계산 ${fmt(r.autoAdd)}원` : `자동 계산값 (야간 ${fmt(r.nightAmt)} + 휴일 ${fmt(r.holAmt)}) — 눌러서 직접 수정`}" /></span>`
+            : `<span class="${r.addEdited ? "bg-edited" : ""}">${r.add ? fmt(r.add) : "-"}</span>`}</td>
+          <td class="num bg-col bg-sum"><b>${fmt(r.total)}원</b></td></tr>`).join("")}</tbody>
         <tfoot><tr><td colspan="5"><b>합계</b></td><td class="num"><b>${fmtH(hoursT)}h</b></td><td class="num">${fmtH(nightT)}h</td><td class="num">${fmtH(holT)}h</td>
-          <td class="num">${fmt(sum("base"))}</td><td class="num">${fmt(sum("add"))}</td><td class="num"><b class="c-green">${fmt(total)}원</b></td></tr></tfoot>
+          <td class="num bg-col">${fmt(sum("base"))}</td><td class="num bg-col">${fmt(sum("add"))}</td><td class="num bg-col bg-sum"><b class="c-green">${fmt(total)}원</b></td></tr></tfoot>
       </table></div>` : `<div class="empty">이 기간 근무 캘린더에 등록된 일정이 없습니다.</div>`}
-      ${canEditBudget() ? `<div class="mini-note">기본·가산 칸은 직접 고칠 수 있습니다 — 숫자를 바꾸고 Enter(또는 칸 밖을 누르면) 저장되고, ↺로 자동 계산값으로 되돌립니다.</div>` : ""}
+      ${canEditBudget() ? `<div class="mini-note">이름을 누르면 기본급 방식(시급 / 고정 월급)을 정할 수 있고, 고정 월급은 다음 달에도 계속 적용됩니다. 기본·가산 숫자에 마우스를 올려 이번 달 값만 직접 고칠 수 있습니다 (Enter로 저장, ↺로 되돌리기). 직접 고친 값은 굵게 표시됩니다.</div>` : ""}
       <div class="mini-note">예정 근무시간(휴게 차감) × 시급 + 야간 가산(×0.5) + 휴일 가산(×0.5)의 세전 추정액입니다. 연장근로·주휴수당·식대·상여·사업주 부담 4대보험은 포함되지 않습니다. 월급제 직원도 통상시급 × 근무시간으로 추정합니다.</div>
     </div>`;
   // 기본급 직접 수정 저장 / 되돌리기 (문서 전체를 읽고 다시 써서 다른 사람 값이 지워지지 않게)
@@ -3982,11 +3990,81 @@ async function renderBudget() {
     };
   });
   $("#bg-body").querySelectorAll("[data-bgreset]").forEach((b) => { b.onclick = () => saveOverride(b.dataset.bgreset, null); });
+  $("#bg-body").querySelectorAll("[data-bgfix]").forEach((b) => {
+    b.onclick = () => { const r = rows.find((x) => x.id === b.dataset.bgfix); if (r) openBudgetFixedModal(r, fixedRef, budgetRef); };
+  });
   $("#bg-body").querySelectorAll("[data-bgaddreset]").forEach((b) => { b.onclick = () => saveOverride(b.dataset.bgaddreset, null, "addOverrides"); });
   const move = (n) => { budgetYm = ymShift(budgetYm, n); renderBudget(); };
   $("#bg-prev").onclick = () => move(-1);
   $("#bg-next").onclick = () => move(1);
   $("#bg-now").onclick = () => { budgetYm = payYmOfDate(todayKST()); renderBudget(); };
+}
+
+/* 예산관리 — 직원별 기본급 방식 설정 (기본 시급 계산 / 고정 월급). 설정한 급여월부터 다음 달에도 계속 적용 */
+function openBudgetFixedModal(r, fixedRef, budgetRef) {
+  const monthly = r.fixed != null;
+  const ymLabel = `${Number(budgetYm.slice(5, 7))}월${isPeriodYm(budgetYm) ? " 급여" : ""}`;
+  openModal(`
+    <h3>${esc(r.name)} · 기본급 설정</h3>
+    <p class="modal-desc">${ymLabel}부터 적용 · 다음 달에도 계속 이어집니다</p>
+    <form id="bf-form">
+      <div class="field"><span class="field-label">기본급 방식</span>
+        <div class="ef-paytype">
+          <label><input type="radio" name="bf-mode" value="hourly" ${monthly ? "" : "checked"} /> 시급 계산</label>
+          <label><input type="radio" name="bf-mode" value="monthly" ${monthly ? "checked" : ""} /> 고정 월급</label>
+        </div></div>
+      <label class="field" id="bf-amt-wrap"><span class="field-label">고정 월급 <em class="sf-hint">(세전 기본급)</em></span>
+        <span class="ef-wage"><input id="bf-amt" type="text" inputmode="numeric" placeholder="예: 2,800,000" value="${monthly ? fmt(r.fixed) : r.edited ? fmt(r.base) : ""}" /><em>원</em></span></label>
+      <div class="mini-note" id="bf-hint"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost btn-sm" id="bf-cancel">취소</button>
+        <button type="submit" class="btn btn-primary btn-sm">저장</button>
+      </div>
+    </form>`);
+  const amt = $("#bf-amt");
+  const mode = () => ($('#modal input[name="bf-mode"]:checked') || {}).value;
+  const sync = () => {
+    const m = mode() === "monthly";
+    $("#bf-amt-wrap").style.display = m ? "" : "none";
+    $("#bf-hint").innerHTML = m
+      ? `매달 기본 = 이 금액 · 가산은 자동 계산${r.edited ? " · 이번 달 수정값은 지워짐" : ""}`
+      : `이번 달 ${fmtH(r.hours)}h × ${fmt(r.wage)}원 = <b>${fmt(r.hourlyBase)}원</b>${r.edited ? " · 수정값은 지워짐" : ""}`;
+    if (m) setTimeout(() => amt.focus(), 0);
+  };
+  $("#modal").querySelectorAll('input[name="bf-mode"]').forEach((x) => { x.onchange = sync; });
+  amt.oninput = () => { amt.value = amt.value.trim() === "" ? "" : fmt(parseAmount(amt.value)); };
+  sync();
+  $("#bf-cancel").onclick = closeModal;
+  $("#bf-form").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const m = mode();
+    const amount = m === "monthly" ? parseAmount(amt.value) : null;
+    if (m === "monthly" && !(amount > 0)) return toast("고정 월급을 입력하세요.");
+    if (m === "hourly" && !monthly && !r.edited) { closeModal(); return; }   // 바뀐 것 없음
+    const btn = $("#bf-form button[type=submit]");
+    if (btn.disabled) return;
+    btn.disabled = true;
+    try {
+      const doc = (await fixedRef.get()).data() || {};
+      const all = { ...(doc.fixed || {}) };
+      const list = (all[r.id] || []).filter((f) => f.fromYm !== budgetYm);   // 같은 급여월 설정은 덮어쓰기
+      list.push({ fromYm: budgetYm, mode: m, ...(m === "monthly" ? { amount } : {}), by: me.name, at: new Date().toISOString() });
+      all[r.id] = list;
+      await fixedRef.set({ ...doc, fixed: all, updatedAt: new Date().toISOString(), updatedBy: me.name });
+      if (r.edited) {   // 이번 달 직접 수정값은 새 기본값으로 정리
+        const bd = (await budgetRef.get()).data() || {};
+        const next = { ...(bd.baseOverrides || {}) };
+        delete next[r.id];
+        await budgetRef.set({ ...bd, ym: budgetYm, baseOverrides: next, updatedAt: new Date().toISOString(), updatedBy: me.name });
+      }
+      closeModal();
+      toast(m === "monthly" ? `${r.name}님 기본급을 월 ${fmt(amount)}원으로 고정했습니다.` : `${r.name}님 기본급을 시급 계산으로 바꿨습니다.`);
+      renderBudget();
+    } catch (e) {
+      btn.disabled = false;
+      toast(`저장에 실패했습니다. (${(e && (e.code || e.message)) || "오류"})`);
+    }
+  };
 }
 
 /* 급여관리 하단 — 선택한 직원의 급여월 산정기간 근무 내역 (확정 여부와 함께 점검) */

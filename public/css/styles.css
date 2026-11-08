@@ -2406,13 +2406,22 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 .bg-table tfoot td { border-top: 1.5px solid var(--line-strong); background: #f9fafb; }
 .c-purple { color: #6741d9; }
 .bg-base { white-space: nowrap; }
-.bg-base-in { width: 104px; padding: 5px 8px; border: 1px solid transparent; border-radius: 7px; background: transparent; text-align: right;
-  font: inherit; font-variant-numeric: tabular-nums; color: var(--ink); }
+.bg-cell { display: inline-flex; align-items: center; justify-content: flex-end; gap: 2px; }
+/* 평소엔 그냥 숫자 — 마우스를 올리면 입력칸 테두리가 살짝 보인다 */
+.bg-base-in { width: 104px; padding: 4px 6px; margin-right: -7px; border: 1px solid transparent; border-radius: 7px; background: transparent; text-align: right;
+  font: inherit; font-variant-numeric: tabular-nums; color: var(--ink); cursor: text; }
 .bg-base-in:hover { border-color: var(--line); background: #fff; }
 .bg-base-in:focus { outline: none; border-color: var(--blue); background: #fff; }
-.bg-base-in.edited { background: #fff8e6; border-color: #f5d48a; color: #b35c00; font-weight: 700; }
-.bg-reset { margin-left: 2px; border: none; background: transparent; color: var(--ink-faint); cursor: pointer; font-size: 0.9rem; padding: 2px 4px; }
+.bg-base-in.edited, .bg-edited { font-weight: 800; }
+.bg-reset { border: none; background: transparent; color: var(--ink-faint); cursor: pointer; font-size: 0.82rem; padding: 2px 4px; visibility: hidden; }
+.bg-table tbody tr:hover .bg-reset { visibility: visible; }
 .bg-reset:hover { color: var(--blue); }
-.bg-est.edited { color: #b35c00; }
+.bg-fixed { display: inline-block; margin-right: 4px; padding: 1px 5px; border-radius: 5px; background: #f2f4f6; color: var(--ink-faint); font-size: 0.66rem; font-weight: 700; white-space: nowrap; vertical-align: middle; }
+.bg-name { border: none; background: none; padding: 0; font: inherit; font-weight: 700; color: var(--ink); cursor: pointer; white-space: nowrap; }
+.bg-name:hover { color: var(--blue); text-decoration: underline; text-underline-offset: 3px; }
+/* 기본·가산·합계 열 구분 — 아주 옅은 세로선 + 제목 배경 */
+.bg-table .bg-col { border-left: 1px solid #f0f2f4; padding-left: 14px; }
+.bg-table thead th.bg-col { background: #fafbfc; }
+.bg-table thead th.bg-sum { color: var(--ink-soft); }
 .adm-detail tr.adm-noatt td { color: var(--ink-faint); }
 .adm-detail tr.adm-noatt .adm-acts .btn { padding: 4px 10px; font-size: 0.74rem; }
