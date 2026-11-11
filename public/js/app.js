@@ -3644,8 +3644,42 @@ function minOf(t) { const [h, m] = String(t || "0:0").split(":").map(Number); re
 function hm(mins) { return `${String(Math.floor(mins / 60) % 24).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`; }
 function shiftOvernight(s) { return minOf(s.end) <= minOf(s.start); }
 function shiftSpanMin(s) { let d = minOf(s.end) - minOf(s.start); if (d <= 0) d += 1440; return d; }
-function shiftHours(s) { return Math.max(0, shiftSpanMin(s) / 60 - (s.breakIncluded ? 1 : 0)); }
+function shiftHours(s) {
+  if (s && s.multi) return s.segs.reduce((t, g) => t + shiftHours(g), 0);   // 분할 근무는 근무별 합
+  return Math.max(0, shiftSpanMin(s) / 60 - (s.breakIncluded ? 1 : 0));
+}
 function shiftEndLabel(s) { return shiftOvernight(s) ? "익일 " + s.end : s.end; }
+/* 하루에 근무가 두 개 이상(분할 근무)이면 하나로 묶어 본다.
+   시작 = 가장 이른 시작, 끝 = 가장 늦은 끝, 근무 사이 빈 시간(gaps) = 무급 휴게.
+   출퇴근은 하루 한 번(첫 근무 시작에 출근, 마지막 근무 끝에 퇴근)만 찍는다.
+   gaps는 그날 0시 기준 분 [시작, 끝] — 출퇴근 분(inMin·outAbs)과 같은 기준 */
+function mergeDayShifts(list) {
+  if (!list || !list.length) return null;
+  if (list.length === 1) return list[0];
+  const segs = list.map((x) => { const a = minOf(x.start); return { x, a, b: a + shiftSpanMin(x) }; }).sort((p, q) => p.a - q.a);
+  const gaps = [];
+  let endAbs = segs[0].b;
+  segs.slice(1).forEach((g) => { if (g.a > endAbs) gaps.push([endAbs, g.a]); endAbs = Math.max(endAbs, g.b); });
+  const brkN = segs.filter((g) => g.x.breakIncluded).length;
+  return { ...segs[0].x, start: segs[0].x.start, end: hm(endAbs % 1440), multi: true, segs: segs.map((g) => g.x), gaps,
+    breakIncluded: brkN > 0, breakMin: brkN * 60 };
+}
+/* 그 사람·그 날의 (묶인) 근무 일정 */
+const dayShift = (shifts, empId, date) => mergeDayShifts(shifts.filter((x) => x.date === date && x.empId === empId));
+/* { date: 묶인 근무 } — 한 사람의 일정 목록에서 */
+function dayShiftMap(list) {
+  const by = {};
+  list.forEach((x) => { (by[x.date] = by[x.date] || []).push(x); });
+  Object.keys(by).forEach((d) => { by[d] = mergeDayShifts(by[d]); });
+  return by;
+}
+/* 예정 근무 표기 — 분할 근무는 "10:00-14:00 · 18:00-22:00" */
+const shiftPlanText = (x) => !x ? "-" : x.multi ? x.segs.map((g) => `${g.start}-${shiftEndLabel(g)}`).join(" · ") : `${x.start}-${shiftEndLabel(x)}`;
+/* 출퇴근 구간 [lo, hi] 안에 들어간 근무 사이 빈 시간(분) */
+function gapOverlapMin(shift, lo, hi) {
+  if (!shift || !shift.gaps) return 0;
+  return shift.gaps.reduce((t, [a, b]) => t + Math.max(0, Math.min(hi, b) - Math.max(lo, a)), 0);
+}
 function fmtH(h) { return String(Math.round(h * 100) / 100); }
 const REST_ICON = '<span class="rest-ico" title="휴게시간 포함 (1시간 차감)">*</span>';
 const REST_BADGE = '<span class="rest-badge" title="휴게시간 포함 (1시간 차감)">휴게포함</span>';
@@ -3706,6 +3740,8 @@ function breakApplied(att, shift) {
   if (att && typeof att.breakIncluded === "boolean") return att.breakIncluded;
   return !!shift?.breakIncluded;
 }
+/* 차감할 휴게 분 — 분할 근무에서 두 근무 모두 휴게 포함이면 1시간씩 */
+const breakMinOf = (att, shift) => breakApplied(att, shift) ? (shift?.breakMin || 60) : 0;
 /* 실근무 시간(h): 출퇴근 기록 + 휴게 차감 여부 — 10분 블록 단위로 환산
    출근 날짜(date)와 퇴근 날짜(outDate)를 엄격히 비교: 퇴근 날짜가 다음날일 때만 +24h.
    같은 날인데 퇴근이 출근보다 빠르면 잘못된 기록으로 보고 0을 반환한다.
@@ -3724,7 +3760,8 @@ function workedNetMin(att, shift) {
   }
   const span = outAbs - inMin;
   if (span < 0) return 0;
-  return Math.max(0, span - (breakApplied(att, shift) ? 60 : 0));
+  // 분할 근무 사이 빈 시간은 근무가 아니다 (승인된 추가근무는 attNotes에서 따로 가산)
+  return Math.max(0, span - breakMinOf(att, shift) - gapOverlapMin(shift, inMin, outAbs));
 }
 function workedHours(att, shift) {
   const m = workedNetMin(att, shift);
@@ -3756,11 +3793,15 @@ function otHours(mins) {
    그래서 실제 시계 시간이 아니라 '인정된 구간(effIn~effOut, 휴게 차감)'만 넘긴다. */
 const NIGHT_START_MIN = 22 * 60, NIGHT_END_MIN = 30 * 60; // 당일 22:00(1320) ~ 익일 06:00(1800), 자정 기준 분
 const NIGHT_MIN_WORK_MIN = 60;
-function nightHours(effIn, effOut, breakMin) {
+function nightHours(effIn, effOut, breakMin, gaps = []) {
   if (effOut <= effIn) return 0;
   const overlap = (lo, hi) => Math.max(0, Math.min(effOut, hi) - Math.max(effIn, lo));
-  const mins = Math.max(0, overlap(0, 360) + overlap(NIGHT_START_MIN, NIGHT_END_MIN) - breakMin);
-  if (effOut - effIn - breakMin < NIGHT_MIN_WORK_MIN) return 0;
+  // 분할 근무 사이 빈 시간 중 야간 구간에 걸친 분은 빼고 센다
+  const ov2 = (a, b, lo, hi) => Math.max(0, Math.min(b, hi, effOut) - Math.max(a, lo, effIn));
+  const gapNight = gaps.reduce((t, [a, b]) => t + ov2(a, b, 0, 360) + ov2(a, b, NIGHT_START_MIN, NIGHT_END_MIN), 0);
+  const gapAll = gaps.reduce((t, [a, b]) => t + ov2(a, b, -Infinity, Infinity), 0);
+  const mins = Math.max(0, overlap(0, 360) + overlap(NIGHT_START_MIN, NIGHT_END_MIN) - gapNight - breakMin);
+  if (effOut - effIn - gapAll - breakMin < NIGHT_MIN_WORK_MIN) return 0;
   return blockHours(mins);
 }
 /* 조기출근·연장근무 가산 제외 여부 — 출퇴근 기록에 저장된 값을 우선한다.
@@ -3825,7 +3866,7 @@ function attNotes(att, shift, reqOf) {
     if (h > 0) notes.push({ k: "over", h, approved: true, label: `추가근무 ${left}분 (가산 ${fmtH(h)}h)` });
   }
   if (att.outAt) {
-    const nh = nightHours(effIn, effOut, breakApplied(att, shift) ? 60 : 0);
+    const nh = nightHours(effIn, effOut, breakMinOf(att, shift), shift?.gaps || []);
     if (nh > 0) notes.push({ k: "night", h: nh, approved: true, label: `야간근무 ${fmtH(nh)}h` });
     // 휴일근로: 법정 휴일에 일한 '인정된' 시간 (예정 근무 + 승인된 조기출근·연장, 휴게 차감)
     if (HOLIDAYS[att.date]) {
@@ -4083,7 +4124,7 @@ async function renderPayAttList(emp, ym) {
   ]);
   if (seq !== payAttSeq || !card.isConnected) return;
   const shiftBy = {}, attBy = {};
-  shiftSnap.docs.map((d) => d.data()).filter((x) => x.empId === emp.id && x.date >= start && x.date <= end).forEach((x) => { shiftBy[x.date] = x; });
+  Object.assign(shiftBy, dayShiftMap(shiftSnap.docs.map((d) => d.data()).filter((x) => x.empId === emp.id && x.date >= start && x.date <= end)));
   attSnap.docs.map((d) => d.data()).filter((a) => a.empId === emp.id && a.date >= start && a.date <= end && (a.inAt || a.outAt)).forEach((a) => { attBy[a.date] = a; });
   const reqs = reqSnap.docs.map((d) => d.data());
   const reqOf = (date) => (kind) => {
@@ -4103,7 +4144,7 @@ async function renderPayAttList(emp, ym) {
       : d > today ? `<span class="att-unconf soon">예정</span>` : `<span class="att-unconf">미확정</span>`;
     return `<tr class="${confirms[d] ? "" : "pa-unconf"}">
       <td class="att-mono"><b class="${HOLIDAYS[d] ? "c-red" : ""}">${d.slice(5)}</b> <span class="att-dow">(${"일월화수목금토"[dateParts(d).dow]})</span>${holidayTag(d)}</td>
-      <td class="att-mono">${s ? `${s.start}-${shiftEndLabel(s)}` : "-"}</td>
+      <td class="att-mono">${shiftPlanText(s)}</td>
       <td class="att-mono">${a?.inAt || "-"}</td>
       <td class="att-mono ${a && a.inAt && !a.outAt ? "c-red" : ""}">${a?.outAt || (a ? "미기록" : "-")}</td>
       <td class="num"><b>${wh != null ? fmtH(wh) : "-"}</b></td>
@@ -4138,8 +4179,7 @@ async function payHoursFromAttendance(empId, ym) {
     db.collection(COL.attendance).where("date", ">=", start).where("date", "<=", end).get(),
     loadAttConfirms(start, end)
   ]);
-  const shiftBy = {};
-  shiftSnap.docs.map((d) => d.data()).filter((x) => x.empId === empId).forEach((x) => { shiftBy[x.date] = x; });
+  const shiftBy = dayShiftMap(shiftSnap.docs.map((d) => d.data()).filter((x) => x.empId === empId));
   const allAtts = attSnap.docs.map((d) => d.data())
     .filter((a) => a.empId === empId && a.date >= start && a.date <= end && a.inAt && a.outAt);
   // 근태가 확정된 날만 급여에 합산한다
@@ -4231,17 +4271,19 @@ async function renderAttRecord() {
   let statusBody = "";
   // 전일 미퇴근 이월 건 최상단
   const carryRows = atts.filter((a) => a.date === yesterday && a.inAt && !a.outAt).map((a) => {
-    const s = shifts.find((x) => x.date === yesterday && x.empId === a.empId);
-    return rowHtml({ name: a.name, badge: yesterday, plan: s ? `${s.start}-${shiftEndLabel(s)}` : "-", inAt: a.inAt, outAt: a.outAt });
+    const s = dayShift(shifts, a.empId, yesterday);
+    return rowHtml({ name: a.name, badge: yesterday, plan: shiftPlanText(s), inAt: a.inAt, outAt: a.outAt });
   }).join("");
   if (carryRows) statusBody += groupRow("전일 미퇴근") + carryRows;
   const todayShifts = shifts.filter((s) => s.date === today);
   WORK_AREAS.forEach((area) => {
     const g = todayShifts.filter((s) => s.area === area).sort((a, b) => minOf(a.start) - minOf(b.start));
     if (!g.length) return;
-    statusBody += groupRow(area) + g.map((s) => {
+    // 같은 파트에 근무가 두 개인 사람은 한 줄로 (예정: 10:00-14:00 · 18:00-22:00)
+    const seen = new Set();
+    statusBody += groupRow(area) + g.filter((s) => !seen.has(s.empId) && seen.add(s.empId)).map((s) => {
       const a = atts.find((x) => x.empId === s.empId && x.date === today);
-      return rowHtml({ name: s.name, temp: s.isTemp, badge: null, plan: `${s.start}-${shiftEndLabel(s)}`, inAt: a?.inAt, outAt: a?.outAt });
+      return rowHtml({ name: s.name, temp: s.isTemp, badge: null, plan: shiftPlanText(mergeDayShifts(g.filter((x) => x.empId === s.empId))), inAt: a?.inAt, outAt: a?.outAt });
     }).join("");
   });
   const etcRows = atts.filter((a) => a.date === today && !todayShifts.some((s) => s.empId === a.empId))
@@ -4258,14 +4300,14 @@ async function renderAttRecord() {
   const openElsewhere = myOpen && myOpen.date !== recDate ? myOpen : null;
 
   /* 내 기록 상태 요약 */
-  const myShiftToday = shifts.find((s) => s.date === recDate && s.empId === me.id);
+  const myShiftToday = dayShift(shifts, me.id, recDate);
   const recWorked = workedHours(myRec, myShiftToday);
   const statusCard = `
     <div class="my-rec">
       <div class="my-rec-head">
         <div>
           <div class="mr-name">${esc(me.name)}</div>
-          <div class="mr-plan">${myShiftToday ? `${myShiftToday.start}-${shiftEndLabel(myShiftToday)}` : "등록된 근무 일정 없음"}</div>
+          <div class="mr-plan">${myShiftToday ? `${shiftPlanText(myShiftToday)}${myShiftToday.multi ? ' <em class="mr-split">분할 근무 · 마지막 근무 끝에 퇴근</em>' : ""}` : "등록된 근무 일정 없음"}</div>
         </div>
       </div>
       <div class="my-rec-body">
@@ -4346,10 +4388,10 @@ async function renderAttRecord() {
     openInConfirmModal({
       time: t,
       workDate: recDate,
-      shift: shifts.find((s) => s.date === recDate && s.empId === me.id),
+      shift: dayShift(shifts, me.id, recDate),
       onConfirm: async () => {
         if (await blockIfConfirmed(recDate)) { closeModal(); return; }
-        const shiftOfDay = shifts.find((s) => s.date === recDate && s.empId === me.id);
+        const shiftOfDay = dayShift(shifts, me.id, recDate);
         await db.collection(COL.attendance).doc(myRec.id).set({
           empId: me.id, name: me.name, dept: deptNow(me.dept), date: recDate, inAt: t,
           // 기록 시점의 가산 제외 설정을 함께 남긴다 (나중에 설정이 바뀌어도 과거 기록 유지)
@@ -4379,7 +4421,7 @@ async function renderAttRecord() {
       toast(`미래 시각(${t})으로는 퇴근을 기록할 수 없습니다. 현재 ${hmNowKST()}`);
       return;
     }
-    const shiftOfDay = shifts.find((s) => s.date === workDate && s.empId === me.id);
+    const shiftOfDay = dayShift(shifts, me.id, workDate);
     openOutConfirmModal({
       time: t,
       workDate,
@@ -4658,7 +4700,7 @@ function outDevChip(outAt, outDate, workDate, shift) {
   return "";
 }
 const schedLabel = (shift) => shift
-  ? `${esc(shift.start)} ~ ${esc(shiftEndLabel(shift))}`
+  ? (shift.multi ? esc(shiftPlanText(shift)) : `${esc(shift.start)} ~ ${esc(shiftEndLabel(shift))}`)
   : `<span class="ioc-none">미등록</span>`;
 
 /* 출근 확인 모달: 시각·날짜·예정 근무를 보여주고 [등록]을 눌러야 기록 (오클릭 방지) */
@@ -4696,8 +4738,12 @@ function openInConfirmModal({ time, workDate, shift, onConfirm }) {
 function openOutConfirmModal({ time, workDate, outDateEff, inAt, shift, breakIncl, onConfirm }) {
   const p = dateParts(workDate);
   // 총 근무는 실제 출퇴근 시각을 대조한 길이 (n시간 n분) — 휴게 포함이면 1시간 차감
-  const spanMin = (minOf(time) + (outDateEff > workDate ? 1440 : 0)) - minOf(inAt);
-  const netMin = Math.max(0, spanMin - (breakIncl ? 60 : 0));
+  const outAbs = minOf(time) + (outDateEff > workDate ? 1440 : 0);
+  const spanMin = outAbs - minOf(inAt);
+  const netMin = Math.max(0, spanMin - (breakIncl ? (shift?.breakMin || 60) : 0) - gapOverlapMin(shift, minOf(inAt), outAbs));
+  // 분할 근무인데 아직 남은 근무가 있으면 — 퇴근은 마지막 근무 끝에 찍도록 안내
+  const nextSeg = shift?.multi ? shift.segs.find((g) => minOf(g.start) >= outAbs) : null;
+  const splitWarn = nextSeg ? `<div class="ioc-note warn"><b>${esc(nextSeg.start)}</b> 근무가 남아 있어요 · 마지막 근무 후 퇴근하세요</div>` : "";
   // 근태 기록에는 회사 표준 단위(10분 블록)로 환산돼 저장되므로 그 값도 함께 안내한다
   const recH = workedHours({ date: workDate, inAt, outAt: time, outDate: outDateEff, breakIncluded: breakIncl }, shift);
   const recNote = fmtH(recH ?? 0) !== fmtH(netMin / 60)
@@ -4718,7 +4764,7 @@ function openOutConfirmModal({ time, workDate, outDateEff, inAt, shift, breakInc
         <div class="iocw-row total"><span>총 근무</span>
           <b>${breakIncl ? REST_BADGE : ""}${durLabelKo(netMin)}</b></div>
       </div>
-      ${recNote}
+      ${recNote}${splitWarn}
       <p class="ioc-q">위 시간이 맞습니까?</p>
       <div class="ioc-actions">
         <button type="button" class="btn btn-ghost" id="ioc-cancel">취소</button>
@@ -4778,7 +4824,7 @@ async function openAttConfirmModal(ds, onDone) {
     return rs.some((r) => r.status === "승인") ? "승인" : rs.some((r) => r.status === "대기") ? "대기" : rs.length ? "반려" : undefined;
   };
   const people = new Map();
-  shifts.forEach((x) => people.set(x.empId, { empId: x.empId, name: x.name, shift: x }));
+  shifts.forEach((x) => { if (!people.has(x.empId)) people.set(x.empId, { empId: x.empId, name: x.name, shift: dayShift(shifts, x.empId, ds) }); });
   atts.forEach((a) => { const p = people.get(a.empId) || { empId: a.empId, name: a.name }; p.att = a; people.set(a.empId, p); });
   const rows = [...people.values()].sort((a, b) => minOf(a.shift?.start || a.att?.inAt || "99:99") - minOf(b.shift?.start || b.att?.inAt || "99:99"));
   const pending = reqs.filter((r) => r.status === "대기");
@@ -4795,7 +4841,7 @@ async function openAttConfirmModal(ds, onDone) {
       const wh = workedHours(p.att, p.shift);
       return `<tr class="${!p.att ? "acf-absent" : ""}">
         <td><b>${esc(p.name || "-")}</b></td>
-        <td class="att-mono">${p.shift ? `${p.shift.start}-${shiftEndLabel(p.shift)}` : "-"}</td>
+        <td class="att-mono">${shiftPlanText(p.shift)}</td>
         <td class="att-mono">${p.att?.inAt || "-"}</td>
         <td class="att-mono ${p.att && !p.att.outAt ? "c-red" : ""}">${p.att?.outAt || (p.att ? "미기록" : "-")}</td>
         <td class="num"><b>${wh != null ? fmtH(wh) : "-"}</b></td>
@@ -5229,7 +5275,7 @@ async function renderAttHistory() {
     .filter((s) => s.empId === me.id && inPer(s.date));
   const myAtts = attSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
     .filter((a) => a.empId === me.id && inPer(a.date));
-  const shiftBy = {}; myShifts.forEach((s) => { shiftBy[s.date] = s; });
+  const shiftBy = dayShiftMap(myShifts);
   const attBy = {}; myAtts.forEach((a) => { attBy[a.date] = a; });
   const allDates = [...new Set([...myShifts.map((s) => s.date), ...myAtts.map((a) => a.date)])].sort().reverse();
 
@@ -5274,7 +5320,7 @@ async function renderAttHistory() {
           const wh = workedHours(a, s);
           return `<tr>
             <td class="att-mono"><b class="${HOLIDAYS[d] ? "c-red" : ""}">${d.slice(5)}</b> <span class="att-dow">(${"일월화수목금토"[dateParts(d).dow]})</span>${holidayTag(d)}${confirms[d] ? ATT_CONFIRMED_BADGE : ""}</td>
-            <td class="att-mono">${s ? `${s.start}-${shiftEndLabel(s)}` : "-"}</td>
+            <td class="att-mono">${shiftPlanText(s)}</td>
             <td class="att-mono ${a?.inAt ? "c-green" : ""}">${a?.inAt || "-"}</td>
             <td class="att-mono ${a?.outAt ? "c-red" : ""}">${a?.outAt || "-"}</td>
             <td class="num">${s ? fmtH(shiftHours(s)) : "-"}</td>
@@ -5367,7 +5413,7 @@ async function renderAttendAdmin() {
     const pShifts = shifts.filter((s) => s.empId === p.id);
     const pAtts = enteredAtts.filter((a) => a.empId === p.id);
     if (!pAtts.length && !pShifts.length) return ""; // 일정도 출퇴근도 없는 사람은 제외
-    const shiftBy = {}; pShifts.forEach((s) => { shiftBy[s.date] = s; });
+    const shiftBy = dayShiftMap(pShifts);
     const attBy = {}; pAtts.forEach((a) => { attBy[a.date] = a; });
     const dates = [...new Set([...pAtts.map((a) => a.date), ...pShifts.map((s) => s.date)])].sort().reverse();
     const schedH = pShifts.reduce((s, x) => s + shiftHours(x), 0);
@@ -5394,7 +5440,7 @@ async function renderAttendAdmin() {
             const past = d <= today;
             return `<tr class="adm-noatt">
               <td class="att-mono"><b class="${HOLIDAYS[d] ? "c-red" : ""}">${d.slice(5)}</b> <span class="dow-tag ${dateParts(d).dow === 0 ? "sun" : dateParts(d).dow === 6 ? "sat" : ""}">${"일월화수목금토"[dateParts(d).dow]}</span>${holidayTag(d)}${confirms[d] && readOnly ? ATT_CONFIRMED_BADGE : ""}</td>
-              <td class="att-mono">${s ? `${s.start}-${shiftEndLabel(s)}` : "-"}</td>
+              <td class="att-mono">${shiftPlanText(s)}</td>
               <td class="att-mono">-</td><td class="att-mono">-</td><td class="num">-</td>
               <td>${past ? '<span class="att-note pending">출근 기록 없음</span>' : '<span class="att-unconf soon">예정</span>'}</td>
               <td class="adm-memo-td"></td>
@@ -5404,7 +5450,7 @@ async function renderAttendAdmin() {
           const wh = workedHours(a, s);
           return `<tr>
             <td class="att-mono"><b class="${HOLIDAYS[d] ? "c-red" : ""}">${d.slice(5)}</b> <span class="dow-tag ${dateParts(d).dow === 0 ? "sun" : dateParts(d).dow === 6 ? "sat" : ""}">${"일월화수목금토"[dateParts(d).dow]}</span>${holidayTag(d)}${confirms[d] && readOnly ? ATT_CONFIRMED_BADGE : ""}</td>
-            <td class="att-mono">${s ? `${s.start}-${shiftEndLabel(s)}` : "-"}</td>
+            <td class="att-mono">${shiftPlanText(s)}</td>
             <td class="att-mono c-green">${a.inAt}</td>
             <td class="att-mono ${a.outAt ? "c-red" : ""}">${a.outAt || "-"}</td>
             <td class="num">${wh != null && breakApplied(a, s) ? REST_BADGE : ""}<b>${wh != null ? fmtH(wh) : "-"}</b></td>
@@ -5529,7 +5575,7 @@ async function renderAttendAdmin() {
   const addBtn = $("#adm-add");
   if (addBtn) addBtn.onclick = () => {
     const p = people.get(admAttEmp);
-    if (p) openAttEditModal(p, null, null, (d) => shifts.find((s) => s.date === d && s.empId === p.id));
+    if (p) openAttEditModal(p, null, null, (d) => dayShift(shifts, p.id, d));
   };
 
   const shiftMonth = (n) => {
@@ -5569,14 +5615,14 @@ async function renderAttendAdmin() {
       const [empId, date] = b.dataset.attedit.split("|");
       const att = atts.find((a) => a.empId === empId && a.date === date);
       const p = people.get(empId);
-      if (att && p) openAttEditModal(p, date, att, (d) => shifts.find((s) => s.date === d && s.empId === empId));
+      if (att && p) openAttEditModal(p, date, att, (d) => dayShift(shifts, empId, d));
     };
   });
   $("#adm-body").querySelectorAll("[data-attadd]").forEach((b) => {
     b.onclick = () => {
       const [empId, date] = b.dataset.attadd.split("|");
       const p = people.get(empId);
-      if (p) openAttEditModal(p, date, null, (d) => shifts.find((s) => s.date === d && s.empId === empId));
+      if (p) openAttEditModal(p, date, null, (d) => dayShift(shifts, empId, d));
     };
   });
   $("#adm-body").querySelectorAll("[data-attdel]").forEach((b) => {

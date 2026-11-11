@@ -2425,3 +2425,7 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 .bg-table thead th.bg-sum { color: var(--ink-soft); }
 .adm-detail tr.adm-noatt td { color: var(--ink-faint); }
 .adm-detail tr.adm-noatt .adm-acts .btn { padding: 4px 10px; font-size: 0.74rem; }
+/* 분할 근무 (하루 근무 두 개) */
+.ioc-note.warn { color: #e8590c; }
+.ioc-note.warn b { color: #e8590c; }
+.mr-split { font-style: normal; font-size: 0.7rem; color: var(--ink-faint); margin-left: 4px; white-space: nowrap; }
