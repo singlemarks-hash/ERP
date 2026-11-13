@@ -2404,7 +2404,8 @@ table.data tr.emp-retired:hover td { background: #f5f6f8; }
 .bg-tax i { font-style: normal; font-size: 0.66rem; opacity: 0.7; }
 .bg-tax:hover { border-color: var(--line); color: var(--ink-soft); }
 .bg-tax.on { background: var(--blue-soft); color: var(--blue-deep); border-color: transparent; }
-.bg-tax-note { color: var(--blue-deep); }
+.bg-tax-note { white-space: nowrap; }
+.bg-total .bg-tax-ded { font-size: inherit; letter-spacing: normal; color: #e03131; font-weight: 700; }
 .bg-tax-rate { margin-right: 6px; font-size: 0.7rem; color: var(--ink-faint); white-space: nowrap; }
 .bg-total b { font-size: 2rem; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .bg-total b span { font-size: 1.05rem; margin-left: 3px; }

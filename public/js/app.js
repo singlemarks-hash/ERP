@@ -3988,7 +3988,7 @@ async function renderBudget() {
         <span class="bg-total-label">${mm}월${isPeriodYm(budgetYm) ? " 급여" : ""} 예상 인건비 <button type="button" class="bg-tax ${AT ? "on" : ""}" id="bg-tax" title="눌러서 ${AT ? "세전" : "세후"}으로 보기">${AT ? "세후" : "세전"}<i>⇄</i></button></span>
         <b>${fmt(total)}<span>원</span></b>
         <span class="bg-total-sub">근무 캘린더 ${Number(start.slice(5, 7))}/${Number(start.slice(8))} ~ ${Number(end.slice(5, 7))}/${Number(end.slice(8))} 일정 기준 (인건비 산정 기간)${scope ? ` · ${esc(deptNow(scope))}·단기알바` : ""}</span>
-        ${AT ? `<span class="bg-total-sub bg-tax-note">세후 추정 · 월급제·시급제 −11% · 단기알바 −3.3%</span>` : ""}
+        ${AT ? `<span class="bg-total-sub bg-tax-note">세후 추정 · 월급제·시급제 −11% · 단기알바 −3.3% · <b class="bg-tax-ded">공제 −${fmt(rows.reduce((t, r) => t + r.total, 0) - total)}원</b></span>` : ""}
       </div>
       <div class="pb-stats s4">
         <div><span>근무 인원</span><b>${rows.length}명</b></div>
